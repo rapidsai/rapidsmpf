@@ -20,6 +20,7 @@
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/disk/disk_resource.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 namespace rapidsmpf::disk {
 
@@ -128,13 +129,20 @@ void DiskResource::flush(std::filesystem::path const& path) const {
     );
 }
 
-std::filesystem::path default_spill_directory(config::Options options) {
-    return options.get<std::filesystem::path>(
-        "disk_spill_dir", [](std::string const& value) {
-            if (value.empty()) {
-                return std::filesystem::temp_directory_path();
+std::optional<std::filesystem::path> spill_dir_from_options(config::Options options) {
+    return options.get<std::optional<std::filesystem::path>>(
+        "disk_spill_dir",
+        [](std::string const& value) -> std::optional<std::filesystem::path> {
+            auto parsed = parse_optional(value);
+            if (!parsed.has_value()) {
+                return std::nullopt;
             }
-            return std::filesystem::path{value};
+            RAPIDSMPF_EXPECTS(
+                !trim(*parsed).empty(),
+                "`disk_spill_dir` must be a non-empty path",
+                std::invalid_argument
+            );
+            return std::filesystem::path{*parsed};
         }
     );
 }

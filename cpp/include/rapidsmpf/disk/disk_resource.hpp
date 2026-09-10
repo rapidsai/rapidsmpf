@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <filesystem>
+#include <optional>
 
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/memory/back_ref_mixin.hpp>
@@ -27,8 +28,9 @@ namespace disk {
  * the default stream (`sync_default_stream=false`).
  *
  * Disk I/O is intentionally outside the MemoryType / BufferResource taxonomy.
- * `BufferResource` owns a `std::shared_ptr<DiskResource>`; `DiskBuffer`s hold
- * additional copies so the resource outlives those buffers.
+ * `BufferResource` owns a `std::shared_ptr<DiskResource>` when a spill
+ * directory is configured; `DiskBuffer`s hold additional copies so the
+ * resource outlives those buffers.
  */
 class DiskResource : public BackRefMixin<BufferResource> {
   public:
@@ -125,12 +127,16 @@ class DiskResource : public BackRefMixin<BufferResource> {
 /**
  * @brief Spill directory from `disk_spill_dir` (`RAPIDSMPF_DISK_SPILL_DIR`).
  *
- * An empty option uses the system temporary directory.
+ * Disabled values (`false`, `none`, …) yield `std::nullopt`. An empty
+ * string is rejected.
  *
  * @param options Configuration options.
- * @return Directory used for spill files.
+ * @return Configured directory, if disk spilling is enabled.
+ * @throws std::invalid_argument if the option is an empty string.
  */
-[[nodiscard]] std::filesystem::path default_spill_directory(config::Options options);
+[[nodiscard]] std::optional<std::filesystem::path> spill_dir_from_options(
+    config::Options options
+);
 
 }  // namespace disk
 }  // namespace rapidsmpf

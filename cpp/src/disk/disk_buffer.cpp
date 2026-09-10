@@ -30,7 +30,6 @@ void DiskBuffer::deallocate() noexcept {
         path_.clear();
     }
     size_ = 0;
-    disk_.reset();
 }
 
 DiskBuffer::~DiskBuffer() {
@@ -43,8 +42,16 @@ std::unique_ptr<DiskBuffer> DiskBuffer::from_buffer(
     RAPIDSMPF_EXPECTS(
         source != nullptr, "source buffer cannot be null", std::logic_error
     );
+    RAPIDSMPF_EXPECTS(
+        source->is_latest_write_done(),
+        "cannot write buffer to disk with pending stream-ordered writes",
+        std::logic_error
+    );
 
     auto disk = br.disk_resource();
+    RAPIDSMPF_EXPECTS(
+        disk != nullptr, "BufferResource has no DiskResource; configure disk_spill_dir"
+    );
     auto path = disk->create_unique_path();
     auto const nbytes = source->size;
 
@@ -57,12 +64,6 @@ std::unique_ptr<DiskBuffer> DiskBuffer::from_buffer(
     if (nbytes == 0) {
         return make_disk_buffer(0);
     }
-
-    RAPIDSMPF_EXPECTS(
-        source->is_latest_write_done(),
-        "cannot write buffer to disk with pending stream-ordered writes",
-        std::logic_error
-    );
 
     try {
         auto const transferred =

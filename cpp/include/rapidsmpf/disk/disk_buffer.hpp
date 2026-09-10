@@ -32,19 +32,12 @@ namespace disk {
  */
 class DiskBuffer {
   public:
-    /**
-     * @brief Move constructor.
-     *
-     * Transfers ownership of the backing file. The moved-from object is empty
-     * (`path()` is empty and `size()` is zero).
-     *
-     * @param other Buffer to move from.
-     */
-    DiskBuffer(DiskBuffer&& other) noexcept;
-    DiskBuffer& operator=(DiskBuffer&& other) = delete;  ///< Not move-assignable.
-
     ~DiskBuffer();
 
+    /// @brief Move constructor.
+    /// @param other Buffer to move from.
+    DiskBuffer(DiskBuffer&& other) noexcept;
+    DiskBuffer& operator=(DiskBuffer&& other) = delete;  ///< Not move-assignable.
     DiskBuffer(DiskBuffer const&) = delete;  ///< Not copyable.
     DiskBuffer& operator=(DiskBuffer const&) = delete;  ///< Not copy-assignable.
 

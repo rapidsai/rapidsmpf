@@ -37,7 +37,7 @@ inline const std::unordered_map<std::string, std::string> DEFAULTS{
     {"allow_overbooking_by_default", "true"},
     {"log", "WARN"},
     {"ucxx_progress_mode", "thread-blocking"},
-    {"disk_spill_dir", ""},
+    {"disk_spill_dir", "false"},
 };
 
 }  // namespace rapidsmpf::config

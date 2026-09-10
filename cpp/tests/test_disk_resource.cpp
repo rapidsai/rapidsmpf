@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -39,10 +40,15 @@ namespace {
 
 using namespace disk;
 
+std::filesystem::path test_spill_dir() {
+    return spill_dir_from_options(GlobalEnvironment->options())
+        .value_or(std::filesystem::temp_directory_path());
+}
+
 std::string test_path(std::string_view suffix) {
     static std::atomic<std::uint64_t> counter{0};
     auto const id = counter.fetch_add(1, std::memory_order_relaxed);
-    return (default_spill_directory(GlobalEnvironment->options())
+    return (test_spill_dir()
             / ("rapidsmpf-disk-test-" + std::to_string(::getpid()) + "-"
                + std::to_string(id) + "-" + std::string{suffix} + ".bin"))
         .string();
@@ -161,7 +167,13 @@ class DiskResourceTest : public ::testing::TestWithParam<MemoryType> {
                                           ? PinnedPoolProperties{}
                                           : PinnedMemoryDisabled;
         br_ = BufferResource::create(
-            rmm::mr::get_current_device_resource_ref(), std::move(pinned_pool_properties)
+            rmm::mr::get_current_device_resource_ref(),
+            std::move(pinned_pool_properties),
+            {},
+            std::chrono::milliseconds{1},
+            std::make_shared<StreamPool>(16),
+            Statistics::disabled(),
+            test_spill_dir()
         );
         disk_ = br_->disk_resource();
         stream_ = cuda::stream_ref{cudaStreamLegacy};
@@ -233,9 +245,19 @@ TEST_P(DiskResourceTest, FlushDoesNotThrow) {
     ASSERT_TRUE(std::filesystem::remove(path));
 }
 
-TEST(DiskSpillDirectory, EmptyOptionUsesTempDir) {
+TEST(DiskSpillDirectory, UnsetOptionIsEmpty) {
     config::Options options;
-    EXPECT_EQ(default_spill_directory(options), std::filesystem::temp_directory_path());
+    EXPECT_EQ(spill_dir_from_options(options), std::nullopt);
+}
+
+TEST(DiskSpillDirectory, DisabledOptionIsEmpty) {
+    config::Options options{{{"disk_spill_dir", config::OptionValue("false")}}};
+    EXPECT_EQ(spill_dir_from_options(options), std::nullopt);
+}
+
+TEST(DiskSpillDirectory, EmptyStringThrows) {
+    config::Options options{{{"disk_spill_dir", config::OptionValue("")}}};
+    EXPECT_THROW(std::ignore = spill_dir_from_options(options), std::invalid_argument);
 }
 
 TEST(DiskSpillDirectory, UsesConfiguredPath) {
@@ -243,12 +265,25 @@ TEST(DiskSpillDirectory, UsesConfiguredPath) {
         {{"disk_spill_dir", config::OptionValue("/tmp/rapidsmpf-spill")}}
     };
     EXPECT_EQ(
-        default_spill_directory(options), std::filesystem::path{"/tmp/rapidsmpf-spill"}
+        spill_dir_from_options(options), std::filesystem::path{"/tmp/rapidsmpf-spill"}
     );
 }
 
-TEST(DiskResource, SharedPtrKeepsDiskResourceAlive) {
+TEST(DiskResource, CreateWithoutSpillDirHasNoDiskResource) {
     auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    EXPECT_EQ(br->disk_resource(), nullptr);
+}
+
+TEST(DiskResource, SharedPtrKeepsDiskResourceAlive) {
+    auto br = BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        PinnedMemoryDisabled,
+        {},
+        std::chrono::milliseconds{1},
+        std::make_shared<StreamPool>(16),
+        Statistics::disabled(),
+        test_spill_dir()
+    );
     std::weak_ptr<DiskResource> weak_disk = br->disk_resource();
     std::weak_ptr<BufferResource> weak_br = br;
 
@@ -416,6 +451,17 @@ TEST(DiskBufferFromOptions, UsesConfiguredDirectory) {
     EXPECT_EQ(
         br->disk_resource()->directory(), disk_dir.path() / std::to_string(::getpid())
     );
+}
+
+TEST(DiskBufferFromOptions, UnsetOptionHasNoDiskResource) {
+    if (GlobalEnvironment->type() != TestEnvironmentType::SINGLE) {
+        GTEST_SKIP() << "Disk I/O tests run only in the single-process environment";
+    }
+
+    auto br = BufferResource::from_options(
+        rmm::mr::get_current_device_resource_ref(), config::Options{}
+    );
+    EXPECT_EQ(br->disk_resource(), nullptr);
 }
 
 }  // namespace

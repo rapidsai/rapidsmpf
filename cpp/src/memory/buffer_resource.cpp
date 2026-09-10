@@ -4,6 +4,7 @@
  */
 
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -53,9 +54,6 @@ BufferResource::BufferResource(
     }
     RAPIDSMPF_EXPECTS(stream_pool_ != nullptr, "the stream pool pointer cannot be NULL");
     RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
-    RAPIDSMPF_EXPECTS(
-        disk_resource_ != nullptr, "the disk resource pointer cannot be NULL"
-    );
 }
 
 std::shared_ptr<BufferResource> BufferResource::create(
@@ -65,7 +63,7 @@ std::shared_ptr<BufferResource> BufferResource::create(
     std::optional<Duration> periodic_spill_check,
     std::shared_ptr<StreamPool> stream_pool,
     std::shared_ptr<Statistics> statistics,
-    std::filesystem::path spill_directory
+    std::optional<std::filesystem::path> spill_directory
 ) {
     std::optional<PinnedMemoryResource> pinned_mr;
     if (pinned_pool_properties.has_value()) {
@@ -81,10 +79,12 @@ std::shared_ptr<BufferResource> BufferResource::create(
         pinned_mr = PinnedMemoryResource{*pinned_pool_properties};
     }
 
-    // create a dir for each pid under the spill directory
-    std::shared_ptr<disk::DiskResource> disk_res{
-        new disk::DiskResource{std::move(spill_directory) / std::to_string(::getpid())}
-    };
+    std::shared_ptr<disk::DiskResource> disk_res;
+    if (spill_directory.has_value()) {
+        disk_res.reset(
+            new disk::DiskResource{*spill_directory / std::to_string(::getpid())}
+        );
+    }
     std::shared_ptr<BufferResource> br{new BufferResource{
         std::move(device_mr),
         std::move(pinned_mr),
@@ -104,7 +104,9 @@ std::shared_ptr<BufferResource> BufferResource::create(
     auto const weak = br->weak_from_this();
     br->owning_mr_.set_backref(weak);
     br->host_mr_.set_backref(weak);
-    br->disk_resource_->set_backref(weak);
+    if (br->disk_resource_ != nullptr) {
+        br->disk_resource_->set_backref(weak);
+    }
     if (br->pinned_mr_.has_value()) {
         br->pinned_mr_->set_backref(weak);
     }
@@ -126,7 +128,7 @@ std::shared_ptr<BufferResource> BufferResource::from_options(
         periodic_spill_check_from_options(options),
         stream_pool_from_options(options),
         std::move(statistics),
-        disk::default_spill_directory(options)
+        disk::spill_dir_from_options(options)
     );
 }
 
