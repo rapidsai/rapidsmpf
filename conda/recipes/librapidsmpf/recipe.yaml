@@ -182,6 +182,6 @@ outputs:
           - librmm
           - openmpi
     about:
-      homepage: https://github.com/rapidsai/rapidsmpf
+      homepage: https://docs.nvidia.com/rapidsmpf/
       license: Apache-2.0
       summary: librapidsmpf test executables

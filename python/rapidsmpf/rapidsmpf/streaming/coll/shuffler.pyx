@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from cpython.object cimport PyObject
@@ -107,9 +107,8 @@ def shuffler(
 
     Returns
     -------
-    A streaming actor that finishes when shuffling is complete and `ch_out` has
+    A streaming actor that finishes when shuffling is complete and ``ch_out`` has
     been drained.
-
     """
 
     with nogil:
@@ -189,7 +188,7 @@ cdef class ShufflerAsync:
         Parameters
         ----------
         chunks
-             Map of partition ID to :class:`~PackedData` associated with
+             Map of partition ID to :class:`~.PackedData` associated with
              that partition.
         """
         cdef unordered_map[uint32_t, cpp_PackedData] c_chunks
