@@ -134,6 +134,14 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
     between checks and supports time units, e.g. `us` or `ms`. If no unit is
     specified, seconds are assumed. Use `"disabled"` to disable periodic spill checks.
 
+- **`disk_spill_dir`**
+  - **Environment Variable**: `RAPIDSMPF_DISK_SPILL_DIR`
+  - **Default**: `false`
+  - **Description**: Directory used for disk spill files. When set to a path,
+    RapidsMPF creates a per-process subdirectory named after the PID under this
+    directory and enables disk I/O. Disabled values (`false`, `none`, `off`, …)
+    leave disk spilling disabled. A whitespace-only value is invalid.
+
 - **`unbounded_file_read_cache`**
   - **Environment Variable**: `RAPIDSMPF_UNBOUNDED_FILE_READ_CACHE`
   - **Default**: `"disabled"`

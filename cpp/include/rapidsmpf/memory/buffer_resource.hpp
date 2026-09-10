@@ -9,6 +9,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -21,6 +22,7 @@
 
 #include <rmm/cuda_stream_pool.hpp>
 
+#include <rapidsmpf/disk/disk_resource.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
@@ -167,6 +169,9 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @param stream_pool CUDA stream pool used for operations that do not take an
      * explicit CUDA stream.
      * @param statistics Statistics instance used for runtime metrics.
+     * @param spill_directory Directory for disk files. When set, a
+     * `DiskResource` is created and a per-process subdirectory named after the
+     * PID is used under this path. `std::nullopt` disables disk I/O.
      * @return A newly constructed `BufferResource` owned by `std::shared_ptr`.
      * @throws std::runtime_error if `pinned_pool_properties` has a value but pinned
      * host memory is not supported on this system.
@@ -177,7 +182,8 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         std::unordered_map<MemoryType, std::int64_t> memory_limits = {},
         std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1},
         std::shared_ptr<StreamPool> stream_pool = std::make_shared<StreamPool>(16),
-        std::shared_ptr<Statistics> statistics = Statistics::disabled()
+        std::shared_ptr<Statistics> statistics = Statistics::disabled(),
+        std::optional<std::filesystem::path> spill_directory = std::nullopt
     );
 
     /**
@@ -592,6 +598,19 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      */
     std::shared_ptr<Statistics> statistics() const noexcept;
 
+    /**
+     * @brief Disk I/O resource and spill directory configuration.
+     *
+     * Returned as a `std::shared_ptr`; `DiskBuffer`s keep a copy so the disk
+     * resource outlives those buffers if this `BufferResource` is destroyed.
+     *
+     * @return Shared pointer to the disk resource, or `nullptr` if no spill
+     * directory was configured.
+     */
+    [[nodiscard]] std::shared_ptr<disk::DiskResource> disk_resource() const {
+        return disk_resource_;
+    }
+
   private:
     /** @brief Private constructor, use `create()` or `from_options()`. */
     BufferResource(
@@ -600,13 +619,15 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         std::unordered_map<MemoryType, std::int64_t> memory_limits,
         std::optional<Duration> periodic_spill_check,
         std::shared_ptr<StreamPool> stream_pool,
-        std::shared_ptr<Statistics> statistics
+        std::shared_ptr<Statistics> statistics,
+        std::shared_ptr<disk::DiskResource> disk_resource
     );
 
     mutable std::mutex mutex_;
     RmmResourceAdaptor owning_mr_;
     std::optional<PinnedMemoryResource> pinned_mr_;
     HostMemoryResource host_mr_;
+    std::shared_ptr<disk::DiskResource> disk_resource_;
     std::array<std::atomic<std::int64_t>, MEMORY_TYPES.size()> memory_limits_;
     // Zero initialized reserved counters.
     std::array<std::size_t, MEMORY_TYPES.size()> memory_reserved_ = {};
