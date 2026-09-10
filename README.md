@@ -10,7 +10,7 @@ using NVIDIA CUDA-X components.
 - [Background](https://docs.nvidia.com/rapidsmpf/latest/background/)
 - [Configuration Options](https://docs.nvidia.com/rapidsmpf/latest/configuration/)
 - [Python API Reference](https://docs.nvidia.com/rapidsmpf/latest/python/api/)
-- [C++ API Reference](https://docs.rapids.ai/api/librapidsmpf/nightly/)
+- [C++ API Reference](https://docs.nvidia.com/rapidsmpf/latest/cpp/)
 - [Glossary](https://docs.nvidia.com/rapidsmpf/latest/glossary/)
 
 ## Build from Source
