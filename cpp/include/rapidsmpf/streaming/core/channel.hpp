@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <limits>
 #include <memory>
@@ -16,6 +17,7 @@
 #include <coro/semaphore.hpp>
 
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/coro_executor.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
@@ -53,6 +55,22 @@ class Channel {
     friend Context;
 
   public:
+    /**
+     * @brief A snapshot of metrics recorded on a channel.
+     *
+     * @note Byte counts for message volume rely on the message having an accurate content
+     * description.
+     */
+    struct MetricsSnapshot {
+        std::array<std::uint64_t, MEMORY_TYPES.size()>
+            send_bytes{};  ///< Number of bytes sent, stratified by memory type.
+        std::array<std::uint64_t, MEMORY_TYPES.size()>
+            recv_bytes{};  ///< Number of bytes received, stratified by memory type.
+        std::uint32_t message_count{};  ///< Number of messages pushed into the channel.
+        std::uint32_t
+            spillable_count{};  ///< Number of spillable messages pushed into the channel.
+    };
+
     /**
      * @brief Asynchronously send a message into the channel.
      *
@@ -172,13 +190,39 @@ class Channel {
      */
     [[nodiscard]] bool is_shutdown() const noexcept;
 
+    /**
+     * @brief A snapshot of metrics for this channel.
+     *
+     * @return A point in time snapshot of the metrics in the channel.
+     */
+    [[nodiscard]] MetricsSnapshot metrics() const noexcept;
+
   private:
+    class Metrics {
+        std::array<std::atomic<std::uint64_t>, MEMORY_TYPES.size()>
+            send_bytes{};  ///< Number of bytes sent, stratified by memory type
+        std::array<std::atomic<std::uint64_t>, MEMORY_TYPES.size()>
+            recv_bytes{};  ///< Number of bytes received, stratified by memory type.
+        std::atomic<std::uint32_t>
+            message_count{};  ///< Number of messages pushed into the channel.
+        std::atomic<std::uint32_t>
+            spillable_count{};  ///< Number of spillable messages pushed into the channel.
+      public:
+        /// @brief Record the send of a message.
+        void record_send(Message const& msg) noexcept;
+        /// @brief Record the receive of a message.
+        void record_receive(Message const& msg) noexcept;
+        /// @brief @return A point-in-time snapshot of the metrics state.
+        [[nodiscard]] MetricsSnapshot snapshot() const noexcept;
+    };
+
     Channel(std::shared_ptr<SpillableMessages> spillable_messages)
         : sm_{std::move(spillable_messages)} {}
 
     coro::ring_buffer<SpillableMessages::MessageId, 1> rb_;
     std::shared_ptr<SpillableMessages> sm_;
     coro::queue<Message> metadata_;
+    Metrics metrics_{};
 };
 
 /**
