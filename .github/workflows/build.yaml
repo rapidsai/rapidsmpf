@@ -98,7 +98,7 @@ jobs:
       matrix_name: docs-build
   docs-build:
     if: github.ref_type == 'branch'
-    needs: conda-python-build
+    needs: [docs-build-matrix, conda-python-build]
     permissions:
       actions: read
       contents: read
