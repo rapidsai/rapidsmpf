@@ -23,7 +23,7 @@ TEST(StreamOrderedTiming, Disabled) {
     // With disabled statistics, stop_and_record is a no-op: no stat is written.
     rmm::cuda_stream stream;
     auto stats = Statistics::disabled();
-    StreamOrderedTiming timing{stream.view(), stats};
+    StreamOrderedTiming timing{stream, stats};
     timing.stop_and_record("test");
     stream.synchronize();
     EXPECT_THROW(stats->get_stat("test"), std::out_of_range);
@@ -34,9 +34,9 @@ TEST(StreamOrderedTiming, RecordsDuration) {
     rmm::cuda_stream stream;
     auto stats = Statistics::create();
     {
-        StreamOrderedTiming timing{stream.view(), stats};
+        StreamOrderedTiming timing{stream, stats};
         // Do a small GPU operation so there is measurable work between start and stop.
-        rmm::device_buffer buf(1_MiB, stream.view());
+        rmm::device_buffer buf(1_MiB, stream);
         RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(buf.data(), 0, 1_MiB, stream.value()));
         timing.stop_and_record("my-timing");
     }
@@ -52,7 +52,7 @@ TEST(StreamOrderedTiming, MultipleTimings) {
     auto stats = Statistics::create();
     constexpr int n = 3;
     for (int i = 0; i < n; ++i) {
-        StreamOrderedTiming timing{stream.view(), stats};
+        StreamOrderedTiming timing{stream, stats};
         timing.stop_and_record("my-timing");
     }
     stream.synchronize();
@@ -85,11 +85,11 @@ TEST(StreamOrderedTiming, Cancel) {
     };
 
     Gate gate;
-    RAPIDSMPF_CUDA_TRY(cudaLaunchHostFunc(stream.view(), Gate::wait_cb, &gate));
+    RAPIDSMPF_CUDA_TRY(cudaLaunchHostFunc(stream.value(), Gate::wait_cb, &gate));
     {
-        StreamOrderedTiming timing_a{stream.view(), stats_a};
+        StreamOrderedTiming timing_a{stream, stats_a};
         timing_a.stop_and_record("timing-a");
-        StreamOrderedTiming timing_b{stream.view(), stats_b};
+        StreamOrderedTiming timing_b{stream, stats_b};
         timing_b.stop_and_record("timing-b");
     }
 
@@ -113,7 +113,7 @@ TEST(StreamOrderedTiming, StreamDelay) {
 
     // With a stream_delay_name, the delay stat is recorded and is >= 0.
     {
-        StreamOrderedTiming timing{stream.view(), stats};
+        StreamOrderedTiming timing{stream, stats};
         timing.stop_and_record("my-timing", "my-stream-delay");
     }
     stream.synchronize();
@@ -124,7 +124,7 @@ TEST(StreamOrderedTiming, StreamDelay) {
     // With std::nullopt (the default), no stream-delay stat is written.
     auto stats2 = Statistics::create();
     {
-        StreamOrderedTiming timing{stream.view(), stats2};
+        StreamOrderedTiming timing{stream, stats2};
         timing.stop_and_record("my-timing");
     }
     stream.synchronize();
@@ -137,7 +137,7 @@ TEST(StreamOrderedTiming, StatisticsDestroyedBeforeStreamSync) {
     rmm::cuda_stream stream;
     {
         auto stats = Statistics::create();
-        StreamOrderedTiming timing{stream.view(), stats};
+        StreamOrderedTiming timing{stream, stats};
         timing.stop_and_record("my-timing");
         // Both `timing` and `stats` go out of scope here. The shared_ptr count
         // drops to zero, destroying Statistics before the stream callbacks run.
