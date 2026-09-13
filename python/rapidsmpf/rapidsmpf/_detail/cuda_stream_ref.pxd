@@ -9,4 +9,4 @@ cdef extern from "<cuda/stream>" namespace "cuda" nogil:
         stream_ref()
         stream_ref(cudaStream_t)
         cudaStream_t get()
-        void wait() except +
+        void sync() except +

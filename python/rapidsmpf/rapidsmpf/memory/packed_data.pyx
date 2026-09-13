@@ -201,12 +201,11 @@ cdef class PackedData:
         cdef const uint8_t* meta_ptr = NULL
         if meta_size > 0:
             meta_ptr = <const uint8_t*>&metadata[0]
-        cdef stream_ref sv = stream_ref(stream.view().get())
         cdef unique_ptr[device_buffer] gpu = move(gpu_data.c_obj)
         cdef PackedData ret = cls.__new__(cls)
         with nogil:
             ret.c_obj = cpp_packed_data_from_device_buffer(
-                meta_ptr, meta_size, move(gpu), sv, _br
+                meta_ptr, meta_size, move(gpu), stream_ref(stream.view().get()), _br
             )
         ret._br = br
         return ret

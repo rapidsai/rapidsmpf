@@ -139,6 +139,10 @@ TEST(CudaStreamJoinCppOnly, MultiUpstreamsMultiDownstreams) {
     }
 }
 
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
 TEST(CudaStreamJoinCppOnly, AcceptsNonRangeStreamTypes) {
     // Types that convert to `cuda::stream_ref` but are not ranges must select the
     // stream/stream overload. If the range template wins, this stops compiling
@@ -154,3 +158,6 @@ TEST(CudaStreamJoinCppOnly, AcceptsNonRangeStreamTypes) {
     cuda_stream_join(cudaStreamLegacy, cudaStreamLegacy, &event);
     cuda_stream_join(cuda::stream_ref{cudaStreamLegacy}, stream.view(), &event);
 }
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
