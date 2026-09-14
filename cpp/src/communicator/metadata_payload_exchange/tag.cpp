@@ -33,6 +33,7 @@ TagMetadataPayloadExchange::TagMetadataPayloadExchange(
       peer_received_(safe_cast<std::size_t>(nranks_), 0),
       peer_expected_(safe_cast<std::size_t>(nranks_), 0),
       peer_terminated_(safe_cast<std::size_t>(nranks_), false),
+      peer_allocation_deferred_(safe_cast<std::size_t>(nranks_), false),
       statistics_{std::move(statistics)} {}
 
 void TagMetadataPayloadExchange::send(
@@ -246,8 +247,9 @@ void TagMetadataPayloadExchange::receive_metadata() {
             );
 
             std::unique_ptr<Buffer> buffer = nullptr;
-            if (payload_size > 0) {
+            if (payload_size > 0 && !peer_allocation_deferred_[p]) {
                 buffer = allocate_buffer_fn_(payload_size);
+                peer_allocation_deferred_[p] = buffer == nullptr;
             }
 
             auto message = std::make_unique<MetadataPayloadExchange::Message>(
@@ -277,6 +279,7 @@ TagMetadataPayloadExchange::setup_data_receives() {
     for (auto rank_it = incoming_messages_.begin(); rank_it != incoming_messages_.end();)
     {
         auto& [src, messages] = *rank_it;
+        auto const p = safe_cast<std::size_t>(src);
 
         // Process messages for this rank in order
         auto msg_it = messages.begin();
@@ -293,6 +296,16 @@ TagMetadataPayloadExchange::setup_data_receives() {
             std::size_t payload_size = tag_msg.expected_payload_size;
 
             if (payload_size > 0) {
+                if (tag_msg.message->data() == nullptr) {
+                    auto buffer = allocate_buffer_fn_(payload_size);
+                    if (buffer == nullptr) {
+                        peer_allocation_deferred_[p] = true;
+                        break;
+                    }
+                    tag_msg.message->set_data(std::move(buffer));
+                    peer_allocation_deferred_[p] = false;
+                }
+
                 // Check if the buffer is ready for use, if not, break for this rank
                 // and wait for the buffer to be ready. This is necessary to ensure
                 // messages are received in the order they are sent from this rank.

@@ -46,8 +46,8 @@ constexpr std::array<char const*, MEMORY_TYPES.size()> MEMORY_TYPE_NAMES{
  * insufficient. The ordering reflects the policy of spilling in RapidsMPF, where
  * earlier entries are considered more desirable spill destinations.
  */
-constexpr std::array<MemoryType, 2> SPILL_TARGET_MEMORY_TYPES{
-    {MemoryType::PINNED_HOST, MemoryType::HOST}
+constexpr std::array<MemoryType, 3> SPILL_TARGET_MEMORY_TYPES{
+    {MemoryType::PINNED_HOST, MemoryType::HOST, MemoryType::DISK}
 };
 
 /**
