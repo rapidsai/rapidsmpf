@@ -261,14 +261,16 @@ class Chunk {
      * @brief Whether the chunk is ready for consumption.
      *
      * @return True if the chunk is ready, false otherwise.
-     * @note chunk is ready if it has no data or if the data is ready. data_ buffer
-     * could be set later, so we need to check if it is non-null.
+     * @note Disk I/O completes synchronously, so a disk-backed data buffer is ready.
      */
     [[nodiscard]] bool is_ready() const {
         // data_size_ contains the size of the data buffer. If it is 0, the chunk
         // has no data, so it is ready. Else, the chunk is ready if the data
         // buffer is non-null and the data buffer is ready.
-        return data_size_ == 0 || (data_ && data_->is_latest_write_done());
+        return data_size_ == 0
+               || (data_
+                   && (data_->mem_type() == MemoryType::DISK
+                       || data_->is_latest_write_done()));
     }
 
     /**
