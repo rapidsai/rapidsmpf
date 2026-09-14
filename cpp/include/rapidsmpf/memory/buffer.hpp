@@ -25,6 +25,8 @@
 
 namespace rapidsmpf {
 
+class SpillManager;
+
 /**
  * @brief Buffer representing device or host memory.
  *
@@ -399,6 +401,30 @@ void buffer_copy(
     std::size_t size,
     std::ptrdiff_t dst_offset = 0,
     std::ptrdiff_t src_offset = 0
+);
+
+/**
+ * @brief Asynchronously copy data and record it against an active spill attempt.
+ *
+ * @param statistics Statistics object used to record the copy operation.
+ * @param dst Destination buffer.
+ * @param src Source buffer.
+ * @param size Number of bytes to copy.
+ * @param dst_offset Byte offset into the destination buffer.
+ * @param src_offset Byte offset into the source buffer.
+ * @param spill_manager Spill manager whose active attempt receives telemetry, or null
+ * to disable spill telemetry for this copy.
+ *
+ * @throws std::invalid_argument If the requested range is out of bounds.
+ */
+void buffer_copy(
+    std::shared_ptr<Statistics> statistics,
+    Buffer& dst,
+    Buffer const& src,
+    std::size_t size,
+    std::ptrdiff_t dst_offset,
+    std::ptrdiff_t src_offset,
+    SpillManager* spill_manager
 );
 
 }  // namespace rapidsmpf

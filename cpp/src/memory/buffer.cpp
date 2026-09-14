@@ -2,6 +2,7 @@
  * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
+#include <chrono>
 #include <stdexcept>
 #include <utility>
 
@@ -14,6 +15,7 @@
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
+#include <rapidsmpf/memory/spill_manager.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/stream_ordered_timing.hpp>
 
@@ -136,6 +138,18 @@ void buffer_copy(
     std::ptrdiff_t dst_offset,
     std::ptrdiff_t src_offset
 ) {
+    buffer_copy(std::move(statistics), dst, src, size, dst_offset, src_offset, nullptr);
+}
+
+void buffer_copy(
+    std::shared_ptr<Statistics> statistics,
+    Buffer& dst,
+    Buffer const& src,
+    std::size_t size,
+    std::ptrdiff_t dst_offset,
+    std::ptrdiff_t src_offset,
+    SpillManager* spill_manager
+) {
     RAPIDSMPF_EXPECTS(
         &dst != &src,
         "the source and destination cannot be the same buffer",
@@ -160,11 +174,50 @@ void buffer_copy(
     // might deallocate `src` before the memcpy enqueued on `dst.stream()` has completed.
     src.latest_write_event().stream_wait(dst.stream());
     StreamOrderedTiming timing{dst.stream(), statistics};
-    dst.write_access([&](std::byte* dst_data, cuda::stream_ref stream) {
-        RAPIDSMPF_CUDA_TRY(cuda_memcpy_async(
-            dst_data + dst_offset, src.data() + src_offset, size, stream
-        ));
-    });
+    auto const submission_start = std::chrono::steady_clock::now();
+    try {
+        dst.write_access([&](std::byte* dst_data, cuda::stream_ref stream) {
+            RAPIDSMPF_CUDA_TRY(cuda_memcpy_async(
+                dst_data + dst_offset, src.data() + src_offset, size, stream
+            ));
+        });
+    } catch (...) {
+        auto const submission_end = std::chrono::steady_clock::now();
+        if (spill_manager != nullptr) {
+            spill_manager->record_transfer_submission(
+                src.mem_type(),
+                dst.mem_type(),
+                size,
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    submission_start.time_since_epoch()
+                )
+                    .count(),
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    submission_end.time_since_epoch()
+                )
+                    .count(),
+                false
+            );
+        }
+        throw;
+    }
+    auto const submission_end = std::chrono::steady_clock::now();
+    if (spill_manager != nullptr) {
+        spill_manager->record_transfer_submission(
+            src.mem_type(),
+            dst.mem_type(),
+            size,
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                submission_start.time_since_epoch()
+            )
+                .count(),
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                submission_end.time_since_epoch()
+            )
+                .count(),
+            true
+        );
+    }
     // after the dst.write_access(), its last_write_event is recorded on dst.stream(). So,
     // we need the src.stream() to wait for that event.
     dst.latest_write_event().stream_wait(src.stream());

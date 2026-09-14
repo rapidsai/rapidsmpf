@@ -180,3 +180,139 @@ TEST(SpillManager, TrySpillToMakeHeadroomSkipsWhileSpilling) {
     cv.notify_all();
     thd.join();
 }
+
+TEST(SpillManager, RecordsSpillScopedDeviceToHostSubmission) {
+    constexpr std::size_t size = 4_KiB;
+    auto br = BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        PinnedMemoryDisabled,
+        {{MemoryType::DEVICE, 2 * size}},
+        std::nullopt
+    );
+    auto device_reservation = br->reserve_or_fail(size, MemoryType::DEVICE);
+    auto buffer =
+        br->make_buffer(size, br->stream_pool()->get_stream(), device_reservation);
+
+    auto& collector = br->spill_manager().event_collector();
+    collector.enable(16);
+    auto const begin = collector.sequence();
+    br->spill_manager().add_spill_function(
+        [&](std::size_t amount) {
+            auto host_reservation = br->reserve_or_fail(amount, MemoryType::HOST);
+            buffer = br->move(std::move(buffer), host_reservation);
+            return amount;
+        },
+        /* priority = */ 0,
+        SpillAttributionToken{22}
+    );
+
+    EXPECT_EQ(
+        br->spill_manager().spill(size, SpillReason::EXPLICIT, SpillAttributionToken{11}),
+        size
+    );
+    auto const events = collector.read(begin, collector.sequence());
+    ASSERT_EQ(events.size(), 2);
+
+    auto const& attempt = std::get<SpillAttemptRecord>(events[0]);
+    auto const& transfer = std::get<SpillTransferRecord>(events[1]);
+    EXPECT_EQ(attempt.attempt_id, transfer.attempt_id);
+    EXPECT_EQ(attempt.requested_bytes, size);
+    EXPECT_EQ(attempt.reason, SpillReason::EXPLICIT);
+    EXPECT_EQ(attempt.evictor, SpillAttributionToken{11});
+    EXPECT_EQ(transfer.submitted_bytes, size);
+    EXPECT_EQ(transfer.source, MemoryType::DEVICE);
+    EXPECT_EQ(transfer.destination, MemoryType::HOST);
+    EXPECT_EQ(transfer.reason, SpillReason::EXPLICIT);
+    EXPECT_EQ(transfer.evictor, SpillAttributionToken{11});
+    EXPECT_EQ(transfer.buffer_owner, SpillAttributionToken{22});
+    EXPECT_TRUE(transfer.is_success);
+    EXPECT_LE(transfer.submission_start_ns, transfer.submission_end_ns);
+}
+
+TEST(SpillManager, OrdinaryCopyDoesNotEmitSpillTelemetry) {
+    constexpr std::size_t size = 4_KiB;
+    auto br = BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(), PinnedMemoryDisabled, {}, std::nullopt
+    );
+    auto source = br->make_buffer(
+        br->stream_pool()->get_stream(), br->reserve_or_fail(size, MemoryType::DEVICE)
+    );
+    auto destination = br->make_buffer(
+        br->stream_pool()->get_stream(), br->reserve_or_fail(size, MemoryType::HOST)
+    );
+    auto& collector = br->spill_manager().event_collector();
+    collector.enable(16);
+    auto const begin = collector.sequence();
+
+    buffer_copy(br->statistics(), *destination, *source, size);
+
+    EXPECT_TRUE(collector.read(begin, collector.sequence()).empty());
+}
+
+TEST(SpillManager, ConcurrentOrdinaryMoveIsNotAttributedToActiveSpill) {
+    constexpr std::size_t size = 4_KiB;
+    auto br = BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(), PinnedMemoryDisabled, {}, std::nullopt
+    );
+    auto buffer = br->make_buffer(
+        br->stream_pool()->get_stream(), br->reserve_or_fail(size, MemoryType::DEVICE)
+    );
+    auto& collector = br->spill_manager().event_collector();
+    collector.enable(16);
+    auto const begin = collector.sequence();
+
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool callback_entered{false};
+    bool release_callback{false};
+    br->spill_manager().add_spill_function(
+        [&](std::size_t amount) {
+            std::unique_lock lock(mutex);
+            callback_entered = true;
+            cv.notify_all();
+            cv.wait(lock, [&] { return release_callback; });
+            return amount;
+        },
+        0
+    );
+    std::thread spill_thread([&] { br->spill_manager().spill(size); });
+    {
+        std::unique_lock lock(mutex);
+        cv.wait(lock, [&] { return callback_entered; });
+    }
+
+    auto host_reservation = br->reserve_or_fail(size, MemoryType::HOST);
+    buffer = br->move(std::move(buffer), host_reservation);
+
+    {
+        std::lock_guard lock(mutex);
+        release_callback = true;
+    }
+    cv.notify_all();
+    spill_thread.join();
+
+    auto const events = collector.read(begin, collector.sequence());
+    ASSERT_EQ(events.size(), 1);
+    EXPECT_TRUE(std::holds_alternative<SpillAttemptRecord>(events[0]));
+}
+
+TEST(SpillManager, CollectorReportsOverflowAndPreservesSequenceOrder) {
+    auto br = BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(), PinnedMemoryDisabled, {}, std::nullopt
+    );
+    auto& collector = br->spill_manager().event_collector();
+    collector.enable(2);
+    auto const begin = collector.sequence();
+
+    EXPECT_EQ(br->spill_manager().spill(0), 0);
+    EXPECT_EQ(br->spill_manager().spill(0), 0);
+    EXPECT_EQ(br->spill_manager().spill(0), 0);
+
+    auto const events = collector.read(begin, collector.sequence());
+    ASSERT_EQ(events.size(), 2);
+    EXPECT_EQ(collector.dropped_events(), 1);
+    EXPECT_LT(
+        std::get<SpillAttemptRecord>(events[0]).event_id,
+        std::get<SpillAttemptRecord>(events[1]).event_id
+    );
+}

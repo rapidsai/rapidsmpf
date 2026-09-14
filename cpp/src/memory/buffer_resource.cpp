@@ -209,7 +209,7 @@ MemoryReservation BufferResource::reserve_device_memory_and_spill(
 
     // ask the spill manager to make room for overbooking
     if (ob > 0) {
-        auto spilled = spill_manager_.spill(ob);
+        auto spilled = spill_manager_.spill(ob, SpillReason::RESERVATION, std::nullopt);
         RAPIDSMPF_EXPECTS(
             allow_overbooking == AllowOverbooking::YES || spilled >= ob,
             "failed to spill enough memory (reserved: " + format_nbytes(size)
@@ -304,7 +304,15 @@ std::unique_ptr<Buffer> BufferResource::move(
     if (reservation.mem_type_ != buffer->mem_type()) {
         auto const nbytes = buffer->size;
         auto ret = make_buffer(nbytes, buffer->stream(), reservation);
-        buffer_copy(statistics_, *ret, *buffer, nbytes);
+        buffer_copy(
+            statistics_,
+            *ret,
+            *buffer,
+            nbytes,
+            /* dst_offset = */ 0,
+            /* src_offset = */ 0,
+            &spill_manager_
+        );
         return ret;
     }
     return buffer;

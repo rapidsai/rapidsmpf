@@ -1,8 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+from __future__ import annotations
 
 from cython.operator cimport dereference as deref
 from libc.stddef cimport size_t
+from libc.stdint cimport uint64_t
+from libcpp.optional cimport optional
+from libcpp.vector cimport vector
 
 from rapidsmpf._detail.exception_handling cimport (
     CppExcept, ex_handler, throw_py_as_cpp_exception,
@@ -10,6 +14,40 @@ from rapidsmpf._detail.exception_handling cimport (
 from rapidsmpf.memory.buffer_resource cimport BufferResource
 
 import weakref
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class SpillAttempt:
+    event_id: int
+    attempt_id: int
+    start_ns: int
+    requested_bytes: int
+    reason: SpillReason
+    is_background: bool
+    evictor: int | None
+
+
+@dataclass(frozen=True)
+class SpillTransfer:
+    event_id: int
+    attempt_id: int
+    submission_start_ns: int
+    submission_end_ns: int
+    submitted_bytes: int
+    source: MemoryType
+    destination: MemoryType
+    reason: SpillReason
+    is_background: bool
+    evictor: int | None
+    buffer_owner: int | None
+    is_success: bool
+
+
+cdef object optional_token_to_python(optional[uint64_t] token):
+    if token.has_value():
+        return token.value()
+    return None
 
 
 cdef size_t cython_invoke_python_spill_function(
@@ -115,7 +153,7 @@ cdef class SpillManager:
         if self._br() is None:
             raise ValueError("The BufferResource must outlive the spill manager")
 
-    def add_spill_function(self, func, int priority):
+    def add_spill_function(self, func, int priority, buffer_owner=None):
         """
         Adds a spill function with a given priority to the spill manager.
 
@@ -128,6 +166,9 @@ cdef class SpillManager:
         priority
             The priority level of the spill function (higher values indicate higher
             priority).
+        buffer_owner
+            Optional opaque process-local token identifying the owner of buffers
+            managed by this spill function.
 
         Returns
         -------
@@ -135,12 +176,16 @@ cdef class SpillManager:
         """
         self._valid_buffer_resource()
         cdef size_t func_id
+        cdef optional[uint64_t] cpp_buffer_owner
+        if buffer_owner is not None:
+            cpp_buffer_owner = <uint64_t>buffer_owner
         with nogil:
             func_id = deref(self._handle).add_spill_function(
                 cython_to_cpp_closure_lambda(
                     cython_invoke_python_spill_function, <void *>func
                 ),
-                priority
+                priority,
+                cpp_buffer_owner
             )
         self._spill_functions[func_id] = func
         return func_id
@@ -162,7 +207,7 @@ cdef class SpillManager:
             deref(self._handle).remove_spill_function(function_id)
         del self._spill_functions[function_id]
 
-    def spill(self, size_t amount):
+    def spill(self, size_t amount, SpillReason reason=SpillReason.EXPLICIT, evictor=None):
         """
         Initiates spilling to free up a specified amount of memory.
 
@@ -174,6 +219,11 @@ cdef class SpillManager:
         ----------
         amount
             The amount of memory (in bytes) to spill.
+        reason
+            The mutually exclusive reason for the spill attempt.
+        evictor
+            Optional opaque process-local token identifying the work requesting
+            the spill.
 
         Returns
         -------
@@ -182,9 +232,108 @@ cdef class SpillManager:
         """
         self._valid_buffer_resource()
         cdef size_t ret
+        cdef optional[uint64_t] cpp_evictor
+        if evictor is not None:
+            cpp_evictor = <uint64_t>evictor
         with nogil:
-            ret = deref(self._handle).spill(amount)
+            ret = deref(self._handle).spill(amount, reason, cpp_evictor)
         return ret
+
+    def enable_event_collection(self, size_t capacity=4096):
+        """Enable bounded spill-event collection and preallocate its storage."""
+        self._valid_buffer_resource()
+        with nogil:
+            deref(self._handle).event_collector().enable(capacity)
+
+    def disable_event_collection(self):
+        """Disable collection and release stored events."""
+        self._valid_buffer_resource()
+        with nogil:
+            deref(self._handle).event_collector().disable()
+
+    @property
+    def event_collection_enabled(self):
+        self._valid_buffer_resource()
+        with nogil:
+            ret = deref(self._handle).event_collector().enabled()
+        return ret
+
+    @property
+    def event_sequence(self):
+        """Return the exclusive sequence cursor for events recorded so far."""
+        self._valid_buffer_resource()
+        cdef uint64_t ret
+        with nogil:
+            ret = deref(self._handle).event_collector().sequence()
+        return ret
+
+    @property
+    def dropped_events(self):
+        """Return the number of events overwritten or lost during collection."""
+        self._valid_buffer_resource()
+        cdef uint64_t ret
+        with nogil:
+            ret = deref(self._handle).event_collector().dropped_events()
+        return ret
+
+    def read_spill_attempts(self, uint64_t begin_sequence, end_sequence=None):
+        """Read attempts in the half-open sequence range ``[begin, end)``."""
+        self._valid_buffer_resource()
+        cdef uint64_t end
+        cdef vector[cpp_SpillAttemptRecord] records
+        if end_sequence is None:
+            end = deref(self._handle).event_collector().sequence()
+        else:
+            end = <uint64_t>end_sequence
+        with nogil:
+            records = deref(self._handle).event_collector().read_attempts(
+                begin_sequence, end
+            )
+        return [
+            SpillAttempt(
+                record.event_id,
+                record.attempt_id,
+                record.start_ns,
+                record.requested_bytes,
+                record.reason,
+                record.is_background,
+                optional_token_to_python(record.evictor),
+            )
+            for record in records
+        ]
+
+    def read_spill_transfers(self, uint64_t begin_sequence, end_sequence=None):
+        """Read copy submissions in the half-open sequence range ``[begin, end)``."""
+        from rapidsmpf.memory.buffer import MemoryType as PyMemoryType
+
+        self._valid_buffer_resource()
+        cdef uint64_t end
+        cdef vector[cpp_SpillTransferRecord] records
+        if end_sequence is None:
+            end = deref(self._handle).event_collector().sequence()
+        else:
+            end = <uint64_t>end_sequence
+        with nogil:
+            records = deref(self._handle).event_collector().read_transfers(
+                begin_sequence, end
+            )
+        return [
+            SpillTransfer(
+                record.event_id,
+                record.attempt_id,
+                record.submission_start_ns,
+                record.submission_end_ns,
+                record.submitted_bytes,
+                PyMemoryType(record.source),
+                PyMemoryType(record.destination),
+                record.reason,
+                record.is_background,
+                optional_token_to_python(record.evictor),
+                optional_token_to_python(record.buffer_owner),
+                record.is_success,
+            )
+            for record in records
+        ]
 
     def spill_to_make_headroom(self, int64_t headroom = 0):
         """

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import pytest
 from rapidsmpf.error import BadAlloc, OutOfMemory, ReservationError
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource
+from rapidsmpf.memory.spill_manager import SpillReason
 
 if TYPE_CHECKING:
     import rmm.mr
@@ -171,3 +172,33 @@ def test_reserve_device_memory_and_spill(
     res = br.reserve_device_memory_and_spill(1000, allow_overbooking=True)
     assert track_spilled[0] == 1000
     del res
+
+
+def test_spill_event_attempts_and_overflow(
+    device_mr: rmm.mr.CudaMemoryResource,
+) -> None:
+    br = BufferResource(device_mr, periodic_spill_check=None)
+    manager = br.spill_manager
+    manager.enable_event_collection(capacity=2)
+    begin = manager.event_sequence
+
+    assert manager.spill(0, reason=SpillReason.RESERVATION, evictor=17) == 0
+    attempts = manager.read_spill_attempts(begin)
+    assert len(attempts) == 1
+    assert attempts[0].requested_bytes == 0
+    assert attempts[0].reason == SpillReason.RESERVATION
+    assert attempts[0].evictor == 17
+    assert not attempts[0].is_background
+    assert manager.read_spill_transfers(begin) == []
+
+    manager.spill(0)
+    manager.spill(0)
+    assert manager.dropped_events == 1
+    retained = manager.read_spill_attempts(begin)
+    assert len(retained) == 2
+    assert retained[0].event_id < retained[1].event_id
+
+    manager.disable_event_collection()
+    disabled_sequence = manager.event_sequence
+    manager.spill(0)
+    assert manager.event_sequence == disabled_sequence
