@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cstdint>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <utility>
@@ -21,7 +23,10 @@ SpillManager::SpillManager(
     : br_{br} {
     if (periodic_spill_check.has_value()) {
         periodic_spill_thread_.emplace(
-            [this]() { spill_to_make_headroom(0); }, *periodic_spill_check
+            [this]() {
+                spill_to_make_headroom(extra_headroom_->load(std::memory_order_relaxed));
+            },
+            *periodic_spill_check
         );
     }
 }
@@ -109,6 +114,48 @@ std::optional<std::size_t> SpillManager::try_spill_to_make_headroom(
         return std::nullopt;
     }
     return spill_to_make_headroom_unsafe(headroom);
+}
+
+SpillManager::HeadroomToken::HeadroomToken(
+    std::shared_ptr<std::atomic<std::int64_t>> target, std::size_t bytes
+)
+    : target_{std::move(target)}, bytes_{bytes} {
+    target_->fetch_add(safe_cast<std::int64_t>(bytes_), std::memory_order_relaxed);
+}
+
+SpillManager::HeadroomToken::HeadroomToken(HeadroomToken&& o) noexcept
+    : target_{std::exchange(o.target_, nullptr)}, bytes_{std::exchange(o.bytes_, 0)} {}
+
+SpillManager::HeadroomToken& SpillManager::HeadroomToken::operator=(
+    HeadroomToken&& o
+) noexcept {
+    if (this != &o) {
+        release();
+        target_ = std::exchange(o.target_, nullptr);
+        bytes_ = std::exchange(o.bytes_, 0);
+    }
+    return *this;
+}
+
+SpillManager::HeadroomToken::~HeadroomToken() {
+    release();
+}
+
+void SpillManager::HeadroomToken::release() noexcept {
+    if (target_ == nullptr) {
+        return;
+    }
+    target_->fetch_sub(safe_cast<std::int64_t>(bytes_), std::memory_order_relaxed);
+    target_.reset();
+    bytes_ = 0;
+}
+
+SpillManager::HeadroomToken SpillManager::add_extra_headroom(std::size_t bytes) {
+    return {extra_headroom_, bytes};
+}
+
+std::int64_t SpillManager::extra_headroom() const noexcept {
+    return extra_headroom_->load(std::memory_order_relaxed);
 }
 
 }  // namespace rapidsmpf
