@@ -180,3 +180,116 @@ TEST(SpillManager, TrySpillToMakeHeadroomSkipsWhileSpilling) {
     cv.notify_all();
     thd.join();
 }
+
+namespace {
+
+// Buffer resource whose available device memory is driven by the DEVICE limit. No real
+// allocations occur, so `memory_available()` equals whatever limit is set.
+struct SpillableFixture {
+    explicit SpillableFixture(std::int64_t available, std::size_t spillable)
+        : mem_available{available}, spillable{spillable} {
+        br = BufferResource::create(
+            rmm::mr::get_current_device_resource_ref(),
+            PinnedMemoryDisabled,
+            {{MemoryType::DEVICE, mem_available}},
+            // No periodic thread: the tests drive spilling explicitly so they do not
+            // race a background thread.
+            /* periodic_spill_check = */ std::nullopt
+        );
+        br->spill_manager().add_spill_function(
+            [this](std::size_t amount) -> std::size_t {
+                ++calls;
+                auto const spilled = std::min(amount, this->spillable);
+                this->spillable -= spilled;
+                mem_available += safe_cast<std::int64_t>(spilled);
+                br->set_memory_limit(MemoryType::DEVICE, mem_available);
+                return spilled;
+            },
+            /* priority = */ 0
+        );
+    }
+
+    std::int64_t mem_available;
+    std::size_t spillable;
+    std::shared_ptr<BufferResource> br;
+    int calls{0};
+};
+
+}  // namespace
+
+TEST(SpillManager, ExtraHeadroomRaisesTheSpillTarget) {
+    SpillableFixture f{/* available = */ 0, /* spillable = */ 10_KiB};
+
+    // Without a token the target is zero, and a non-negative headroom spills nothing.
+    EXPECT_EQ(f.br->spill_manager().spill_to_make_headroom(0), 0);
+    EXPECT_EQ(f.calls, 0);
+
+    // A token raises the target, so the same check now frees that much.
+    auto token = f.br->spill_manager().add_extra_headroom(4_KiB);
+    EXPECT_EQ(token.size(), 4_KiB);
+    EXPECT_EQ(f.br->spill_manager().spill_to_make_headroom(4_KiB), 4_KiB);
+    EXPECT_EQ(f.br->memory_available(MemoryType::DEVICE), 4_KiB);
+}
+
+TEST(SpillManager, ExtraHeadroomTokensSumAndReleaseOnDestruction) {
+    SpillableFixture f{/* available = */ 0, /* spillable = */ 10_KiB};
+    auto& manager = f.br->spill_manager();
+    EXPECT_EQ(manager.extra_headroom(), 0);
+
+    auto a = manager.add_extra_headroom(3_KiB);
+    EXPECT_EQ(manager.extra_headroom(), 3_KiB);
+    {
+        // Unrelated callers compose, so the target is the sum of both.
+        auto b = manager.add_extra_headroom(5_KiB);
+        EXPECT_EQ(manager.extra_headroom(), 8_KiB);
+    }
+    // `b` is gone, so only `a` still contributes.
+    EXPECT_EQ(manager.extra_headroom(), 3_KiB);
+
+    a = {};
+    EXPECT_EQ(manager.extra_headroom(), 0);
+    // Back to a zero target, so a check for zero headroom spills nothing.
+    EXPECT_EQ(manager.spill_to_make_headroom(0), 0);
+    EXPECT_EQ(f.calls, 0);
+    EXPECT_EQ(f.spillable, 10_KiB);
+}
+
+TEST(SpillManager, ExtraHeadroomTokenIsMoveOnly) {
+    SpillableFixture f{/* available = */ 0, /* spillable = */ 0};
+    auto& manager = f.br->spill_manager();
+
+    // Moving transfers the contribution, it neither drops nor duplicates it.
+    auto a = manager.add_extra_headroom(2_KiB);
+    auto b = std::move(a);
+    EXPECT_EQ(b.size(), 2_KiB);
+    EXPECT_EQ(a.size(), 0);  // NOLINT(bugprone-use-after-move): moved-from is empty
+    EXPECT_EQ(manager.extra_headroom(), 2_KiB);
+
+    // Move assignment must release what the target already held, otherwise the
+    // overwritten 7 KiB leaks and the target stays high for the rest of the run.
+    auto c = manager.add_extra_headroom(7_KiB);
+    EXPECT_EQ(manager.extra_headroom(), 9_KiB);
+    c = std::move(b);
+    EXPECT_EQ(c.size(), 2_KiB);
+    EXPECT_EQ(manager.extra_headroom(), 2_KiB);
+}
+
+TEST(SpillManager, ExtraHeadroomTokenOutlivesItsManager) {
+    // `add_extra_headroom()` is public and returns a freely movable token, so a caller
+    // can outlive the buffer resource it came from. Releasing must not dereference the
+    // destroyed manager.
+    SpillManager::HeadroomToken token;
+    {
+        auto br = BufferResource::create(
+            rmm::mr::get_current_device_resource_ref(),
+            PinnedMemoryDisabled,
+            {{MemoryType::DEVICE, 0}},
+            /* periodic_spill_check = */ std::nullopt
+        );
+        token = br->spill_manager().add_extra_headroom(1_KiB);
+        EXPECT_EQ(br->spill_manager().extra_headroom(), 1_KiB);
+    }
+    EXPECT_EQ(token.size(), 1_KiB);
+    token = {};  // Decrements an orphaned counter rather than dangling.
+    EXPECT_EQ(token.size(), 0);
+}
