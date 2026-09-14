@@ -5,7 +5,10 @@
 
 #pragma once
 
+#include <atomic>
+#include <cstdint>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 
@@ -92,6 +95,90 @@ class SpillManager {
     void remove_spill_function(SpillFunctionID fid);
 
     /**
+     * @brief Keeps an amount of extra headroom in the periodic spill target while alive.
+     */
+    class HeadroomToken {
+      public:
+        /// @brief Constructs an empty token that contributes nothing.
+        HeadroomToken() = default;
+
+        ~HeadroomToken();
+
+        HeadroomToken(HeadroomToken const&) = delete;
+        HeadroomToken& operator=(HeadroomToken const&) = delete;
+
+        /**
+         * @brief Move constructor. Leaves @p o empty.
+         *
+         * @param o The token to move from.
+         */
+        HeadroomToken(HeadroomToken&& o) noexcept;
+
+        /**
+         * @brief Move assignment. Releases any bytes held by this token first.
+         *
+         * @param o The token to move from.
+         * @return Reference to this token.
+         */
+        HeadroomToken& operator=(HeadroomToken&& o) noexcept;
+
+        /**
+         * @brief The number of bytes this token contributes to the target.
+         *
+         * @return The byte count, or zero for an empty token.
+         */
+        [[nodiscard]] std::size_t size() const noexcept {
+            return bytes_;
+        }
+
+      private:
+        friend class SpillManager;
+
+        HeadroomToken(
+            std::shared_ptr<std::atomic<std::int64_t>> target, std::size_t bytes
+        );
+
+        void release() noexcept;
+
+        std::shared_ptr<std::atomic<std::int64_t>> target_{nullptr};
+        std::size_t bytes_{0};
+    };
+
+    /**
+     * @brief Asks the periodic spill thread to keep @p bytes of headroom available.
+     *
+     * The periodic thread normally only spills once the memory available for reservation
+     * has gone negative, which means spilling happens after the memory limit has already
+     * been exceeded. Callers that know they are about to need memory, such as a queued
+     * memory reservation request, can use this to have it freed up front instead.
+     *
+     * The target is the sum of all outstanding tokens, so unrelated subsystems compose.
+     * Each caller decides how much to ask for, and the manager does not cap it.
+     *
+     * The target is **best effort**. It is not a guarantee or a reservation, nothing
+     * reads it as an invariant, and a momentarily stale value simply means one check
+     * spills a little too much or too little.
+     *
+     * @note Only device memory is considered, matching `spill_to_make_headroom()`.
+     *
+     * @note Has no effect when periodic spill checks are disabled, since there is no
+     * thread to act on the target.
+     *
+     * @param bytes The amount of headroom to ask for.
+     * @return A token that removes its contribution when destroyed.
+     */
+    [[nodiscard]] HeadroomToken add_extra_headroom(std::size_t bytes);
+
+    /**
+     * @brief The current extra headroom target, the sum of all outstanding tokens.
+     *
+     * A snapshot, since tokens are created and destroyed concurrently.
+     *
+     * @return The target in bytes, or zero when no token is outstanding.
+     */
+    [[nodiscard]] std::int64_t extra_headroom() const noexcept;
+
+    /**
      * @brief Initiates spilling to free up a specified amount of memory.
      *
      * This method iterates through registered spill functions in priority order, invoking
@@ -165,6 +252,9 @@ class SpillManager {
     std::size_t spill_function_id_counter_{0};
     std::map<SpillFunctionID, SpillFunction> spill_functions_;
     std::multimap<int, SpillFunctionID, std::greater<>> spill_function_priorities_;
+    std::shared_ptr<std::atomic<std::int64_t>> extra_headroom_{
+        std::make_shared<std::atomic<std::int64_t>>(0)
+    };
     std::optional<detail::PausableThreadLoop> periodic_spill_thread_;
 };
 

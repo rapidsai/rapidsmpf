@@ -38,12 +38,29 @@ MemoryReserveOrWait::~MemoryReserveOrWait() noexcept {
     coro::sync_wait(shutdown());
 }
 
+void MemoryReserveOrWait::update_extra_headroom_unsafe() {
+    // `spill_to_make_headroom()` only considers device memory.
+    if (mem_type_ != MemoryType::DEVICE) {
+        return;
+    }
+    if (reservation_requests_.empty()) {
+        extra_headroom_ = {};
+        return;
+    }
+    // The set is sorted by ascending size, so `begin()` is the smallest pending request.
+    auto const smallest = reservation_requests_.begin()->size;
+    if (extra_headroom_.size() != smallest) {
+        extra_headroom_ = br_->spill_manager().add_extra_headroom(smallest);
+    }
+}
+
 Actor MemoryReserveOrWait::shutdown() {
     // Move the pending requests and joinable periodic task out under the mutex,
     // then release the lock. Both the queue shutdown and the task await can block
     // or suspend, so they must not run while holding the mutex.
     std::unique_lock lock(mutex_);
     auto reservation_requests = std::move(reservation_requests_);
+    extra_headroom_ = {};
     auto periodic_memory_check_task =
         std::exchange(periodic_memory_check_task_, std::nullopt);
     lock.unlock();
@@ -85,6 +102,7 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
             .queue = request_queue
         }
     );
+    update_extra_headroom_unsafe();
 
     // If no periodic memory check task is running, start one.
     std::optional<coro::task<void>> previous_periodic_task;
@@ -264,6 +282,7 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
 
             // Extract the selected request and push the reservation into its queue.
             Request request = reservation_requests_.extract(it).value();
+            update_extra_headroom_unsafe();
             lock.unlock();
             push_into_queue(request.queue, std::move(res));
             last_reservation_success = Clock::now();
@@ -300,6 +319,7 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
         );
 
         Request request = reservation_requests_.extract(it).value();
+        update_extra_headroom_unsafe();
         lock.unlock();
 
         // Reserve memory and accept a zero-size result if it does not fit into the
