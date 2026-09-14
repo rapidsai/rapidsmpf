@@ -113,6 +113,51 @@ TEST_F(MetadataPayloadExchangeTest, InitialState) {
     EXPECT_TRUE(comm_interface->is_idle());
 }
 
+TEST_F(MetadataPayloadExchangeTest, DefersReceiveBufferAllocation) {
+    if (comm->nranks() < 2) {
+        GTEST_SKIP() << "Test requires at least 2 ranks";
+    }
+
+    constexpr std::size_t first_data_size = 1024;
+    constexpr std::size_t second_data_size = 2048;
+    std::vector<std::size_t> allocation_sizes;
+    auto allocate_fn = [this,
+                        &allocation_sizes](std::size_t size) -> std::unique_ptr<Buffer> {
+        allocation_sizes.push_back(size);
+        if (allocation_sizes.size() <= 2) {
+            return nullptr;
+        }
+        return allocate_receive_buffer(size);
+    };
+    comm_interface = std::make_unique<TagMetadataPayloadExchange>(
+        GlobalEnvironment->comm_, OpID{42}, allocate_fn, statistics
+    );
+
+    Rank const next_rank = (comm->rank() + 1) % comm->nranks();
+    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> messages;
+    messages.push_back(create_test_message(next_rank, {0x01}, first_data_size));
+    messages.push_back(create_test_message(next_rank, {0x02}, second_data_size));
+    comm_interface->send(std::move(messages));
+
+    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> received_messages;
+    while (received_messages.size() < 2) {
+        comm_interface->progress();
+        auto received = comm_interface->recv();
+        std::ranges::move(received, std::back_inserter(received_messages));
+        std::this_thread::yield();
+    }
+
+    ASSERT_GE(allocation_sizes.size(), 3);
+    EXPECT_EQ(allocation_sizes[0], first_data_size);
+    EXPECT_EQ(allocation_sizes[1], first_data_size);
+    EXPECT_EQ(allocation_sizes[2], first_data_size);
+    ASSERT_EQ(received_messages.size(), 2);
+    verify_data_content(received_messages[0]->data(), first_data_size);
+    verify_data_content(received_messages[1]->data(), second_data_size);
+
+    wait_for_communication_complete();
+}
+
 TEST_F(MetadataPayloadExchangeTest, BroadcastData) {
     if (comm->nranks() < 2) {
         GTEST_SKIP() << "Test requires at least 2 ranks";
