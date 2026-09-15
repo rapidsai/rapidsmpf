@@ -4,18 +4,30 @@ RapidsMPF exposes a full C++ API for building high-performance distributed GPU
 workloads without a Python runtime. The C++ layer is the foundation on which the
 Python bindings are built.
 
-The C++ API reference is available at
-[docs.rapids.ai/api/librapidsmpf/nightly](https://docs.rapids.ai/api/librapidsmpf/nightly/).
+## API Reference
+
+```{toctree}
+:maxdepth: 1
+
+core
+bootstrap
+collectives
+configuration
+metadata-payload-exchange
+shuffler
+streaming
+rrun
+```
 
 ## Coverage
 
 The C++ API provides access to all core RapidsMPF subsystems:
 
-- **Communicator** — MPI and UCXX backends for inter-process communication.
-- **Shuffler** — Out-of-core, distributed payload shuffle service.
-- **Streaming Engine** — Asynchronous multi-GPU pipeline with Channels, Actors, and Messages.
-- **Memory** — BufferResource, spilling, pinned memory, and packed data utilities.
-- **Config** — Configuration options and environment-variable parsing.
+- **{doc}`Communicator <core>`**: MPI and UCXX backends for inter-process communication.
+- **{doc}`Shuffler <shuffler>`**: Out-of-core, distributed payload shuffle service.
+- **{doc}`Streaming Engine <streaming>`**: Asynchronous multi-GPU pipeline with Channels, Actors, and Messages.
+- **{doc}`Memory <core>`**: BufferResource, spilling, pinned memory, and packed data utilities.
+- **{doc}`Config <core>`**: Configuration options and environment-variable parsing.
 
 ## Shuffle Service
 

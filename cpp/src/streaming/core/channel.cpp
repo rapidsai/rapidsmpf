@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 
@@ -10,6 +11,7 @@ namespace rapidsmpf::streaming {
 
 coro::task<bool> Channel::send(Message msg) {
     RAPIDSMPF_EXPECTS(!msg.empty(), "message cannot be empty");
+    metrics_.record_send(msg);
     auto result = co_await rb_.produce(sm_->insert(std::move(msg)));
     co_return result == coro::ring_buffer_result::produce::produced;
 }
@@ -17,10 +19,45 @@ coro::task<bool> Channel::send(Message msg) {
 coro::task<Message> Channel::receive() {
     auto msg_id = co_await rb_.consume();
     if (msg_id.has_value()) {
-        co_return sm_->extract(*msg_id);
+        auto msg = sm_->extract(*msg_id);
+        metrics_.record_receive(msg);
+        co_return std::move(msg);
     } else {
         co_return Message{};
     }
+}
+
+void Channel::Metrics::record_send(Message const& msg) noexcept {
+    message_count.fetch_add(1, std::memory_order_relaxed);
+    auto const& cd = msg.content_description();
+    spillable_count.fetch_add(
+        static_cast<std::uint32_t>(cd.spillable()), std::memory_order_relaxed
+    );
+    for (auto mem_type : MEMORY_TYPES) {
+        send_bytes[static_cast<std::size_t>(mem_type)].fetch_add(
+            cd.content_size(mem_type), std::memory_order_relaxed
+        );
+    }
+}
+
+void Channel::Metrics::record_receive(Message const& msg) noexcept {
+    auto const& cd = msg.content_description();
+    for (auto mem_type : MEMORY_TYPES) {
+        recv_bytes[static_cast<std::size_t>(mem_type)].fetch_add(
+            cd.content_size(mem_type), std::memory_order_relaxed
+        );
+    }
+}
+
+Channel::MetricsSnapshot Channel::Metrics::snapshot() const noexcept {
+    MetricsSnapshot snapshot;
+    for (std::size_t i = 0; i < MEMORY_TYPES.size(); i++) {
+        snapshot.send_bytes[i] = send_bytes[i].load(std::memory_order_relaxed);
+        snapshot.recv_bytes[i] = recv_bytes[i].load(std::memory_order_relaxed);
+    }
+    snapshot.message_count = message_count.load(std::memory_order_relaxed);
+    snapshot.spillable_count = spillable_count.load(std::memory_order_relaxed);
+    return snapshot;
 }
 
 coro::task<bool> Channel::send_metadata(Message msg) {
@@ -66,4 +103,7 @@ bool Channel::is_shutdown() const noexcept {
     return rb_.is_shutdown();
 }
 
+Channel::MetricsSnapshot Channel::metrics() const noexcept {
+    return metrics_.snapshot();
+}
 }  // namespace rapidsmpf::streaming

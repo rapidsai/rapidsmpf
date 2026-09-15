@@ -16,7 +16,8 @@
 
 #include <gtest/gtest.h>
 
-#include <rmm/cuda_stream_view.hpp>
+#include <cuda/stream>
+
 #include <rmm/mr/cuda_memory_resource.hpp>
 
 #include <rapidsmpf/coll/sparse_alltoall.hpp>
@@ -56,13 +57,13 @@ rapidsmpf::PackedData make_payload(
     int payload_value,
     rapidsmpf::MemoryType mem_type,
     rapidsmpf::BufferResource& br,
-    rmm::cuda_stream_view stream
+    cuda::stream_ref stream
 ) {
     auto metadata = std::make_unique<std::vector<std::uint8_t>>(sizeof(int));
     std::memcpy(metadata->data(), &metadata_value, sizeof(int));
 
     auto data = br.make_buffer(stream, br.reserve_or_fail(sizeof(int), mem_type));
-    data->write_access([&](std::byte* ptr, rmm::cuda_stream_view op_stream) {
+    data->write_access([&](std::byte* ptr, cuda::stream_ref op_stream) {
         if (mem_type == rapidsmpf::MemoryType::DEVICE) {
             RAPIDSMPF_CUDA_TRY(
                 rapidsmpf::cuda_memcpy_async(
@@ -96,7 +97,7 @@ int decode_payload(rapidsmpf::PackedData const& packed_data) {
                 packed_data.data->stream()
             )
         );
-        packed_data.data->stream().synchronize();
+        packed_data.data->stream().sync();
     } else {
         std::memcpy(&result, packed_data.data->data(), sizeof(result));
     }
@@ -356,10 +357,10 @@ TEST_F(SparseAlltoallTest, ordered_by_sender_insertion_with_stream_reordering) {
     auto [srcs, dsts] = ring_peers(comm);
     rapidsmpf::coll::SparseAlltoall exchange(comm, 0, br.get(), srcs, dsts);
 
-    auto const delayed_stream = br->stream_pool()->get_stream(1);
-    auto const fast_stream = br->stream_pool()->get_stream(2);
+    cuda::stream_ref const delayed_stream = br->stream_pool()->get_stream(1);
+    cuda::stream_ref const fast_stream = br->stream_pool()->get_stream(2);
     RAPIDSMPF_CUDA_TRY(cudaLaunchHostFunc(
-        delayed_stream.value(), sleep_on_stream, new std::chrono::milliseconds(100)
+        delayed_stream.get(), sleep_on_stream, new std::chrono::milliseconds(100)
     ));
 
     exchange.insert(

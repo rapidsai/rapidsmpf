@@ -348,12 +348,18 @@ cdef class MemoryReserveOrWait:
         memory becomes available or no reservation request, including other pending
         requests, makes progress within the configured timeout.
 
-        The timeout does not apply specifically to this request. Instead, it serves as
-        a global progress guarantee. If no pending reservation request can be satisfied
-        within the timeout, ``MemoryReserveOrWait`` forces progress by selecting the
-        smallest pending request and attempting to reserve memory for it. The forced
-        reservation attempt may result in an empty :class:`MemoryReservation` if the
-        selected request still cannot be satisfied.
+        While no pending request fits, spilling is attempted to free the memory the
+        highest-priority one needs, and again just before progress is forced. Both are
+        limited to :attr:`~.MemoryType.DEVICE`, since ``SpillManager`` measures headroom
+        against device memory. Requests of other memory types wait without spilling.
+
+        The timeout does not apply specifically to this request. Instead, it bounds
+        when a final recovery attempt begins, not when it completes. If no pending
+        reservation request can be satisfied within the timeout,
+        ``MemoryReserveOrWait`` forces progress by selecting the smallest pending
+        request and attempting to reserve memory without spilling queued data. The
+        forced reservation attempt may result in an empty :class:`~.MemoryReservation`
+        if the selected request still cannot be satisfied.
 
         When multiple reservation requests are eligible, ``MemoryReserveOrWait`` uses
         ``net_memory_delta`` as a heuristic to prefer requests that are expected to
@@ -361,9 +367,9 @@ cdef class MemoryReserveOrWait:
         memory usage after the reservation has been granted and the dependent operation
         completes (that is, after both reserving ``size`` bytes and completing the work
         that consumes the reservation):
-            - > 0: expected net increase in memory usage
-            - = 0: memory-neutral
-            - < 0: expected net decrease in memory usage
+        - > 0: expected net increase in memory usage
+        - = 0: memory-neutral
+        - < 0: expected net decrease in memory usage
 
         Smaller values have higher priority.
 

@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 
 #include <rapidsmpf/memory/content_description.hpp>
+#include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/coro_utils.hpp>
 #include <rapidsmpf/streaming/core/leaf_actor.hpp>
@@ -21,7 +22,14 @@ std::vector<Message> make_int_messages(std::size_t n) {
     messages.reserve(n);
     for (std::size_t i = 0; i < n; ++i) {
         messages.emplace_back(
-            i, std::make_unique<int>(i), rapidsmpf::ContentDescription{}
+            i,
+            std::make_unique<int>(i),
+            // So we can check the metrics record it
+            rapidsmpf::ContentDescription{
+                {{rapidsmpf::MemoryType::DEVICE, i % 2 == 0 ? sizeof(int) : 0},
+                 {rapidsmpf::MemoryType::HOST, i % 2 == 1 ? sizeof(int) : 0}},
+                rapidsmpf::ContentDescription::Spillable::NO
+            }
         );
     }
     return messages;
@@ -40,7 +48,34 @@ TEST_F(StreamingChannel, DataRoundTripWithoutMetadata) {
     run_actor_network(std::move(actors));
 
     ASSERT_EQ(outputs.size(), num_messages);
-    for (int i = 0; i < 4; ++i) {
+    auto metrics = ch->metrics();
+    EXPECT_EQ(metrics.message_count, num_messages);
+    EXPECT_EQ(metrics.spillable_count, 0);
+    EXPECT_EQ(
+        metrics.send_bytes[static_cast<std::size_t>(rapidsmpf::MemoryType::DEVICE)],
+        num_messages / 2 * sizeof(int)
+    );
+    EXPECT_EQ(
+        metrics.send_bytes[static_cast<std::size_t>(rapidsmpf::MemoryType::HOST)],
+        num_messages / 2 * sizeof(int)
+    );
+    EXPECT_EQ(
+        metrics.send_bytes[static_cast<std::size_t>(rapidsmpf::MemoryType::PINNED_HOST)],
+        0
+    );
+    EXPECT_EQ(
+        metrics.recv_bytes[static_cast<std::size_t>(rapidsmpf::MemoryType::DEVICE)],
+        num_messages / 2 * sizeof(int)
+    );
+    EXPECT_EQ(
+        metrics.recv_bytes[static_cast<std::size_t>(rapidsmpf::MemoryType::HOST)],
+        num_messages / 2 * sizeof(int)
+    );
+    EXPECT_EQ(
+        metrics.recv_bytes[static_cast<std::size_t>(rapidsmpf::MemoryType::PINNED_HOST)],
+        0
+    );
+    for (int i = 0; i < static_cast<int>(num_messages); ++i) {
         EXPECT_EQ(outputs[static_cast<std::size_t>(i)].release<int>(), i);
     }
 }

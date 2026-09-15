@@ -11,8 +11,6 @@
 
 #include <mpi.h>
 
-#include <rmm/cuda_stream_view.hpp>
-
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/progress_thread.hpp>

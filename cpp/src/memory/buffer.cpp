@@ -8,8 +8,7 @@
 #include <cuda_runtime.h>
 
 #include <cuda/std/cstdint>
-
-#include <rmm/cuda_stream_view.hpp>
+#include <cuda/stream>
 
 #include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
@@ -22,9 +21,7 @@ namespace rapidsmpf {
 
 
 Buffer::Buffer(
-    std::unique_ptr<HostBuffer> host_buffer,
-    rmm::cuda_stream_view stream,
-    MemoryType mem_type
+    std::unique_ptr<HostBuffer> host_buffer, cuda::stream_ref stream, MemoryType mem_type
 )
     : size{host_buffer ? host_buffer->size() : 0},
       mem_type_{mem_type},
@@ -117,9 +114,9 @@ Buffer::HostBufferT Buffer::release_host_buffer() {
     RAPIDSMPF_FAIL("Buffer doesn't hold a HostBuffer");
 }
 
-void Buffer::rebind_stream(rmm::cuda_stream_view new_stream) {
+void Buffer::rebind_stream(cuda::stream_ref new_stream) {
     throw_if_locked();
-    if (new_stream.value() == stream_.value()) {
+    if (new_stream.get() == stream_.get()) {
         return;
     }
 
@@ -163,7 +160,7 @@ void buffer_copy(
     // might deallocate `src` before the memcpy enqueued on `dst.stream()` has completed.
     src.latest_write_event().stream_wait(dst.stream());
     StreamOrderedTiming timing{dst.stream(), statistics};
-    dst.write_access([&](std::byte* dst_data, rmm::cuda_stream_view stream) {
+    dst.write_access([&](std::byte* dst_data, cuda::stream_ref stream) {
         RAPIDSMPF_CUDA_TRY(cuda_memcpy_async(
             dst_data + dst_offset, src.data() + src_offset, size, stream
         ));

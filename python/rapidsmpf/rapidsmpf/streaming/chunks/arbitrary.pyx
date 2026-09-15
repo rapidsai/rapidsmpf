@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from cpython.object cimport PyObject
@@ -119,7 +119,7 @@ cdef class ArbitraryChunk:
         Move this ArbitraryChunk into a Message.
 
         This method is not typically called directly. Instead, it is invoked by
-        `Message.__init__()` when creating a new Message with this ArbitraryChunk
+        the `Message` constructor when creating a new Message with this ArbitraryChunk
         as its payload.
 
         Parameters

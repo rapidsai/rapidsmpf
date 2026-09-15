@@ -6,6 +6,8 @@
 #include <cstring>
 #include <sstream>
 
+#include <cuda/stream>
+
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>

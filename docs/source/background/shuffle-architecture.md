@@ -10,7 +10,7 @@ The core abstraction that encapsulates the set of processes that are
 executing collectively is a {term}`Communicator`. This provides unique
 identifiers (termed {term}`Rank`s) to each process along with message-passing
 routes between them. We provide {term}`Communicator` implementations based either
-directly on [UCX](https://openucx.org/)/[UCXX](https://github.com/rapidsai/ucxx) or
+directly on [UCX](https://openucx.org/)/{doc}`UCXX <ucxx:index>` or
 [MPI](https://www.mpi-forum.org). Message passing handles CPU and GPU data
 uniformly, the underlying transport takes care of choosing the appropriate
 route.

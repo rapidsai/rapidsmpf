@@ -8,7 +8,8 @@
 #include <memory>
 #include <vector>
 
-#include <rmm/cuda_stream_view.hpp>
+#include <cuda/stream>
+
 #include <rmm/device_buffer.hpp>
 
 #include <rapidsmpf/error.hpp>
@@ -75,7 +76,7 @@ struct PackedData {
      *
      * @return The CUDA stream.
      */
-    [[nodiscard]] rmm::cuda_stream_view stream() const {
+    [[nodiscard]] cuda::stream_ref stream() const {
         return data->stream();
     }
 

@@ -193,7 +193,6 @@ class ProgressThread {
     void event_loop();
 
     std::shared_ptr<Statistics> statistics_;
-    bool is_thread_initialized_{false};
     bool active_{false};
     mutable std::mutex mutex_;
     std::condition_variable cv_;

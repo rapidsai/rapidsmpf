@@ -8,6 +8,7 @@
 #include <utility>
 
 #include <cuda/memory_resource>
+#include <cuda/stream>
 
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
@@ -26,7 +27,7 @@ BufferResource::BufferResource(
     std::optional<PinnedMemoryResource> pinned_mr,
     std::unordered_map<MemoryType, std::int64_t> memory_limits,
     std::optional<Duration> periodic_spill_check,
-    std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
+    std::shared_ptr<StreamPool> stream_pool,
     std::shared_ptr<Statistics> statistics
 )
     : owning_mr_{std::move(device_mr)},
@@ -53,7 +54,7 @@ std::shared_ptr<BufferResource> BufferResource::create(
     std::optional<PinnedPoolProperties> pinned_pool_properties,
     std::unordered_map<MemoryType, std::int64_t> memory_limits,
     std::optional<Duration> periodic_spill_check,
-    std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
+    std::shared_ptr<StreamPool> stream_pool,
     std::shared_ptr<Statistics> statistics
 ) {
     std::optional<PinnedMemoryResource> pinned_mr;
@@ -162,6 +163,16 @@ std::optional<PinnedMemoryResource> BufferResource::try_pinned_mr() const {
     return pinned_mr_;
 }
 
+std::int64_t BufferResource::memory_available_for_reservation(MemoryType mem_type) const {
+    // Sample availability before taking the lock, matching `reserve()`.
+    std::int64_t const available = memory_available(mem_type);
+    std::lock_guard<std::mutex> lock(mutex_);
+    return available
+           - safe_cast<std::int64_t>(
+               memory_reserved_[static_cast<std::size_t>(mem_type)]
+           );
+}
+
 std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     MemoryType mem_type, std::size_t size, AllowOverbooking allow_overbooking
 ) {
@@ -227,7 +238,7 @@ std::size_t BufferResource::release(MemoryReservation& reservation, std::size_t 
 }
 
 std::unique_ptr<Buffer> BufferResource::make_buffer(
-    std::size_t size, rmm::cuda_stream_view stream, MemoryReservation& reservation
+    std::size_t size, cuda::stream_ref stream, MemoryReservation& reservation
 ) {
     auto const mem_type = reservation.mem_type_;
     StreamOrderedTiming timing{stream, statistics_};
@@ -262,16 +273,16 @@ std::unique_ptr<Buffer> BufferResource::make_buffer(
 }
 
 std::unique_ptr<Buffer> BufferResource::make_buffer(
-    rmm::cuda_stream_view stream, MemoryReservation&& reservation
+    cuda::stream_ref stream, MemoryReservation&& reservation
 ) {
     return make_buffer(reservation.size(), stream, reservation);
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
-    std::unique_ptr<rmm::device_buffer> data, rmm::cuda_stream_view stream
+    std::unique_ptr<rmm::device_buffer> data, cuda::stream_ref stream
 ) {
-    auto upstream = data->stream();
-    if (upstream.value() != stream.value()) {
+    cuda::stream_ref upstream = data->stream();
+    if (upstream.get() != stream.get()) {
         cuda_stream_join(stream, upstream);
         data->set_stream(stream);
     }
@@ -310,7 +321,7 @@ std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
     auto stream = buffer->stream();
     auto ret = move(std::move(buffer), reservation)->release_device_buffer();
     RAPIDSMPF_EXPECTS(
-        ret->stream().value() == stream.value(),
+        ret->stream().get() == stream.get(),
         "something went wrong, the Buffer's stream and the device_buffer's stream "
         "don't match"
     );
@@ -328,7 +339,7 @@ std::unique_ptr<HostBuffer> BufferResource::move_to_host_buffer(
     return move(std::move(buffer), reservation)->release_host_buffer();
 }
 
-std::shared_ptr<rmm::cuda_stream_pool> const& BufferResource::stream_pool() const {
+std::shared_ptr<StreamPool> const& BufferResource::stream_pool() const {
     return stream_pool_;
 }
 
@@ -360,7 +371,7 @@ std::optional<Duration> periodic_spill_check_from_options(config::Options option
     );
 }
 
-std::shared_ptr<rmm::cuda_stream_pool> stream_pool_from_options(config::Options options) {
+std::shared_ptr<StreamPool> stream_pool_from_options(config::Options options) {
     auto const num_streams =
         options.get<std::size_t>("num_streams", parse_string<std::size_t>);
     RAPIDSMPF_EXPECTS(
@@ -368,9 +379,7 @@ std::shared_ptr<rmm::cuda_stream_pool> stream_pool_from_options(config::Options 
         "The `num_streams` option must be greater than 0",
         std::invalid_argument
     );
-    return std::make_shared<rmm::cuda_stream_pool>(
-        num_streams, rmm::cuda_stream::flags::non_blocking
-    );
+    return std::make_shared<StreamPool>(num_streams);
 }
 
 }  // namespace rapidsmpf

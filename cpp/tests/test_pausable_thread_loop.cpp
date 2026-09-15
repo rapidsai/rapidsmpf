@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -15,7 +15,13 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <cuda/stream>
+
+#include <rmm/mr/cuda_memory_resource.hpp>
+
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/pausable_thread_loop.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 using rapidsmpf::detail::PausableThreadLoop;
 
@@ -84,4 +90,34 @@ TEST(PausableThreadLoop, MultiplePauseAndResume) {
     // loop could be running/paused. But all calls should have completed.
     loop.stop();
     EXPECT_FALSE(loop.is_running());
+}
+
+TEST(PausableThreadLoop, CanDoCudaWorkOnFirstTick) {
+    using namespace rapidsmpf;
+
+    if (!is_pinned_memory_resources_supported()) {
+        GTEST_SKIP() << "Pinned memory not supported on this system";
+    }
+
+    rmm::mr::cuda_memory_resource cuda_mr;
+    auto br = BufferResource::create(cuda_mr, PinnedPoolProperties{});
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+
+    std::exception_ptr eptr;
+    PausableThreadLoop loop([&]() {
+        try {
+            auto [reservation, _] =
+                br->reserve(MemoryType::PINNED_HOST, 1024, AllowOverbooking::YES);
+            auto buf = br->make_buffer(1024, stream, reservation);
+        } catch (...) {
+            eptr = std::current_exception();
+        }
+    });
+    loop.resume();
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    loop.stop();
+
+    if (eptr) {
+        std::rethrow_exception(eptr);
+    }
 }

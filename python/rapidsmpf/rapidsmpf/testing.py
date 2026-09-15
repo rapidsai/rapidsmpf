@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Submodule for testing."""
 
@@ -75,7 +75,13 @@ def generate_packed_data(
     """
     data = np.arange(offset, offset + n_elements, dtype=_DTYPE).tobytes()
     gpu_data = rmm.DeviceBuffer(size=len(data), stream=stream, mr=br.device_mr)
+    # copy_from_host() is documented as fully async on a non-default stream, and
+    # the caller is responsible for keeping the source bytes alive until the
+    # stream is synchronized. `data` has no other references once this function
+    # returns, so synchronize here rather than relying on the caller.
+    # See https://github.com/rapidsai/rmm/issues/2521
     gpu_data.copy_from_host(data, stream=stream)
+    stream.synchronize()
     return PackedData.from_device_buffer(gpu_data, data, stream, br)
 
 

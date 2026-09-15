@@ -9,7 +9,8 @@
 #include <driver_types.h>
 #include <gtest/gtest.h>
 
-#include <rmm/cuda_stream_view.hpp>
+#include <cuda/stream>
+
 #include <rmm/mr/per_device_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
@@ -26,11 +27,11 @@ class ChunkTest : public ::testing::Test {
   protected:
     void SetUp() override {
         br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
-        stream = rmm::cuda_stream_view{};
+        stream = cuda::stream_ref{cudaStreamLegacy};
     }
 
     std::shared_ptr<BufferResource> br;
-    rmm::cuda_stream_view stream;
+    cuda::stream_ref stream{cudaStreamLegacy};
 };
 
 TEST_F(ChunkTest, FromFinishedPartition) {
@@ -67,7 +68,9 @@ TEST_P(ChunkFromPackedDataTest, RoundTrip) {
         std::vector<std::uint8_t>{1, 2, 3, 4}
     );
 
-    auto data = std::make_unique<rmm::device_buffer>(data_size, rmm::cuda_stream_view{});
+    auto data = std::make_unique<rmm::device_buffer>(
+        data_size, cuda::stream_ref{cudaStreamLegacy}
+    );
     if (data_size > 0) {
         std::vector<std::uint8_t> host_data(data_size);
         std::iota(host_data.begin(), host_data.end(), std::uint8_t{5});

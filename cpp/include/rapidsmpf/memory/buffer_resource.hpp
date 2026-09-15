@@ -7,6 +7,7 @@
 
 #include <array>
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -16,6 +17,7 @@
 #include <utility>
 
 #include <cuda/memory_resource>
+#include <cuda/stream>
 
 #include <rmm/cuda_stream_pool.hpp>
 
@@ -42,6 +44,67 @@ namespace rapidsmpf {
 enum class AllowOverbooking : bool {
     NO,  ///< Overbooking is not allowed.
     YES,  ///< Overbooking is allowed.
+};
+
+/**
+ * @brief Pool of non-blocking CUDA streams.
+ *
+ * The pool is backed by RMM until CUDA Core provides an owning stream-pool
+ * implementation. Its public interface returns CUDA Core stream references so
+ * callers do not need to bridge between stream abstractions.
+ */
+class StreamPool {
+  public:
+    /**
+     * @brief Construct a pool of non-blocking CUDA streams.
+     *
+     * @param num_streams Number of streams to create.
+     */
+    explicit StreamPool(std::size_t num_streams)
+        : pool_{std::make_shared<rmm::cuda_stream_pool>(
+              num_streams, rmm::cuda_stream::flags::non_blocking
+          )} {}
+
+    /**
+     * @brief Construct a stream pool backed by an existing RMM pool.
+     *
+     * @param pool RMM stream pool providing stream ownership.
+     */
+    explicit StreamPool(std::shared_ptr<rmm::cuda_stream_pool> pool)
+        : pool_{std::move(pool)} {
+        RAPIDSMPF_EXPECTS(pool_ != nullptr, "the stream pool pointer cannot be NULL");
+    }
+
+    /**
+     * @brief Get the next stream from the pool.
+     *
+     * @return A CUDA Core reference to the selected stream.
+     */
+    [[nodiscard]] cuda::stream_ref get_stream() const {
+        return pool_->get_stream();
+    }
+
+    /**
+     * @brief Get a stream from the pool by index.
+     *
+     * @param stream_id Index of the stream to retrieve.
+     * @return A CUDA Core reference to the selected stream.
+     */
+    [[nodiscard]] cuda::stream_ref get_stream(std::size_t stream_id) const {
+        return pool_->get_stream(stream_id);
+    }
+
+    /**
+     * @brief Get the number of streams in the pool.
+     *
+     * @return Number of streams in the pool.
+     */
+    [[nodiscard]] std::size_t get_pool_size() const {
+        return pool_->get_pool_size();
+    }
+
+  private:
+    std::shared_ptr<rmm::cuda_stream_pool> pool_;
 };
 
 /**
@@ -113,8 +176,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         std::optional<PinnedPoolProperties> pinned_pool_properties = PinnedMemoryDisabled,
         std::unordered_map<MemoryType, std::int64_t> memory_limits = {},
         std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1},
-        std::shared_ptr<rmm::cuda_stream_pool> stream_pool = std::make_shared<
-            rmm::cuda_stream_pool>(16, rmm::cuda_stream::flags::non_blocking),
+        std::shared_ptr<StreamPool> stream_pool = std::make_shared<StreamPool>(16),
         std::shared_ptr<Statistics> statistics = Statistics::disabled()
     );
 
@@ -282,14 +344,17 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     void set_memory_limit(MemoryType mem_type, std::int64_t limit) noexcept;
 
     /**
-     * @brief Get the current reserved memory of the specified memory type.
+     * @brief Returns the memory available to a new reservation, in bytes.
      *
-     * @param mem_type The target memory type.
-     * @return The memory reserved.
+     * A snapshot of `memory_available(mem_type)` minus the outstanding reservations
+     * of that memory type. May be negative.
+     *
+     * @param mem_type The memory type to query.
+     * @return The memory available for reservation in bytes.
      */
-    [[nodiscard]] std::size_t memory_reserved(MemoryType mem_type) const {
-        return memory_reserved_[static_cast<std::size_t>(mem_type)];
-    }
+    [[nodiscard]] std::int64_t memory_available_for_reservation(
+        MemoryType mem_type
+    ) const;
 
     /**
      * @brief Reserve an amount of the specified memory type.
@@ -410,7 +475,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @throws rapidsmpf::reservation_error if `size` exceeds the size of the reservation.
      */
     std::unique_ptr<Buffer> make_buffer(
-        std::size_t size, rmm::cuda_stream_view stream, MemoryReservation& reservation
+        std::size_t size, cuda::stream_ref stream, MemoryReservation& reservation
     );
 
     /**
@@ -424,7 +489,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @return A unique pointer to the allocated Buffer.
      */
     std::unique_ptr<Buffer> make_buffer(
-        rmm::cuda_stream_view stream, MemoryReservation&& reservation
+        cuda::stream_ref stream, MemoryReservation&& reservation
     );
 
     /**
@@ -447,7 +512,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @return Unique pointer to the resulting Buffer.
      */
     std::unique_ptr<Buffer> move(
-        std::unique_ptr<rmm::device_buffer> data, rmm::cuda_stream_view stream
+        std::unique_ptr<rmm::device_buffer> data, cuda::stream_ref stream
     );
 
     /**
@@ -508,9 +573,9 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * Use this pool for operations that do not take an explicit CUDA stream.
      *
-     * @return Shared pointer to the underlying CUDA stream pool.
+     * @return Shared pointer to the CUDA stream pool.
      */
-    std::shared_ptr<rmm::cuda_stream_pool> const& stream_pool() const;
+    std::shared_ptr<StreamPool> const& stream_pool() const;
 
     /**
      * @brief Gets a reference to the spill manager used.
@@ -534,18 +599,18 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         std::optional<PinnedMemoryResource> pinned_mr,
         std::unordered_map<MemoryType, std::int64_t> memory_limits,
         std::optional<Duration> periodic_spill_check,
-        std::shared_ptr<rmm::cuda_stream_pool> stream_pool,
+        std::shared_ptr<StreamPool> stream_pool,
         std::shared_ptr<Statistics> statistics
     );
 
-    std::mutex mutex_;
+    mutable std::mutex mutex_;
     RmmResourceAdaptor owning_mr_;
     std::optional<PinnedMemoryResource> pinned_mr_;
     HostMemoryResource host_mr_;
     std::array<std::atomic<std::int64_t>, MEMORY_TYPES.size()> memory_limits_;
     // Zero initialized reserved counters.
     std::array<std::size_t, MEMORY_TYPES.size()> memory_reserved_ = {};
-    std::shared_ptr<rmm::cuda_stream_pool> stream_pool_;
+    std::shared_ptr<StreamPool> stream_pool_;
     SpillManager spill_manager_;
     std::shared_ptr<Statistics> statistics_;
 };
@@ -582,7 +647,7 @@ std::optional<Duration> periodic_spill_check_from_options(config::Options option
  * @return Pool of CUDA streams used throughout RapidsMPF for operations that do
  * not take an explicit CUDA stream.
  */
-std::shared_ptr<rmm::cuda_stream_pool> stream_pool_from_options(config::Options options);
+std::shared_ptr<StreamPool> stream_pool_from_options(config::Options options);
 
 
 }  // namespace rapidsmpf

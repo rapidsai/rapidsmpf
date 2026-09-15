@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from libc.stdint cimport uint32_t, uint64_t
@@ -98,25 +98,25 @@ cdef class PartitionMapChunk:
     @staticmethod
     def from_packed_data_map(data not None, BufferResource br not None):
         """
-        Construct a PartitionMapChunk from a mapping of partition ID to PackedData.
+        Construct a PartitionMapChunk from a mapping of partition ID to `PackedData`.
 
         Parameters
         ----------
         data
-            Mapping of partition ID to the
-            :class:`~rapidsmpf.memory.packed_data.PackedData` it holds. Each PackedData
-            is consumed and left empty after this call.
+            Mapping of partition ID to the `PackedData` it holds. Each
+            PackedData is consumed and left empty after this call.
         br
             Buffer resource kept alive for the lifetime of the chunk.
 
         Returns
         -------
-        A new PartitionMapChunk owning the given packed data.
+        `PartitionMapChunk`
+            A new PartitionMapChunk owning the given packed data.
 
         Raises
         ------
         ValueError
-            If any of the provided PackedData objects is empty.
+            If any of the provided `PackedData` objects is empty.
         """
         cdef unique_ptr[cpp_PartitionMapChunk] handle = make_unique[
             cpp_PartitionMapChunk
@@ -139,8 +139,8 @@ cdef class PartitionMapChunk:
 
         Returns
         -------
-        A dict mapping partition ID to the
-        :class:`~rapidsmpf.memory.packed_data.PackedData` it holds.
+        `dict`
+            A dict mapping partition ID to the `PackedData` it holds.
         """
         cdef vector[uint32_t] keys
         cdef vector[unique_ptr[cpp_PackedData]] values
@@ -176,7 +176,7 @@ cdef class PartitionMapChunk:
     @staticmethod
     def from_message(Message message not None, BufferResource br not None):
         """
-        Construct a PartitionMapChunk by consuming a Message.
+        Construct a PartitionMapChunk by consuming a `Message`.
 
         Parameters
         ----------
@@ -186,7 +186,8 @@ cdef class PartitionMapChunk:
 
         Returns
         -------
-        A new PartitionMapChunk extracted from the given message.
+        `PartitionMapChunk`
+            A new PartitionMapChunk extracted from the given message.
         """
         return PartitionMapChunk.from_handle(
             make_unique[cpp_PartitionMapChunk](
@@ -197,10 +198,10 @@ cdef class PartitionMapChunk:
 
     def into_message(self, uint64_t sequence_number, Message message not None):
         """
-        Move this PartitionMapChunk into a Message.
+        Move this PartitionMapChunk into a `Message`.
 
         This method is not typically called directly. Instead, it is invoked by
-        `Message.__init__()` when creating a new Message with this PartitionMapChunk
+        the `Message` constructor when creating a new Message with this PartitionMapChunk
         as its payload.
 
         Parameters
@@ -274,7 +275,7 @@ cdef class PartitionVectorChunk:
     @staticmethod
     def from_packed_data_list(data not None, BufferResource br not None):
         """
-        Construct a PartitionVectorChunk from a sequence of PackedData.
+        Construct a PartitionVectorChunk from a sequence of `PackedData`.
 
         Parameters
         ----------
@@ -287,7 +288,8 @@ cdef class PartitionVectorChunk:
 
         Returns
         -------
-        A new PartitionVectorChunk owning the given packed data.
+        `PartitionVectorChunk`
+            A new PartitionVectorChunk owning the given packed data.
 
         Raises
         ------
@@ -313,7 +315,8 @@ cdef class PartitionVectorChunk:
 
         Returns
         -------
-        A list of :class:`~rapidsmpf.memory.packed_data.PackedData`, in order.
+        list[PackedData]
+            A list of `PackedData`, in order.
         """
         cdef vector[unique_ptr[cpp_PackedData]] values
         cpp_drain_partition_vector(self._handle.get(), values)
@@ -349,7 +352,7 @@ cdef class PartitionVectorChunk:
     @staticmethod
     def from_message(Message message not None, BufferResource br not None):
         """
-        Construct a PartitionVectorChunk by consuming a Message.
+        Construct a PartitionVectorChunk by consuming a `Message`.
 
         Parameters
         ----------
@@ -359,7 +362,8 @@ cdef class PartitionVectorChunk:
 
         Returns
         -------
-        A new PartitionVectorChunk extracted from the given message.
+        `PartitionVectorChunk`
+            A new PartitionVectorChunk extracted from the given message.
         """
         return PartitionVectorChunk.from_handle(
             make_unique[cpp_PartitionVectorChunk](
@@ -370,10 +374,10 @@ cdef class PartitionVectorChunk:
 
     def into_message(self, uint64_t sequence_number, Message message not None):
         """
-        Move this PartitionVectorChunk into a Message.
+        Move this PartitionVectorChunk into a `Message`.
 
         This method is not typically called directly. Instead, it is invoked by
-        `Message.__init__()` when creating a new Message with this PartitionVectorChunk
+        the `Message` constructor when creating a new Message with this PartitionVectorChunk
         as its payload.
 
         Parameters

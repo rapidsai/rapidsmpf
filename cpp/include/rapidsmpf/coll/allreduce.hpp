@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -13,6 +13,8 @@
 #include <memory>
 #include <mutex>
 #include <utility>
+
+#include <cuda/stream>
 
 #ifdef __CUDACC__
 #include <thrust/execution_policy.h>
@@ -297,14 +299,14 @@ struct DeviceOp {
             "DeviceOp expects device memory"
         );
         // Both buffers are guaranteed to be on the same stream by the AllReduce ctor.
-        right->write_access([&](std::byte* right_bytes, rmm::cuda_stream_view stream) {
+        right->write_access([&](std::byte* right_bytes, cuda::stream_ref stream) {
             auto const* left_bytes = reinterpret_cast<std::byte const*>(left->data());
 
             T* right_ptr = reinterpret_cast<T*>(right_bytes);
             T const* left_ptr = reinterpret_cast<T const*>(left_bytes);
 
             thrust::transform(
-                thrust::cuda::par_nosync.on(stream.value()),
+                thrust::cuda::par_nosync.on(stream.get()),
                 left_ptr,
                 left_ptr + count,
                 right_ptr,

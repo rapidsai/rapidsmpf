@@ -14,8 +14,8 @@
 #include <vector>
 
 #include <cuda/memory_resource>
+#include <cuda/stream>
 
-#include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 #include <rmm/resource_ref.hpp>
 
@@ -45,7 +45,7 @@ class HostBuffer {
      */
     HostBuffer(
         std::size_t size,
-        rmm::cuda_stream_view stream,
+        cuda::stream_ref stream,
         cuda::mr::any_resource<cuda::mr::host_accessible> mr
     );
 
@@ -91,7 +91,7 @@ class HostBuffer {
      *
      * @return CUDA stream view.
      */
-    [[nodiscard]] rmm::cuda_stream_view stream() const noexcept;
+    [[nodiscard]] cuda::stream_ref stream() const noexcept;
 
     /**
      * @brief Get the size of the buffer in bytes.
@@ -142,7 +142,7 @@ class HostBuffer {
      *
      * @param stream The new CUDA stream.
      */
-    void set_stream(rmm::cuda_stream_view stream);
+    void set_stream(cuda::stream_ref stream);
 
     /**
      * @brief Construct a `HostBuffer` by copying data from a `std::vector<std::uint8_t>`.
@@ -158,7 +158,7 @@ class HostBuffer {
      */
     static HostBuffer from_uint8_vector(
         std::vector<std::uint8_t> const& data,
-        rmm::cuda_stream_view stream,
+        cuda::stream_ref stream,
         rmm::host_async_resource_ref mr
     );
 
@@ -175,7 +175,7 @@ class HostBuffer {
      * @return A new `HostBuffer` owning the vector's memory.
      */
     static HostBuffer from_owned_vector(
-        std::vector<std::uint8_t>&& data, rmm::cuda_stream_view stream
+        std::vector<std::uint8_t>&& data, cuda::stream_ref stream
     );
 
     /**
@@ -202,8 +202,7 @@ class HostBuffer {
      * host memory type. If non-pinned host buffer leads to an irrecoverable condition.
      */
     static HostBuffer from_rmm_device_buffer(
-        std::unique_ptr<rmm::device_buffer> pinned_host_buffer,
-        rmm::cuda_stream_view stream
+        std::unique_ptr<rmm::device_buffer> pinned_host_buffer, cuda::stream_ref stream
     );
 
   private:
@@ -218,15 +217,15 @@ class HostBuffer {
      */
     HostBuffer(
         std::span<std::byte> span,
-        rmm::cuda_stream_view stream,
-        std::function<void(rmm::cuda_stream_view)> deallocate_fn
+        cuda::stream_ref stream,
+        std::function<void(cuda::stream_ref)> deallocate_fn
     );
 
-    rmm::cuda_stream_view stream_;
+    cuda::stream_ref stream_{cudaStreamLegacy};
     std::span<std::byte> span_{};
     /// @brief Callable that releases the underlying memory when invoked with the current
     /// stream. Null when the buffer is empty.
-    std::function<void(rmm::cuda_stream_view)> deallocate_fn_{};
+    std::function<void(cuda::stream_ref)> deallocate_fn_{};
 };
 
 }  // namespace rapidsmpf

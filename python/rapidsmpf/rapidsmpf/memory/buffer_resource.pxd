@@ -4,7 +4,7 @@
 from libc.stddef cimport size_t
 from libc.stdint cimport int64_t
 from libcpp cimport bool as bool_t
-from libcpp.memory cimport shared_ptr
+from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.optional cimport optional
 from libcpp.unordered_map cimport unordered_map
 from rmm.librmm.cuda_stream_pool cimport cuda_stream_pool
@@ -13,9 +13,10 @@ from rmm.librmm.memory_resource cimport (any_resource, device_accessible,
 from rmm.pylibrmm.cuda_stream_pool cimport CudaStreamPool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
+from rapidsmpf._detail.cuda_stream_ref cimport stream_ref
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.config cimport Options, cpp_Options
-from rapidsmpf.memory.buffer cimport MemoryType
+from rapidsmpf.memory.buffer cimport Buffer, MemoryType, cpp_Buffer
 from rapidsmpf.memory.memory_reservation cimport cpp_MemoryReservation
 from rapidsmpf.memory.pinned_memory_resource cimport (PinnedMemoryResource,
                                                       cpp_PinnedMemoryResource,
@@ -33,6 +34,9 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
         YES
 
 cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
+    cdef cppclass cpp_StreamPool "rapidsmpf::StreamPool":
+        cpp_StreamPool(shared_ptr[cuda_stream_pool])
+
     cdef cppclass cpp_BufferResource "rapidsmpf::BufferResource":
         @staticmethod
         shared_ptr[cpp_BufferResource] create(
@@ -40,19 +44,25 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
             optional[cpp_PinnedPoolProperties],
             unordered_map[MemoryType, int64_t],
             optional[cpp_Duration],
-            shared_ptr[cuda_stream_pool],
+            shared_ptr[cpp_StreamPool],
             shared_ptr[cpp_Statistics],
         ) except +ex_handler
-        size_t memory_reserved(MemoryType mem_type) except +ex_handler
+        int64_t memory_available_for_reservation(
+            MemoryType mem_type
+        ) except +ex_handler
         int64_t memory_available(MemoryType mem_type) except +ex_handler
         void set_memory_limit(MemoryType mem_type, int64_t limit) except +ex_handler
         cpp_SpillManager &spill_manager() except +ex_handler
-        const shared_ptr[cuda_stream_pool] &stream_pool() except +ex_handler
         size_t release(cpp_MemoryReservation&, size_t) except +ex_handler
         shared_ptr[cpp_Statistics] statistics() except +ex_handler
         device_async_resource_ref device_mr() noexcept
         cpp_RmmResourceAdaptor& device_mr_adaptor() noexcept
         optional[cpp_PinnedMemoryResource] try_pinned_mr() except +ex_handler
+        unique_ptr[cpp_Buffer] make_buffer(
+            size_t size,
+            stream_ref stream,
+            cpp_MemoryReservation& reservation,
+        ) except +ex_handler
 
 cdef class BufferResource:
     cdef object __weakref__

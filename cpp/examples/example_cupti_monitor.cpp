@@ -10,6 +10,8 @@
 
 #include <cuda_runtime.h>
 
+#include <cuda/stream>
+
 #include <rmm/device_buffer.hpp>
 
 #ifdef RAPIDSMPF_HAVE_CUPTI
@@ -56,7 +58,9 @@ int main() {
                       << " MB on GPU using rmm::device_buffer...\n";
             try {
                 // Allocate device memory using rmm::device_buffer
-                rmm::device_buffer buf(allocation_size, rmm::cuda_stream_default);
+                rmm::device_buffer buf(
+                    allocation_size, cuda::stream_ref{cudaStreamLegacy}
+                );
                 device_buffers.push_back(std::move(buf));
             } catch (rmm::bad_alloc const& e) {
                 std::cerr << "rmm::device_buffer allocation failed: " << e.what()

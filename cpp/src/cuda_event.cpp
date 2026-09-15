@@ -5,6 +5,8 @@
 
 #include <utility>
 
+#include <cuda/stream>
+
 #include <rapidsmpf/cuda_event.hpp>
 
 namespace rapidsmpf {
@@ -14,7 +16,7 @@ CudaEvent::CudaEvent(unsigned flags) {
 }
 
 std::shared_ptr<CudaEvent> CudaEvent::make_shared_record(
-    rmm::cuda_stream_view stream, unsigned flags
+    cuda::stream_ref stream, unsigned flags
 ) {
     auto ret = std::make_shared<CudaEvent>(flags);
     ret->record(stream);
@@ -43,8 +45,8 @@ CudaEvent& CudaEvent::operator=(CudaEvent&& other) {
     return *this;
 }
 
-void CudaEvent::record(rmm::cuda_stream_view stream) {
-    RAPIDSMPF_CUDA_TRY(cudaEventRecord(event_, stream));
+void CudaEvent::record(cuda::stream_ref stream) {
+    RAPIDSMPF_CUDA_TRY(cudaEventRecord(event_, stream.get()));
 }
 
 [[nodiscard]] bool CudaEvent::is_ready() const {
@@ -59,8 +61,8 @@ void CudaEvent::host_wait() const {
     RAPIDSMPF_CUDA_TRY(cudaEventSynchronize(event_));
 }
 
-void CudaEvent::stream_wait(rmm::cuda_stream_view stream) const {
-    RAPIDSMPF_CUDA_TRY(cudaStreamWaitEvent(stream, event_));
+void CudaEvent::stream_wait(cuda::stream_ref stream) const {
+    RAPIDSMPF_CUDA_TRY(cudaStreamWaitEvent(stream.get(), event_));
 }
 
 cudaEvent_t const& CudaEvent::value() const noexcept {

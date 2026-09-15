@@ -5,7 +5,7 @@ from cython cimport no_gc_clear
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int64_t
 from libcpp cimport bool as bool_t
-from libcpp.memory cimport shared_ptr, unique_ptr
+from libcpp.memory cimport make_shared, shared_ptr, unique_ptr
 from libcpp.optional cimport optional
 from libcpp.pair cimport pair
 from libcpp.unordered_map cimport unordered_map
@@ -14,12 +14,16 @@ from libcpp.vector cimport vector
 
 from rmm.pylibrmm import CudaStreamFlags
 
+from rmm.pylibrmm.stream cimport Stream
+
 from rapidsmpf.utils.memory import check_reservation_size
 
 from rmm.librmm.memory_resource cimport (any_resource, device_accessible,
                                          device_async_resource_ref)
 from rmm.pylibrmm.cuda_stream_pool cimport CudaStreamPool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
+
+from rapidsmpf.memory.buffer cimport Buffer, cpp_Buffer
 
 
 cdef extern from *:
@@ -42,6 +46,7 @@ cdef extern from *:
         any_resource[device_accessible]&
     ) except +ex_handler
 
+from rapidsmpf._detail.cuda_stream_ref cimport stream_ref
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.memory_reservation cimport MemoryReservation
 from rapidsmpf.memory.pinned_memory_resource cimport (
@@ -225,12 +230,14 @@ cdef class BufferResource:
                 _props.numa_id = <int>pinned_pool_properties.numa_id
             cpp_pinned_pool = _props
         with nogil:
+            # TODO: Replace this RMM pool with a cuda-python stream pool once a suitable
+            # one is available with all the necessary CCCL interop.
             self._handle = cpp_BufferResource.create(
                 any_resource[device_accessible](device_mr.get_mr()),
                 cpp_pinned_pool,
                 move(_mem_limits),
                 period,
-                stream_pool.c_obj,
+                make_shared[cpp_StreamPool](stream_pool.c_obj),
                 stats_handle,
             )
         self.spill_manager = SpillManager._create(self)
@@ -373,22 +380,25 @@ cdef class BufferResource:
             return None
         return PinnedMemoryResource.from_handle(opt)
 
-    def memory_reserved(self, MemoryType mem_type):
+    def memory_available_for_reservation(self, MemoryType mem_type):
         """
-        Get the current reserved memory of the specified memory type.
+        Get the memory available to a new reservation, in bytes.
+
+        A snapshot of ``memory_available(mem_type)`` minus the outstanding
+        reservations of that memory type. May be negative.
 
         Parameters
         ----------
         mem_type
-            The target memory type.
+            The memory type to query.
 
         Returns
         -------
-        The memory reserved, in bytes.
+        The memory available for reservation, in bytes.
         """
-        cdef size_t ret
+        cdef int64_t ret
         with nogil:
-            ret = deref(self._handle).memory_reserved(mem_type)
+            ret = deref(self._handle).memory_available_for_reservation(mem_type)
         return ret
 
     def memory_available(self, MemoryType mem_type):
@@ -430,7 +440,7 @@ cdef class BufferResource:
         Creates a new reservation of the specified size and memory type to inform the
         system about upcoming buffer allocations.
 
-        If overbooking is allowed, a reservation of the requested `size` is returned
+        If overbooking is allowed, a reservation of the requested ``size`` is returned
         even if the memory is not currently available. In that case, the caller must
         guarantee that at least the overbooked amount of memory will be freed before
         the reservation is used.
@@ -450,7 +460,7 @@ cdef class BufferResource:
         Returns
         -------
         A tuple (reservation, overbooked_bytes):
-            - On success, the reservation's size equals `size`.
+            - On success, the reservation's size equals ``size``.
             - On failure, the reservation's size equals zero (a zero-sized reservation
               never fails).
         """
@@ -560,6 +570,38 @@ cdef class BufferResource:
         with nogil:
             ret = deref(self._handle).release(deref(reservation._handle), size)
         return ret
+
+    def make_buffer(self, size_t size, Stream stream not None, MemoryReservation reservation not None):
+        """
+        Allocate a buffer backed by the given memory reservation.
+
+        Parameters
+        ----------
+        size
+            Size of the buffer in bytes. Must not exceed the reservation size.
+        stream
+            CUDA stream to associate with the buffer.
+        reservation
+            Memory reservation that covers this allocation. The reservation's
+            memory type determines whether the buffer is device or host backed.
+
+        Returns
+        -------
+        A :class:`~rapidsmpf.memory.buffer.Buffer` of the requested size.
+
+        Raises
+        ------
+        ValueError
+            If ``size`` exceeds the reservation size.
+        """
+        cdef unique_ptr[cpp_Buffer] handle
+        with nogil:
+            handle = move(
+                deref(self._handle).make_buffer(
+                    size, stream_ref(stream.view().get()), deref(reservation._handle)
+                )
+            )
+        return Buffer.from_handle(move(handle), self, stream)
 
     @property
     def statistics(self):

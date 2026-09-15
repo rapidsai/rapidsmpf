@@ -10,6 +10,8 @@
 #include <stdexcept>
 #include <vector>
 
+#include <cuda/stream>
+
 #include <rapidsmpf/coll/utils.hpp>
 #include <rapidsmpf/error.hpp>
 

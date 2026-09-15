@@ -8,7 +8,7 @@
 #include <optional>
 #include <string>
 
-#include <rmm/cuda_stream_view.hpp>
+#include <cuda/stream>
 
 #include <rapidsmpf/statistics.hpp>
 
@@ -44,9 +44,7 @@ class StreamOrderedTiming {
      * @param stream The CUDA stream to time.
      * @param statistics The Statistics object that will receive the duration entry.
      */
-    StreamOrderedTiming(
-        rmm::cuda_stream_view stream, std::shared_ptr<Statistics> statistics
-    );
+    StreamOrderedTiming(cuda::stream_ref stream, std::shared_ptr<Statistics> statistics);
 
     /**
      * @brief Marks the stop position in the stream and schedules recording of the
@@ -93,7 +91,7 @@ class StreamOrderedTiming {
 
   private:
     std::uintptr_t uid_{0};
-    rmm::cuda_stream_view stream_;
+    cuda::stream_ref stream_{cudaStreamLegacy};
     std::shared_ptr<Statistics> statistics_;
 };
 

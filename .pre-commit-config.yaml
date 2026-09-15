@@ -76,7 +76,7 @@ repos:
       - id: ruff-format
         files: (python)|(ci)/.*$
   - repo: https://github.com/MarcoGorelli/cython-lint
-    rev: 23371f7c16014aa395d7d9569f01d07f0d5445d2  # frozen: v0.17.0
+    rev: eb2f695bb80387913b8cb1f91ba7ff6cb3026715  # frozen: v0.21.1
     hooks:
       - id: cython-lint
   - repo: https://github.com/pre-commit/mirrors-mypy

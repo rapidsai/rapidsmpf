@@ -21,7 +21,7 @@
 
 /**
  * @namespace rapidsmpf
- * @brief RAPIDS Multi-Processor interfaces.
+ * @brief Multi-Processor interfaces.
  */
 namespace rapidsmpf {
 

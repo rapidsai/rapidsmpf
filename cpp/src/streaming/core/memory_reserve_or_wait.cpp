@@ -4,12 +4,14 @@
  */
 
 #include <algorithm>
-#include <atomic>
 #include <memory>
 #include <mutex>
 #include <ranges>
 #include <stdexcept>
+#include <string>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 #include <coro/sync_wait.hpp>
 
@@ -30,9 +32,36 @@ MemoryReserveOrWait::MemoryReserveOrWait(
     : mem_type_{mem_type},
       executor_{std::move(executor)},
       br_{std::move(br)},
-      timeout_{options.get<Duration>("memory_reserve_timeout", parse_duration)} {
+      timeout_{options.get<Duration>("memory_reserve_timeout", parse_duration)},
+      stat_prefix_{"reserve-" + to_lower(to_string(mem_type)) + "-"} {
     RAPIDSMPF_EXPECTS(executor_ != nullptr, "executor cannot be NULL");
     RAPIDSMPF_EXPECTS(br_ != nullptr, "br cannot be NULL");
+
+    // Shared with `br_` and `Context`, see `Context::statistics()`.
+    statistics_ = br_->statistics();
+}
+
+void MemoryReserveOrWait::record_stat(std::string_view suffix, double value) const {
+    if (!statistics_->enabled()) {
+        return;
+    }
+    std::call_once(report_entries_once_, [this] {
+        using Formatter = Statistics::Formatter;
+        auto entry = [this](std::string_view name, Formatter formatter) {
+            auto full = stat_prefix_ + std::string{name};
+            statistics_->add_report_entry(
+                full, std::vector<std::string>{full}, formatter
+            );
+        };
+        entry("wait-avoided", Formatter::HitRate);
+        entry("wait-timeout", Formatter::HitRate);
+        entry("waiting-requests", Formatter::Gauge);
+        entry("wait-satisfied-time", Formatter::Duration);
+        entry("wait-timeout-time", Formatter::Duration);
+        entry("request-bytes", Formatter::Bytes);
+        entry("overbook-bytes", Formatter::Bytes);
+    });
+    statistics_->add_stat(stat_prefix_ + std::string{suffix}, value);
 }
 
 MemoryReserveOrWait::~MemoryReserveOrWait() noexcept {
@@ -66,11 +95,15 @@ Actor MemoryReserveOrWait::shutdown() {
 coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
     std::size_t size, std::int64_t net_memory_delta
 ) {
+    record_stat("request-bytes", static_cast<double>(size));
+
     // First, check whether the requested memory is immediately available.
     auto [res, _] = br_->reserve(mem_type_, size, AllowOverbooking::NO);
     if (res.size() == size) {
+        record_stat("wait-avoided", 1);
         co_return std::move(res);
     }
+    record_stat("wait-avoided", 0);
 
     // Use libcoro's queue to track completion of this reservation request.
     // The queue will have at most one item: the fulfilled memory reservation.
@@ -78,19 +111,20 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
 
     // Enqueue a reservation request under the mutex.
     std::unique_lock lock(mutex_);
-    bool const spawn_periodic_memory_check = reservation_requests_.empty();
     reservation_requests_.insert(
         Request{
             .size = size,
             .net_memory_delta = net_memory_delta,
             .sequence_number = sequence_counter++,
-            .queue = request_queue
+            .queue = request_queue,
+            .submitted_at = Clock::now()
         }
     );
+    auto const waiting_requests = reservation_requests_.size();
 
-    // If this is the first pending request, start the periodic memory check task.
+    // If no periodic memory check task is running, start one.
     std::optional<coro::task<void>> previous_periodic_task;
-    if (spawn_periodic_memory_check) {
+    if (!periodic_task_running_) {
         // A previous periodic task may exist but is guaranteed to be either already
         // finished or about to finish. This can happen when the last request was
         // extracted and the task is in the process of exiting.
@@ -99,8 +133,15 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
         // ensuring that at most one periodic task is active at any time.
         previous_periodic_task = std::move(periodic_memory_check_task_);
         periodic_memory_check_task_ = executor_->spawn_joinable(periodic_memory_check());
+        // Claim the slot until the task releases it.
+        periodic_task_running_ = true;
     }
     lock.unlock();
+
+    // Recorded each time a request starts waiting, not sampled over time. The set
+    // only grows at the insert above, so the maximum is exact, while the mean is the
+    // queue depth seen when a request starts waiting.
+    record_stat("waiting-requests", static_cast<double>(waiting_requests));
 
     // If a previous periodic task existed, wait for it to fully exit before
     // continuing. The await must happen without holding the mutex, otherwise the
@@ -123,7 +164,15 @@ MemoryReserveOrWait::reserve_or_wait_or_overbook(
 ) {
     auto ret = co_await reserve_or_wait(size, net_memory_delta);
     if (ret.size() < size) {
-        co_return br_->reserve(mem_type_, size, AllowOverbooking::YES);
+        auto overbooked = br_->reserve(mem_type_, size, AllowOverbooking::YES);
+        // `reserve()` returns the total deficit after the reservation, including any
+        // overbooking already outstanding, so clamp to `size` for the amount this
+        // request added.
+        auto const added = std::min(size, overbooked.second);
+        if (added > 0) {
+            record_stat("overbook-bytes", static_cast<double>(added));
+        }
+        co_return overbooked;
     }
     co_return {std::move(ret), 0};
 }
@@ -164,9 +213,10 @@ Duration MemoryReserveOrWait::timeout() const noexcept {
 }
 
 coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
-    // Helper that returns available memory, clamped so negative values become zero.
+    // Helper that returns the memory available for new reservations, clamped so
+    // negative values become zero.
     auto memory_available = [this]() -> std::size_t {
-        std::int64_t const ret = br_->memory_available(mem_type_);
+        std::int64_t const ret = br_->memory_available_for_reservation(mem_type_);
         return safe_cast<std::size_t>(std::max(ret, std::int64_t{0}));
     };
 
@@ -198,6 +248,27 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
         RAPIDSMPF_EXPECTS(err, "cannot spawn push-into-queue task");
     };
 
+    // RAII helper that releases `periodic_task_running_` when this task exits without
+    // reaching one of the `co_return` paths below, such as on an exception. Those paths
+    // release the flag under the same lock acquisition that observes the empty request
+    // set, and dismiss the guard.
+    struct RunningFlagGuard {
+        MemoryReserveOrWait* self;
+
+        ~RunningFlagGuard() {
+            if (self != nullptr) {
+                std::lock_guard lock(self->mutex_);
+                self->periodic_task_running_ = false;
+            }
+        }
+
+        void dismiss() noexcept {
+            self = nullptr;
+        }
+    };
+
+    RunningFlagGuard running_flag_guard{.self = this};
+
     while (true) {
         auto last_reservation_success = Clock::now();
         while (true) {
@@ -205,6 +276,8 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
             {
                 std::unique_lock lock(mutex_);
                 if (reservation_requests_.empty()) {
+                    periodic_task_running_ = false;
+                    running_flag_guard.dismiss();
                     co_return;
                 }
             }
@@ -222,6 +295,9 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
             std::unique_lock lock(mutex_);
             auto eligibles = eligible_requests(max_size);
             if (eligibles.empty()) {
+                // Nothing currently fits. Preserve resident data while ordinary
+                // admission waits for a reservation release; the timeout path
+                // below remains responsible for bounded progress.
                 continue;  // No eligible requests.
             }
 
@@ -238,15 +314,28 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
             // Extract the selected request and push the reservation into its queue.
             Request request = reservation_requests_.extract(it).value();
             lock.unlock();
-            push_into_queue(request.queue, std::move(res));
             last_reservation_success = Clock::now();
+
+            // Satisfied: a reservation release made room for this request, so it
+            // did not reach the timeout.
+            record_stat("wait-timeout", 0);
+            record_stat(
+                "wait-satisfied-time",
+                Duration{last_reservation_success - request.submitted_at}.count()
+            );
+
+            push_into_queue(request.queue, std::move(res));
         }
 
-        // Reaching this point means we hit the timeout. We force progress by selecting
-        // among the smallest pending requests, preferring the one with the smallest
-        // net_memory_delta.
+        // Reaching this point means we hit the timeout. Force bounded progress by
+        // selecting among the smallest pending requests, preferring the one with the
+        // smallest net_memory_delta. Do not spill queued data here: callers that
+        // permit overbooking receive the zero-size reservation below and decide how
+        // to proceed, while non-overbooking callers retain the existing failure path.
         std::unique_lock lock(mutex_);
         if (reservation_requests_.empty()) {
+            periodic_task_running_ = false;
+            running_flag_guard.dismiss();
             co_return;
         }
 
@@ -274,6 +363,15 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
         // Reserve memory and accept a zero-size result if it does not fit into the
         // currently available memory.
         auto [res, _] = br_->reserve(mem_type_, request.size, AllowOverbooking::NO);
+
+        // Forced progress: this request ran out the timeout rather than being admitted
+        // by a reservation release. Whether the forced attempt then found memory is
+        // visible as the `overbook-bytes` count, which only moves when it did not.
+        record_stat("wait-timeout", 1);
+        record_stat(
+            "wait-timeout-time", Duration{Clock::now() - request.submitted_at}.count()
+        );
+
         push_into_queue(request.queue, std::move(res));
     }
 }

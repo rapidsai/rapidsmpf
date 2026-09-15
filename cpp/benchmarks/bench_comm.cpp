@@ -8,8 +8,8 @@
 
 #include <mpi.h>
 
-#include <rmm/cuda_stream_pool.hpp>
-#include <rmm/cuda_stream_view.hpp>
+#include <cuda/stream>
+
 #include <rmm/mr/per_device_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
@@ -209,7 +209,7 @@ class ArgumentParser {
 Duration run(
     std::shared_ptr<Communicator> comm,
     ArgumentParser const& args,
-    rmm::cuda_stream_view stream,
+    cuda::stream_ref stream,
     BufferResource* br,
     std::shared_ptr<rapidsmpf::Statistics> statistics
 ) {
@@ -221,11 +221,9 @@ Duration run(
             auto [res, _] =
                 br->reserve(MemoryType::DEVICE, args.msg_size * 2, AllowOverbooking::YES);
             auto buf = br->make_buffer(args.msg_size, stream, res);
-            buf->write_access(
-                [size = args.msg_size](std::byte* ptr, rmm::cuda_stream_view s) {
-                    RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(ptr, 0x42, size, s.value()));
-                }
-            );
+            buf->write_access([size = args.msg_size](std::byte* ptr, cuda::stream_ref s) {
+                RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(ptr, 0x42, size, s.get()));
+            });
             send_bufs.push_back(std::move(buf));
             recv_bufs.push_back(br->make_buffer(args.msg_size, stream, res));
         }
@@ -319,7 +317,7 @@ int main(int argc, char** argv) {
     }
 
     auto& log = comm->logger();
-    rmm::cuda_stream_view stream = rmm::cuda_stream_default;
+    cuda::stream_ref stream{cudaStreamLegacy};
     args.pprint(*comm);
     set_current_rmm_resource(args.rmm_mr);
 
@@ -329,9 +327,7 @@ int main(int argc, char** argv) {
         PinnedMemoryDisabled,
         {},
         std::chrono::milliseconds{1},
-        std::make_shared<rmm::cuda_stream_pool>(
-            16, rmm::cuda_stream::flags::non_blocking
-        ),
+        std::make_shared<StreamPool>(16),
         stats
     );
 

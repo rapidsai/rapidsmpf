@@ -14,8 +14,6 @@
 #include <optional>
 #include <vector>
 
-#include <rmm/cuda_stream_view.hpp>
-
 #include <rapidsmpf/coll/utils.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/memory/buffer.hpp>

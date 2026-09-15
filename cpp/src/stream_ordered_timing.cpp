@@ -9,6 +9,8 @@
 #include <unordered_map>
 #include <utility>
 
+#include <cuda/stream>
+
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/stream_ordered_timing.hpp>
 #include <rapidsmpf/utils/misc.hpp>
@@ -98,7 +100,7 @@ void timing_stop_cb(void* data) {
 }  // namespace
 
 StreamOrderedTiming::StreamOrderedTiming(
-    rmm::cuda_stream_view stream, std::shared_ptr<Statistics> statistics
+    cuda::stream_ref stream, std::shared_ptr<Statistics> statistics
 )
     : stream_{stream}, statistics_{std::move(statistics)} {
     RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
@@ -115,7 +117,7 @@ StreamOrderedTiming::StreamOrderedTiming(
     lock.unlock();
 
     RAPIDSMPF_CUDA_TRY(
-        cudaLaunchHostFunc(stream_, timing_start_cb, reinterpret_cast<void*>(uid_))
+        cudaLaunchHostFunc(stream_.get(), timing_start_cb, reinterpret_cast<void*>(uid_))
     );
 }
 
@@ -133,7 +135,7 @@ void StreamOrderedTiming::stop_and_record(
     }
 
     RAPIDSMPF_CUDA_TRY(
-        cudaLaunchHostFunc(stream_, timing_stop_cb, reinterpret_cast<void*>(uid_))
+        cudaLaunchHostFunc(stream_.get(), timing_stop_cb, reinterpret_cast<void*>(uid_))
     );
 }
 

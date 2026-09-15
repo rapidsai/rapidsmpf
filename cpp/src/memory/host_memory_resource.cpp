@@ -9,6 +9,8 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include <cuda/stream>
+
 #include <rapidsmpf/memory/host_memory_resource.hpp>
 
 namespace rapidsmpf {
@@ -41,7 +43,7 @@ void enable_hugepage_for_region(void* ptr, std::size_t size) {
 }  // namespace
 
 void* HostMemoryResource::allocate(
-    rmm::cuda_stream_view, std::size_t size, std::size_t alignment
+    cuda::stream_ref, std::size_t size, std::size_t alignment
 ) {
     void* ret = ::operator new(size, std::align_val_t{alignment});
     enable_hugepage_for_region(ret, size);
@@ -49,9 +51,9 @@ void* HostMemoryResource::allocate(
 }
 
 void HostMemoryResource::deallocate(
-    rmm::cuda_stream_view stream, void* ptr, std::size_t, std::size_t alignment
+    cuda::stream_ref stream, void* ptr, std::size_t, std::size_t alignment
 ) noexcept {
-    stream.synchronize();
+    stream.sync();
     ::operator delete(ptr, std::align_val_t{alignment});
 }
 }  // namespace rapidsmpf

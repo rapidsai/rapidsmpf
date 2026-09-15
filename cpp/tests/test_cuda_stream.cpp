@@ -3,13 +3,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <ranges>
 #include <utility>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <cuda/stream>
+
 #include <rmm/cuda_stream.hpp>
-#include <rmm/cuda_stream_view.hpp>
 #include <rmm/device_buffer.hpp>
 
 #include <rapidsmpf/cuda_event.hpp>
@@ -51,8 +53,13 @@ TEST(CudaStreamJoinCppOnly, MultiUpstreamsMultiDownstreams) {
     // Streams and their views (created with explicit priorities).
     std::array<cudaStream_t, num_slices> upstream_raw{};
     std::array<cudaStream_t, num_slices> downstream_raw{};
-    std::array<rmm::cuda_stream_view, num_slices> upstreams{};
-    std::array<rmm::cuda_stream_view, num_slices> downstreams{};
+    auto const default_stream = cuda::stream_ref{cudaStreamLegacy};
+    std::array<cuda::stream_ref, num_slices> upstreams{
+        default_stream, default_stream, default_stream
+    };
+    std::array<cuda::stream_ref, num_slices> downstreams{
+        default_stream, default_stream, default_stream
+    };
 
     int least_priority = 0;  // numerically larger (often 0) => lower priority
     int greatest_priority = 0;  // numerically smaller (often negative) => higher priority
@@ -67,8 +74,8 @@ TEST(CudaStreamJoinCppOnly, MultiUpstreamsMultiDownstreams) {
         RAPIDSMPF_CUDA_TRY(cudaStreamCreateWithPriority(
             &downstream_raw[i], cudaStreamNonBlocking, greatest_priority
         ));  // high priority
-        upstreams[i] = rmm::cuda_stream_view{upstream_raw[i]};
-        downstreams[i] = rmm::cuda_stream_view{downstream_raw[i]};
+        upstreams[i] = cuda::stream_ref{upstream_raw[i]};
+        downstreams[i] = cuda::stream_ref{downstream_raw[i]};
     }
 
     // One large device buffer, initialize to 0x00 and sync once for known base state.
@@ -86,7 +93,7 @@ TEST(CudaStreamJoinCppOnly, MultiUpstreamsMultiDownstreams) {
         unsigned char* slice_dev_ptr = dptr + safe_cast<std::size_t>(i) * slice_bytes;
         for (int r = 0; r < upstream_repeats; ++r) {
             RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(
-                slice_dev_ptr, upstream_values[i], slice_bytes, upstreams[i]
+                slice_dev_ptr, upstream_values[i], slice_bytes, upstreams[i].get()
             ));
         }
     }
@@ -98,7 +105,7 @@ TEST(CudaStreamJoinCppOnly, MultiUpstreamsMultiDownstreams) {
     for (int i = 0; i < num_slices; ++i) {
         unsigned char* slice_dev_ptr = dptr + safe_cast<std::size_t>(i) * slice_bytes;
         RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(
-            slice_dev_ptr, downstream_value(i), slice_bytes, downstreams[i]
+            slice_dev_ptr, downstream_value(i), slice_bytes, downstreams[i].get()
         ));
     }
 
@@ -131,3 +138,26 @@ TEST(CudaStreamJoinCppOnly, MultiUpstreamsMultiDownstreams) {
         }
     }
 }
+
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+TEST(CudaStreamJoinCppOnly, AcceptsNonRangeStreamTypes) {
+    // Types that convert to `cuda::stream_ref` but are not ranges must select the
+    // stream/stream overload. If the range template wins, this stops compiling
+    // with "'begin' was not declared in this scope". The invocation is vacuous:
+    // regression coverage comes from instantiating the selected overload.
+    static_assert(!std::ranges::range<rmm::cuda_stream_view>);
+    static_assert(!std::ranges::range<cudaStream_t>);
+
+    CudaEvent event;
+    rmm::cuda_stream stream;
+
+    cuda_stream_join(stream.view(), stream.view(), &event);
+    cuda_stream_join(cudaStreamLegacy, cudaStreamLegacy, &event);
+    cuda_stream_join(cuda::stream_ref{cudaStreamLegacy}, stream.view(), &event);
+}
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif

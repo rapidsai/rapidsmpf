@@ -12,6 +12,8 @@
 #include <cuda_runtime_api.h>
 #include <gtest/gtest.h>
 
+#include <cuda/stream>
+
 #include <coro/latch.hpp>
 
 #include <rapidsmpf/memory/buffer.hpp>
@@ -51,7 +53,7 @@ PackedData make_payload(
     std::memcpy(metadata->data(), &metadata_value, sizeof(int));
 
     auto data = br->make_buffer(stream, br->reserve_or_fail(sizeof(int), mem_type));
-    data->write_access([&](std::byte* ptr, rmm::cuda_stream_view op_stream) {
+    data->write_access([&](std::byte* ptr, cuda::stream_ref op_stream) {
         RAPIDSMPF_CUDA_TRY(
             rapidsmpf::cuda_memcpy_async(
                 ptr, &payload_value, sizeof(payload_value), op_stream
@@ -74,13 +76,10 @@ int decode_payload(PackedData const& packed_data) {
     int result = -1;
     RAPIDSMPF_CUDA_TRY(
         rapidsmpf::cuda_memcpy_async(
-            &result,
-            packed_data.data->data(),
-            sizeof(result),
-            packed_data.stream().value()
+            &result, packed_data.data->data(), sizeof(result), packed_data.stream().get()
         )
     );
-    packed_data.stream().synchronize();
+    packed_data.stream().sync();
     return result;
 }
 

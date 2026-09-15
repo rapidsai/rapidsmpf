@@ -5,6 +5,8 @@
 
 #include <utility>
 
+#include <cuda/stream>
+
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/memory/host_buffer.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
@@ -14,7 +16,7 @@ namespace rapidsmpf {
 
 HostBuffer::HostBuffer(
     std::size_t size,
-    rmm::cuda_stream_view stream,
+    cuda::stream_ref stream,
     cuda::mr::any_resource<cuda::mr::host_accessible> mr
 )
     : stream_{stream} {
@@ -23,17 +25,16 @@ HostBuffer::HostBuffer(
             mr.allocate(stream_, size, alignof(::cuda::std::max_align_t))
         );
         span_ = std::span<std::byte>{ptr, size};
-        deallocate_fn_ =
-            [mr = std::move(mr), ptr, size](rmm::cuda_stream_view s) mutable {
-                mr.deallocate(s, ptr, size, alignof(::cuda::std::max_align_t));
-            };
+        deallocate_fn_ = [mr = std::move(mr), ptr, size](cuda::stream_ref s) mutable {
+            mr.deallocate(s, ptr, size, alignof(::cuda::std::max_align_t));
+        };
     }
 }
 
 HostBuffer::HostBuffer(
     std::span<std::byte> span,
-    rmm::cuda_stream_view stream,
-    std::function<void(rmm::cuda_stream_view)> deallocate_fn
+    cuda::stream_ref stream,
+    std::function<void(cuda::stream_ref)> deallocate_fn
 )
     : stream_{stream}, span_{span}, deallocate_fn_{std::move(deallocate_fn)} {}
 
@@ -68,7 +69,7 @@ HostBuffer::~HostBuffer() noexcept {
     deallocate_async();
 }
 
-rmm::cuda_stream_view HostBuffer::stream() const noexcept {
+cuda::stream_ref HostBuffer::stream() const noexcept {
     return stream_;
 }
 
@@ -88,23 +89,23 @@ std::byte const* HostBuffer::data() const noexcept {
     return span_.data();
 }
 
-void HostBuffer::set_stream(rmm::cuda_stream_view new_stream) {
+void HostBuffer::set_stream(cuda::stream_ref new_stream) {
     stream_ = new_stream;
 }
 
 std::vector<std::uint8_t> HostBuffer::copy_to_uint8_vector() const {
     std::vector<std::uint8_t> ret(size());
     if (!empty()) {
-        stream_.synchronize();
+        stream_.sync();
         RAPIDSMPF_CUDA_TRY(cuda_memcpy_async(ret.data(), data(), size(), stream_));
-        stream_.synchronize();
+        stream_.sync();
     }
     return ret;
 };
 
 HostBuffer HostBuffer::from_uint8_vector(
     std::vector<std::uint8_t> const& data,
-    rmm::cuda_stream_view stream,
+    cuda::stream_ref stream,
     rmm::host_async_resource_ref mr
 ) {
     HostBuffer ret(data.size(), stream, mr);
@@ -112,13 +113,13 @@ HostBuffer HostBuffer::from_uint8_vector(
         RAPIDSMPF_CUDA_TRY(
             cuda_memcpy_async(ret.data(), data.data(), data.size(), stream)
         );
-        stream.synchronize();  // need to ensure that data outlives the async copy
+        stream.sync();  // need to ensure that data outlives the async copy
     }
     return ret;
 }
 
 HostBuffer HostBuffer::from_owned_vector(
-    std::vector<std::uint8_t>&& data, rmm::cuda_stream_view stream
+    std::vector<std::uint8_t>&& data, cuda::stream_ref stream
 ) {
     // Wrap in shared_ptr so the lambda is copyable (required by std::function).
     auto shared_vec = std::make_shared<std::vector<std::uint8_t>>(std::move(data));
@@ -126,16 +127,14 @@ HostBuffer HostBuffer::from_owned_vector(
     std::span<std::byte> span{ptr, shared_vec->size()};
 
     return HostBuffer{
-        span,
-        stream,
-        [shared_vec_ = std::move(shared_vec)](rmm::cuda_stream_view) mutable {
+        span, stream, [shared_vec_ = std::move(shared_vec)](cuda::stream_ref) mutable {
             shared_vec_.reset();
         }
     };
 }
 
 HostBuffer HostBuffer::from_rmm_device_buffer(
-    std::unique_ptr<rmm::device_buffer> pinned_host_buffer, rmm::cuda_stream_view stream
+    std::unique_ptr<rmm::device_buffer> pinned_host_buffer, cuda::stream_ref stream
 ) {
     RAPIDSMPF_EXPECTS(
         pinned_host_buffer != nullptr,
@@ -158,7 +157,7 @@ HostBuffer HostBuffer::from_rmm_device_buffer(
     return HostBuffer{
         std::move(span),
         stream,
-        [shared_db_ = std::move(shared_db)](rmm::cuda_stream_view) mutable {
+        [shared_db_ = std::move(shared_db)](cuda::stream_ref) mutable {
             shared_db_.reset();
         }
     };

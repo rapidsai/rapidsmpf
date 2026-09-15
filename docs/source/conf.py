@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # numpydoc ignore=GL08
 # Configuration file for the Sphinx documentation builder.
@@ -11,15 +11,35 @@
 from __future__ import annotations
 
 import datetime
+import glob
+import os
+import re
+import xml.etree.ElementTree as ET
 
 from enum import IntEnum, IntFlag
 from typing import Any
 
+from packaging.version import Version
 from sphinx.ext.autodoc import ClassDocumenter
+from sphinx.ext.intersphinx import (
+    inventory_exists,
+    resolve_reference_in_inventory,
+)
+
+import rapidsmpf
 
 project = "NVIDIA RapidsMPF"
 copyright = f"2025-{datetime.datetime.today().year}, NVIDIA Corporation"
 author = "NVIDIA Corporation"
+
+# The version info for the project you're documenting, acts as replacement for
+# |version| and |release|, also used in various other places throughout the
+# built documents.
+RAPIDSMPF_VERSION = Version(rapidsmpf.__version__)
+# The short X.Y version.
+version = f"{RAPIDSMPF_VERSION.major:02}.{RAPIDSMPF_VERSION.minor:02}"
+# The full version, including alpha/beta/rc tags.
+release = f"{RAPIDSMPF_VERSION.major:02}.{RAPIDSMPF_VERSION.minor:02}.{RAPIDSMPF_VERSION.micro:02}"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -27,6 +47,7 @@ author = "NVIDIA Corporation"
 extensions = [
     "sphinx.ext.intersphinx",
     "sphinx.ext.autodoc",
+    "sphinx.ext.autosectionlabel",
     "sphinx.ext.autosummary",
     "sphinx_copybutton",
     "numpydoc",
@@ -35,9 +56,60 @@ extensions = [
     "myst_nb",
     "breathe",
 ]
+
+# Disambiguate section anchors across documents
+autosectionlabel_prefix_document = True
+
 # Breathe Configuration
 breathe_projects = {"librapidsmpf": "../../cpp/doxygen/xml"}
 breathe_default_project = "librapidsmpf"
+
+
+def clean_doxygen_xml(path: str) -> None:
+    # Doxygen 1.9.1 misparses concepts and requires clauses in its XML output.
+    return_types = {
+        "rapidsmpf::BufferResource::reserve_or_fail": "MemoryReservation",
+        "rapidsmpf::ContentDescription::ContentDescription": "",
+        "rapidsmpf::owner_equal": "bool",
+        "rapidsmpf::safe_cast": "To",
+    }
+
+    for filename in glob.glob(os.path.join(path, "*.xml")):
+        tree = ET.parse(filename)
+        changed = False
+        for section in tree.findall(".//sectiondef"):
+            for member in list(section.findall("./memberdef")):
+                type_node = member.find("type")
+                type_text = "".join(type_node.itertext()) if type_node is not None else ""
+                if type_text == "concept":
+                    section.remove(member)
+                    changed = True
+                    continue
+
+                definition = member.find("definition")
+                if type_text.startswith("requires ") and definition is not None:
+                    qualified_name = "".join(definition.itertext()).rsplit(" ", 1)[-1]
+                    if qualified_name in return_types:
+                        return_type = return_types[qualified_name]
+                        type_node.clear()
+                        type_node.text = return_type
+                        definition.clear()
+                        definition.text = f"{return_type} {qualified_name}".lstrip()
+                        changed = True
+
+                args = member.find("argsstring")
+                if args is not None and args.text is not None:
+                    cleaned_args = re.sub(r"\) requires.*", ")", args.text)
+                    if cleaned_args != args.text:
+                        args.text = cleaned_args
+                        changed = True
+
+        if changed:
+            tree.write(filename, encoding="UTF-8", xml_declaration=True)
+
+
+for project_path in breathe_projects.values():
+    clean_doxygen_xml(project_path)
 
 templates_path = ["_templates"]
 exclude_patterns = []
@@ -54,6 +126,7 @@ html_css_files = ["custom.css"]
 
 
 html_theme_options = {
+    "public_docs_features": os.environ.get("CI") == "true",
     "external_links": [],
     "icon_links": [
         {
@@ -63,9 +136,14 @@ html_theme_options = {
             "type": "fontawesome",
         },
     ],
-    "show_toc_level": 2,
     "navbar_align": "right",
+    "navbar_center": "navbar-nav, version-switcher, navbar-external-links",
     "navigation_with_keys": True,
+    "show_toc_level": 2,
+    "switcher": {
+        "json_url": "https://docs.nvidia.com/rapidsmpf/versions.json",
+        "version_match": version,
+    },
 }
 
 
@@ -75,16 +153,35 @@ html_theme_options = {
 
 html_theme = "nvidia_sphinx_theme"
 
+# The nvidia theme sets these two at builder-inited, which defeats all of
+# sphinx's incremental builds. If we set them to their defaults here,
+# everything works nicely.
+toc_object_entries_show_parents = "hide"
+maximum_signature_line_length = 70
+
+
 numpydoc_class_members_toctree = False
 
 
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#confval-default_role
 default_role = "any"
 
+with open("../../RAPIDS_BRANCH", "r") as f:
+    branch = f.read().strip()
+intersphinx_version = "latest" if branch == "main" else version
 
+if branch == "main":
+    ucxx_version = "latest"
+else:
+  from urllib.request import urlopen
+
+  with urlopen(f"https://version.gpuci.io/rapids/{version}") as response:
+      ucxx_version = response.read().decode()
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
     "ray": ("https://docs.ray.io/en/latest/", None),
+    "ucxx": (f"https://docs.rapids.ai/api/ucxx/{ucxx_version}", None),
+    "rmm": (f"https://docs.nvidia.com/rmm/{intersphinx_version}", None),
 }
 
 
@@ -129,7 +226,91 @@ class CythonIntEnumDocumenter(ClassDocumenter):
             self.add_line("", source_name)
 
 
+_RMM_INHERITED_MEMBER_TARGETS = {
+    "rapidsmpf.memory.buffer_resource.OwningDeviceMemoryResource.allocate": (
+        "rmm.mr.DeviceMemoryResource.allocate"
+    ),
+    "rapidsmpf.memory.buffer_resource.OwningDeviceMemoryResource.deallocate": (
+        "rmm.mr.DeviceMemoryResource.deallocate"
+    ),
+    "rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor.allocate": (
+        "rmm.mr.DeviceMemoryResource.allocate"
+    ),
+    "rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor.deallocate": (
+        "rmm.mr.DeviceMemoryResource.deallocate"
+    ),
+}
+
+
+def on_missing_reference(app, env, node, contnode):
+    if (
+        node.get("refdomain") == "py"
+        and node.get("reftype") == "obj"
+        and (
+            rmm_target := _RMM_INHERITED_MEMBER_TARGETS.get(
+                node.get("reftarget")
+            )
+        )
+        is not None
+    ):
+        # numpydoc names inherited methods after the concrete subclass, but RMM
+        # publishes only the defining DeviceMemoryResource methods. Resolve this
+        # deliberately small alias set against the named RMM inventory.
+        if not inventory_exists(env, "rmm"):
+            return None
+        original_target = node["reftarget"]
+        node["reftarget"] = rmm_target
+        try:
+            return resolve_reference_in_inventory(env, "rmm", node, contnode)
+        finally:
+            node["reftarget"] = original_target
+
+    if (refid := node.get("refid")) is not None and "hpp" in refid:
+        return contnode
+
+    if node["refdomain"] in ("std", "cpp") and (
+        reftarget := node.get("reftarget")
+    ) is not None:
+        if match := re.search("(.*)<.*>", reftarget):
+            reftarget = match.group(1)
+
+        prefixes = [
+            "rapidsmpf::",
+            "rapidsmpf::bootstrap::",
+            "rapidsmpf::coll::",
+            "rapidsmpf::communicator::",
+            "rapidsmpf::config::",
+            "rapidsmpf::mpi::",
+            "rapidsmpf::rrun::",
+            "rapidsmpf::shuffler::",
+            "rapidsmpf::streaming::",
+            "rapidsmpf::streaming::actor::",
+            "",
+        ]
+        for name, _, _, _, _, _ in env.domains["cpp"].get_objects():
+            for prefix in prefixes:
+                if name == f"{prefix}{reftarget}" or f"{prefix}{name}" == reftarget:
+                    if (
+                        ref := env.domains["cpp"].resolve_xref(
+                            env,
+                            node.get("refdoc"),
+                            app.builder,
+                            node["reftype"],
+                            name,
+                            node,
+                            contnode,
+                        )
+                    ) is not None:
+                        return ref
+        return contnode
+
+    return None
+
+
 def setup(app):
+    # Run after intersphinx's ordinary lookup so this cannot rewrite a target
+    # which an inventory starts publishing under its original name.
+    app.connect("missing-reference", on_missing_reference, priority=501)
     app.registry.add_documenter("enum", CythonIntEnumDocumenter)
 
     # Prevent Sphinx from replacing native Cython modules with .pyi stubs.
@@ -145,9 +326,4 @@ def setup(app):
 
 
 nitpick_ignore_regex = [
-    # We're subclassing this from RMM, and sphinx can't find these methods.
-    ("py:obj", "rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor.allocate"),
-    ("py:obj", "rapidsmpf.rmm_resource_adaptor.RmmResourceAdaptor.deallocate"),
-    ("py:obj", "rapidsmpf.memory.buffer_resource.OwningDeviceMemoryResource.allocate"),
-    ("py:obj", "rapidsmpf.memory.buffer_resource.OwningDeviceMemoryResource.deallocate"),
 ]

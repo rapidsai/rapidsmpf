@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from libc.stdint cimport uint64_t
@@ -43,7 +43,8 @@ cdef class PackedDataChunk:
 
         Returns
         -------
-        A new PackedData from this chunk. The chunk is left empty.
+        `PackedData`
+            A new PackedData from this chunk. The chunk is left empty.
         """
         return PackedData.from_librapidsmpf(self.release_handle(), self._br)
 
@@ -59,7 +60,8 @@ cdef class PackedDataChunk:
 
         Returns
         -------
-        A new PackedDataChunk from the given object.
+        `PackedDataChunk`
+             A new PackedDataChunk from the given object.
         """
         return PackedDataChunk.from_handle(move(obj.c_obj), br)
 
@@ -93,12 +95,13 @@ cdef class PackedDataChunk:
         Parameters
         ----------
         message
-            Message containing a PackedDataChunk. The message is released
+            `Message` containing a PackedDataChunk. The message is released
             and is empty after this call.
 
         Returns
         -------
-        A new PackedDataChunk extracted from the given message.
+        `PackedDataChunk`
+            A new PackedDataChunk extracted from the given message.
         """
         return PackedDataChunk.from_handle(
             cpp_from_message(move(message._handle)), br
@@ -106,10 +109,10 @@ cdef class PackedDataChunk:
 
     def into_message(self, uint64_t sequence_number, Message message not None):
         """
-        Move this PackedDataChunk into a Message.
+        Move this PackedDataChunk into a `Message`.
 
         This method is not typically called directly. Instead, it is invoked by
-        `Message.__init__()` when creating a new Message with this PackedDataChunk
+        the `Message` constructor when creating a new Message with this PackedDataChunk
         as its payload.
 
         Parameters

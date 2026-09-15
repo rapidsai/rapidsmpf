@@ -13,7 +13,8 @@
 
 #include <gtest/gtest.h>
 
-#include <rmm/cuda_stream_view.hpp>
+#include <cuda/stream>
+
 #include <rmm/mr/per_device_resource.hpp>
 
 #include <rapidsmpf/memory/buffer.hpp>
@@ -49,7 +50,7 @@ TEST(ReceivedChunks, spill_skips_control_messages) {
 TEST(ReceivedChunks, spill_respects_amount) {
     auto mr = rmm::mr::get_current_device_resource_ref();
     auto br = rapidsmpf::BufferResource::create(mr);
-    auto stream = rmm::cuda_stream_default;
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
 
     rapidsmpf::shuffler::detail::ReceivedChunks received;
     constexpr std::size_t chunk_size = 100;
@@ -72,7 +73,7 @@ TEST(ReceivedChunks, spill_respects_amount) {
 }
 
 TEST(MetadataMessage, round_trip) {
-    auto stream = rmm::cuda_stream_default;
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
     auto mr = rmm::mr::get_current_device_resource_ref();
     auto br = rapidsmpf::BufferResource::create(mr);
 
@@ -175,7 +176,7 @@ make_partition_data(
     rapidsmpf::shuffler::PartID total_num_partitions,
     std::size_t total_num_rows,
     rapidsmpf::shuffler::PartID local_pidx,
-    rmm::cuda_stream_view stream,
+    cuda::stream_ref stream,
     rapidsmpf::BufferResource& br,
     std::int64_t base = 0
 ) {
@@ -274,7 +275,7 @@ void test_shuffler(
     rapidsmpf::shuffler::Shuffler& shuffler,
     rapidsmpf::shuffler::PartID total_num_partitions,
     std::size_t total_num_rows,
-    rmm::cuda_stream_view stream,
+    cuda::stream_ref stream,
     rapidsmpf::BufferResource* br,
     std::int64_t base = 0
 ) {
@@ -310,7 +311,7 @@ class MemoryLimits_NumPartition
           std::tuple<MemoryLimitsMap, rapidsmpf::shuffler::PartID, std::size_t>> {
   public:
     void SetUp() override {
-        stream = rmm::cuda_stream_default;
+        stream = cuda::stream_ref{cudaStreamLegacy};
         std::tie(memory_limits, total_num_partitions, total_num_rows) = GetParam();
         br = rapidsmpf::BufferResource::create(
             rmm::mr::get_current_device_resource_ref(),
@@ -334,7 +335,7 @@ class MemoryLimits_NumPartition
     MemoryLimitsMap memory_limits;
     rapidsmpf::shuffler::PartID total_num_partitions;
     std::size_t total_num_rows;
-    rmm::cuda_stream_view stream;
+    cuda::stream_ref stream{cudaStreamLegacy};
     std::shared_ptr<rapidsmpf::BufferResource> br;
     std::unique_ptr<rapidsmpf::shuffler::Shuffler> shuffler;
 };
@@ -380,7 +381,10 @@ TEST(Shuffler, payload_statistics) {
             static_cast<int>(comm->rank()) * static_cast<int>(total_num_partitions)
             + static_cast<int>(pid);
         chunks.emplace(
-            pid, generate_packed_data(n_elements, offset, rmm::cuda_stream_default, *br)
+            pid,
+            generate_packed_data(
+                n_elements, offset, cuda::stream_ref{cudaStreamLegacy}, *br
+            )
         );
     }
     shuffler.insert(std::move(chunks));
@@ -422,7 +426,7 @@ class ConcurrentShuffleTest : public ::testing::TestWithParam<
         // these resources will be used by multiple threads to instantiate shufflers
         br =
             rapidsmpf::BufferResource::create(rmm::mr::get_current_device_resource_ref());
-        stream = rmm::cuda_stream_default;
+        stream = cuda::stream_ref{cudaStreamLegacy};
     }
 
     void TearDown() override {}
@@ -465,7 +469,7 @@ class ConcurrentShuffleTest : public ::testing::TestWithParam<
     std::size_t num_shufflers;
     rapidsmpf::shuffler::PartID total_num_partitions;
 
-    rmm::cuda_stream_view stream;
+    cuda::stream_ref stream{cudaStreamLegacy};
     std::shared_ptr<rapidsmpf::BufferResource> br;
 };
 
@@ -493,7 +497,7 @@ INSTANTIATE_TEST_SUITE_P(
 
 TEST(Shuffler, SpillOnInsertAndExtraction) {
     rapidsmpf::shuffler::PartID const total_num_partitions = 2;
-    auto stream = rmm::cuda_stream_default;
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
 
     // Control spilling by adjusting the DEVICE memory limit at runtime.
     // `memory_available(DEVICE)` is computed as `limit - current_allocated()`, so a
@@ -584,6 +588,47 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
         shuffler.insert(std::move(chunk));
     }
     EXPECT_EQ(mr.get_main_record().num_current_allocs(), 0);
+    shuffler.insert_finished();
+}
+
+TEST(Shuffler, SpillOnInsertAccountsForReservations) {
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+
+    // A limit large enough that `memory_available(DEVICE)` stays positive throughout,
+    // so only the reservation can drive spilling.
+    constexpr std::int64_t k_no_spill_limit = (1LL << 40);
+    auto br = rapidsmpf::BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        rapidsmpf::PinnedMemoryDisabled,
+        {{rapidsmpf::MemoryType::DEVICE, k_no_spill_limit}},
+        std::nullopt  // disable periodic spill check
+    );
+    auto const& mr = br->device_mr_adaptor();
+
+    auto comm = GlobalEnvironment->split_comm();
+    EXPECT_EQ(comm->nranks(), 1);
+    rapidsmpf::shuffler::Shuffler shuffler(comm, /* op_id = */ 0, 1, br.get());
+
+    // Reserve twice the limit. Availability stays positive, but the memory available
+    // for reservation goes negative.
+    constexpr std::size_t reservation_size =
+        2 * static_cast<std::size_t>(k_no_spill_limit);
+    auto [reservation, overbooking] = br->reserve(
+        rapidsmpf::MemoryType::DEVICE, reservation_size, rapidsmpf::AllowOverbooking::YES
+    );
+    EXPECT_EQ(reservation.size(), reservation_size);
+    EXPECT_GT(overbooking, 0);
+    EXPECT_GT(br->memory_available(rapidsmpf::MemoryType::DEVICE), 0);
+    EXPECT_LT(br->memory_available_for_reservation(rapidsmpf::MemoryType::DEVICE), 0);
+
+    // The reservation alone drives the spill. Measured against `memory_available()`
+    // this would spill nothing.
+    std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> chunk;
+    chunk.emplace(0, generate_packed_data(1000, 0, stream, *br));
+    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
+    shuffler.insert(std::move(chunk));
+    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 0);
+
     shuffler.insert_finished();
 }
 
@@ -784,7 +829,7 @@ class ExtractEmptyPartitionsTest : public ::testing::Test {
     static constexpr auto wait_timeout = std::chrono::seconds(30);
 
     void SetUp() override {
-        stream = rmm::cuda_stream_default;
+        stream = cuda::stream_ref{cudaStreamLegacy};
         br =
             rapidsmpf::BufferResource::create(rmm::mr::get_current_device_resource_ref());
 
@@ -835,7 +880,7 @@ class ExtractEmptyPartitionsTest : public ::testing::Test {
         };
     }
 
-    rmm::cuda_stream_view stream;
+    cuda::stream_ref stream{cudaStreamLegacy};
     std::shared_ptr<rapidsmpf::BufferResource> br;
     std::unique_ptr<rapidsmpf::shuffler::Shuffler> shuffler;
 };
@@ -967,7 +1012,7 @@ TEST(Shuffler, opid_reuse) {
         GTEST_SKIP() << "OpID reuse test requires multiple ranks";
     }
 
-    auto stream = rmm::cuda_stream_default;
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
     auto const total_num_partitions =
         rapidsmpf::safe_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
     constexpr std::size_t total_num_rows = 1000;
@@ -1034,7 +1079,7 @@ TEST(Shuffler, opid_reuse_with_empty_partitions) {
         GTEST_SKIP() << "OpID reuse test requires multiple ranks";
     }
 
-    auto stream = rmm::cuda_stream_default;
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
     constexpr rapidsmpf::shuffler::PartID total_num_partitions = 1;
     constexpr std::size_t total_num_rows = 1000;
     constexpr rapidsmpf::OpID op_id = 0;

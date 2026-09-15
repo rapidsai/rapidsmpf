@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
@@ -23,11 +23,12 @@ def KiB(x: int) -> int:
 def test_buffer_resource() -> None:
     mr = rmm.mr.CudaMemoryResource()
     br = BufferResource(mr, memory_limits={MemoryType.DEVICE: KiB(100)})
-    assert br.memory_reserved(MemoryType.DEVICE) == 0
-    assert br.memory_reserved(MemoryType.HOST) == 0
-
-    # Memory availability starts at the configured limit.
+    # Memory availability starts at the configured limit, with nothing reserved.
     assert br.memory_available(MemoryType.DEVICE) == KiB(100)
+    assert br.memory_available_for_reservation(MemoryType.DEVICE) == KiB(100)
+    assert br.memory_available_for_reservation(MemoryType.HOST) == br.memory_available(
+        MemoryType.HOST
+    )
 
 
 @pytest.mark.parametrize("mem_type", [MemoryType.DEVICE, MemoryType.HOST])
@@ -261,3 +262,51 @@ def test_reserve_or_fail() -> None:
     # When no memory type can satisfy the request, raises RuntimeError.
     with pytest.raises(RuntimeError, match="failed to reserve memory"):
         br.reserve_or_fail(KiB(200), [MemoryType.DEVICE])
+
+
+@pytest.mark.parametrize("mem_type", [MemoryType.DEVICE, MemoryType.HOST])
+@pytest.mark.parametrize("split_size", [0, KiB(30), KiB(80)])
+def test_reservation_split(mem_type: MemoryType, split_size: int) -> None:
+    mr = rmm.mr.CudaMemoryResource()
+    br = BufferResource(mr, memory_limits={mem_type: KiB(100)})
+
+    res, _ = br.reserve(mem_type, KiB(80), allow_overbooking=False)
+    available = br.memory_available_for_reservation(mem_type)
+
+    child = res.split(split_size)
+    assert child.size == split_size
+    assert child.mem_type == mem_type
+    assert child.br is br
+    assert res.size == KiB(80) - split_size
+    # The split redistributes bytes between the two reservations, it doesn't
+    # reserve anything new.
+    assert br.memory_available_for_reservation(mem_type) == available
+
+
+@pytest.mark.parametrize("mem_type", [MemoryType.DEVICE, MemoryType.HOST])
+def test_reservation_split_too_large(mem_type: MemoryType) -> None:
+    mr = rmm.mr.CudaMemoryResource()
+    br = BufferResource(mr, memory_limits={mem_type: KiB(100)})
+
+    res, _ = br.reserve(mem_type, KiB(40), allow_overbooking=False)
+    with pytest.raises(ReservationError, match="isn't big enough"):
+        res.split(KiB(41))
+    # The failed split leaves the reservation untouched.
+    assert res.size == KiB(40)
+
+
+@pytest.mark.parametrize("mem_type", [MemoryType.DEVICE, MemoryType.HOST])
+def test_reservation_split_releases_on_scope_exit(mem_type: MemoryType) -> None:
+    mr = rmm.mr.CudaMemoryResource()
+    br = BufferResource(mr, memory_limits={mem_type: KiB(100)})
+
+    res, _ = br.reserve(mem_type, KiB(100), allow_overbooking=False)
+    available = br.memory_available_for_reservation(mem_type)
+
+    with opaque_memory_usage(res.split(KiB(60))) as child:
+        assert child.size == KiB(60)
+        assert br.memory_available_for_reservation(mem_type) == available
+
+    assert child.size == 0
+    assert res.size == KiB(40)
+    assert br.memory_available_for_reservation(mem_type) == available + KiB(60)

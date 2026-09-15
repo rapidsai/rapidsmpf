@@ -106,23 +106,60 @@ class SpillManager {
 
     /**
      * @brief Attempts to free up memory by spilling data until the requested headroom is
-     * available.
+     * reservable.
      *
-     * This method checks the currently available memory and, if insufficient, triggers
-     * spilling mechanisms to free up space. Spilling is performed in order of the
-     * function priorities until the required headroom is reached or no more spilling is
-     * possible.
+     * The headroom measurement is a snapshot, so a later `reserve()` of `headroom` bytes
+     * is not guaranteed to succeed. Spilling is performed in order of the function
+     * priorities until the requested headroom is reservable or no more spilling is
+     * possible. Spilling reduces allocations, never outstanding reservations.
      *
-     * @param headroom The target amount of headroom (in bytes). A negative headroom is
-     * allowed and can be used to only trigger spilling when the available memory becomes
-     * negative (as reported by the memory resource).
+     * @param headroom The target amount of headroom (in bytes). A negative headroom
+     * triggers spilling only once the memory available for reservation drops below
+     * `headroom`.
      * @return The actual amount of memory spilled (in bytes), which may be less than
      * requested if there is insufficient spillable data, but may also be more
      * or equal to requested depending on the sizes of spillable data buffers.
+     *
+     * @see BufferResource::memory_available_for_reservation()
      */
     std::size_t spill_to_make_headroom(std::int64_t headroom = 0);
 
+    /**
+     * @brief Non-blocking version of `spill_to_make_headroom()`.
+     *
+     * Returns immediately instead of waiting when the spill lock is unavailable.
+     * Intended for pollers that retry, such as the streaming layer's memory
+     * reservation loop.
+     *
+     * @param headroom The target amount of headroom (in bytes). A negative headroom
+     * triggers spilling only once the memory available for reservation drops below
+     * `headroom`.
+     * @return The actual amount of memory spilled (in bytes), or `std::nullopt` if no
+     * spill was attempted. A `std::nullopt` result does not imply that spilling is
+     * impossible or that another spill is in progress. Callers should retry.
+     *
+     * @see spill_to_make_headroom()
+     */
+    std::optional<std::size_t> try_spill_to_make_headroom(std::int64_t headroom = 0);
+
   private:
+    /**
+     * @brief Spills memory without locking. The caller must hold `mutex_`.
+     *
+     * @param amount The amount of memory (in bytes) to spill.
+     * @return The actual amount of memory spilled (in bytes).
+     */
+    std::size_t spill_unsafe(std::size_t amount);
+
+    /**
+     * @brief Spills to reach the requested headroom without locking, reading the
+     * available memory under the caller's lock. The caller must hold `mutex_`.
+     *
+     * @param headroom The target amount of headroom (in bytes).
+     * @return The actual amount of memory spilled (in bytes).
+     */
+    std::size_t spill_to_make_headroom_unsafe(std::int64_t headroom);
+
     mutable std::mutex mutex_;
     BufferResource* br_;
     std::size_t spill_function_id_counter_{0};

@@ -5,6 +5,7 @@
 
 #include <thread>
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include <rapidsmpf/streaming/core/context.hpp>
@@ -39,6 +40,38 @@ class StreamingMemoryReserveOrWait
 
     std::int64_t get_mem_avail() {
         return br->memory_available(rapidsmpf::MemoryType::DEVICE);
+    }
+
+    // Buffer resource with statistics enabled and no periodic spill thread, so the
+    // recorded stats come only from the reservation path under test. The fixture's
+    // own `br` uses `Statistics::disabled()`.
+    struct StatsBufferResource {
+        std::shared_ptr<BufferResource> br;
+        std::shared_ptr<Statistics> stats;
+    };
+
+    StatsBufferResource make_br_with_stats(std::int64_t device_limit) {
+        auto stats = Statistics::create();
+        auto br_with_stats = BufferResource::create(
+            mr_cuda,
+            rapidsmpf::PinnedMemoryDisabled,
+            {{MemoryType::DEVICE, device_limit}},
+            /* periodic_spill_check = */ std::nullopt,
+            std::make_shared<StreamPool>(16),
+            stats
+        );
+        return {.br = std::move(br_with_stats), .stats = std::move(stats)};
+    }
+
+    // Actor that reserves `size` bytes and expects a reservation of `expected` bytes.
+    static Actor waiter(
+        MemoryReserveOrWait& mrow,
+        std::size_t size,
+        std::int64_t net_memory_delta,
+        std::size_t expected
+    ) {
+        auto res = co_await mrow.reserve_or_wait(size, net_memory_delta);
+        EXPECT_EQ(res.size(), expected);
     }
 };
 
@@ -268,6 +301,141 @@ TEST_P(StreamingMemoryReserveOrWait, NoDeadlockWhenSpawningWithStaleHandle) {
     }
 }
 
+// Pins the memory available for reservation to `available` bytes and registers a spill
+// function backed by a finite pool of `spillable` bytes, recording each request. Frees
+// what it is asked for until the pool is exhausted, then returns 0.
+//
+// Pinning keeps the buffer resource's periodic spill thread out of the way, it only
+// acts once the available memory goes negative.
+class SpillRecorder {
+  public:
+    SpillRecorder(BufferResource* br, std::int64_t available, std::size_t spillable)
+        : br_{br},
+          limit_{
+              safe_cast<std::int64_t>(br->device_mr_adaptor().current_allocated())
+              + available
+          },
+          spillable_{spillable} {
+        br_->set_memory_limit(MemoryType::DEVICE, limit_);
+        fid_ = br_->spill_manager().add_spill_function(
+            [this](std::size_t amount) -> std::size_t {
+                std::lock_guard lock(mutex_);
+                amounts_.push_back(amount);
+                auto const spilled = std::min(amount, spillable_);
+                spillable_ -= spilled;
+                limit_ += safe_cast<std::int64_t>(spilled);
+                br_->set_memory_limit(MemoryType::DEVICE, limit_);
+                return spilled;
+            },
+            /* priority = */ 1
+        );
+    }
+
+    ~SpillRecorder() {
+        br_->spill_manager().remove_spill_function(fid_);
+    }
+
+    [[nodiscard]] std::vector<std::size_t> amounts() const {
+        std::lock_guard lock(mutex_);
+        return amounts_;
+    }
+
+  private:
+    BufferResource* br_;
+    std::int64_t limit_;
+    std::size_t spillable_;
+    std::size_t fid_{};
+    mutable std::mutex mutex_;
+    std::vector<std::size_t> amounts_;
+};
+
+TEST_P(StreamingMemoryReserveOrWait, DoesNotSpillBeforeProgressTimeout) {
+    if (is_running_under_valgrind()) {
+        GTEST_SKIP() << "Test runs very slow in valgrind";
+    }
+
+    MemoryReserveOrWait mrow{
+        // Keep the timeout far away so the test exercises ordinary admission polling.
+        config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
+        MemoryType::DEVICE,
+        ctx->executor(),
+        ctx->br()
+    };
+
+    // An outstanding reservation consumes all available memory. Before the fix, the
+    // ordinary admission loop calls this spill function to unblock the waiter.
+    SpillRecorder spills{br.get(), /* available = */ 10, /* spillable = */ 10};
+    auto [outstanding, _] = br->reserve(MemoryType::DEVICE, 10, AllowOverbooking::NO);
+    ASSERT_EQ(outstanding.size(), 10);
+
+    std::vector<Actor> actors;
+    actors.push_back([](MemoryReserveOrWait& waiter) -> Actor {
+        try {
+            std::ignore = co_await waiter.reserve_or_wait(10, 0);
+        } catch (std::runtime_error const&) {
+            // `shutdown()` closes the pending request queue.
+        }
+    }(mrow));
+    actors.push_back(
+        [](MemoryReserveOrWait& waiter, SpillRecorder const& spills) -> Actor {
+            // The counter increments before each yield. Reaching two iterations proves
+            // the first no-fit admission pass completed without relying on wall-clock
+            // sleeps or a scheduling deadline.
+            while (waiter.periodic_memory_check_counter() < 2) {
+                co_await waiter.executor()->yield();
+            }
+            EXPECT_TRUE(spills.amounts().empty());
+            co_await waiter.shutdown();
+        }(mrow, spills)
+    );
+    run_actor_network(std::move(actors));
+}
+
+TEST_P(StreamingMemoryReserveOrWait, ProgressTimeoutReturnsWithoutSpilling) {
+    if (is_running_under_valgrind()) {
+        GTEST_SKIP() << "Test runs very slow in valgrind";
+    }
+
+    MemoryReserveOrWait mrow{
+        // Short timeout, the waiter can only make progress via the timeout path.
+        config::Options({{"memory_reserve_timeout", config::OptionValue("100ms")}}),
+        MemoryType::DEVICE,
+        ctx->executor(),
+        ctx->br()
+    };
+
+    // A timeout must preserve its bounded-progress contract by handing back a
+    // zero-size reservation. It must not evict queued device data merely to turn
+    // that timeout into an immediate full reservation.
+    SpillRecorder spills{br.get(), /* available = */ 0, /* spillable = */ 10};
+    ASSERT_EQ(get_mem_avail(), 0);
+
+    // The waiter completes via the timeout instead of hanging on its queue.
+    std::vector<Actor> actors;
+    actors.push_back(waiter(mrow, 10, 0, 0));
+    run_actor_network(std::move(actors));
+
+    EXPECT_TRUE(spills.amounts().empty());
+}
+
+TEST_P(StreamingMemoryReserveOrWait, NoSpillWhenMemoryIsAvailable) {
+    MemoryReserveOrWait mrow{
+        config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
+        MemoryType::DEVICE,
+        ctx->executor(),
+        ctx->br()
+    };
+
+    SpillRecorder spills{br.get(), /* available = */ 1024, /* spillable = */ 0};
+
+    std::vector<Actor> actors;
+    actors.push_back(waiter(mrow, 10, 0, 10));
+    run_actor_network(std::move(actors));
+
+    // The request fits immediately, so the fast path never reaches the periodic task.
+    EXPECT_TRUE(spills.amounts().empty());
+}
+
 TEST_P(StreamingMemoryReserveOrWait, OverbookOnTimeoutReportsOverbookingBytes) {
     // Start with no available memory so the request cannot be satisfied normally.
     set_mem_avail(0);
@@ -413,4 +581,154 @@ TEST_P(StreamingMemoryReserveOrWait, ReserveMemoryHelperDefaultOverbookingDisabl
             rapidsmpf::reservation_error
         );
     }(ctx_with_no_overbook));
+}
+
+TEST_P(StreamingMemoryReserveOrWait, StatisticsRecordWaitAvoided) {
+    auto [br_stats, stats] = make_br_with_stats(/* device_limit = */ 1024);
+    MemoryReserveOrWait mrow{
+        config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
+        MemoryType::DEVICE,
+        ctx->executor(),
+        br_stats
+    };
+
+    std::vector<Actor> actors;
+    actors.push_back(waiter(mrow, 10, 0, 10));
+    run_actor_network(std::move(actors));
+
+    // The fast path satisfied the request, so it never reached the periodic task.
+    auto const avoided = stats->get_stat("reserve-device-wait-avoided");
+    EXPECT_EQ(avoided.count(), 1u);  // one lookup
+    EXPECT_EQ(avoided.value(), 1.0);  // one hit
+    EXPECT_EQ(stats->get_stat("reserve-device-request-bytes").value(), 10.0);
+    // Nothing queued, so the queued-request hit rate was never sampled.
+    EXPECT_THROW(
+        std::ignore = stats->get_stat("reserve-device-wait-timeout"), std::out_of_range
+    );
+}
+
+TEST_P(StreamingMemoryReserveOrWait, StatisticsRecordWaitSatisfied) {
+    if (is_running_under_valgrind()) {
+        GTEST_SKIP() << "Test runs very slow in valgrind";
+    }
+
+    // No memory initially, so the request must queue rather than take the fast path.
+    auto [br_stats, stats] = make_br_with_stats(/* device_limit = */ 0);
+    MemoryReserveOrWait mrow{
+        // Keep the timeout far away so only ordinary admission can complete this.
+        config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
+        MemoryType::DEVICE,
+        ctx->executor(),
+        br_stats
+    };
+
+    std::vector<Actor> actors;
+    actors.push_back(waiter(mrow, 10, 0, 10));
+    // Release memory once the request is queued. Condition driven, no wall-clock sleep.
+    actors.push_back([](MemoryReserveOrWait& mrow, BufferResource& br) -> Actor {
+        while (mrow.size() < 1) {
+            co_await mrow.executor()->yield();
+        }
+        br.set_memory_limit(MemoryType::DEVICE, 10);
+    }(mrow, *br_stats));
+    run_actor_network(std::move(actors));
+
+    // Queued, then admitted by the release rather than by the timeout.
+    auto const avoided = stats->get_stat("reserve-device-wait-avoided");
+    EXPECT_EQ(avoided.count(), 1u);  // one lookup
+    EXPECT_EQ(avoided.value(), 0.0);  // no hit
+    auto const timeout = stats->get_stat("reserve-device-wait-timeout");
+    EXPECT_EQ(timeout.count(), 1u);  // one queued request
+    EXPECT_EQ(timeout.value(), 0.0);  // admitted by the release, it never timed out
+    // One request pending, counting itself.
+    EXPECT_EQ(stats->get_stat("reserve-device-waiting-requests").max(), 1.0);
+    EXPECT_EQ(stats->get_stat("reserve-device-wait-satisfied-time").count(), 1u);
+    EXPECT_THROW(
+        std::ignore = stats->get_stat("reserve-device-wait-timeout-time"),
+        std::out_of_range
+    );
+}
+
+TEST_P(StreamingMemoryReserveOrWait, StatisticsRecordWaitTimeout) {
+    if (is_running_under_valgrind()) {
+        GTEST_SKIP() << "Test runs very slow in valgrind";
+    }
+
+    // No memory, and none is ever released, so only the timeout path can complete it.
+    auto [br_stats, stats] = make_br_with_stats(/* device_limit = */ 0);
+    MemoryReserveOrWait mrow{
+        config::Options({{"memory_reserve_timeout", config::OptionValue("100ms")}}),
+        MemoryType::DEVICE,
+        ctx->executor(),
+        br_stats
+    };
+
+    std::vector<Actor> actors;
+    actors.push_back(waiter(mrow, 10, 0, 0));  // zero-size reservation
+    run_actor_network(std::move(actors));
+
+    auto const timeout = stats->get_stat("reserve-device-wait-timeout");
+    EXPECT_EQ(timeout.count(), 1u);  // one queued request
+    EXPECT_EQ(timeout.value(), 1.0);  // it ran out the timeout
+    // The loop only breaks once more than `timeout_` has elapsed, so the recorded
+    // wait cannot be shorter than the timeout. Compared against half of it to leave
+    // room for clock granularity.
+    EXPECT_GE(stats->get_stat("reserve-device-wait-timeout-time").value(), 0.05);
+    EXPECT_THROW(
+        std::ignore = stats->get_stat("reserve-device-wait-satisfied-time"),
+        std::out_of_range
+    );
+}
+
+TEST_P(StreamingMemoryReserveOrWait, StatisticsRecordOverbooking) {
+    auto [br_stats, stats] = make_br_with_stats(/* device_limit = */ 0);
+    MemoryReserveOrWait mrow{
+        // A tiny timeout so the request reaches the overbooking fallback at once.
+        config::Options({{"memory_reserve_timeout", config::OptionValue("1ns")}}),
+        MemoryType::DEVICE,
+        ctx->executor(),
+        br_stats
+    };
+
+    coro::sync_wait([](MemoryReserveOrWait& mrow) -> Actor {
+        // Both reservations are held for the duration, so the second one overbooks on
+        // top of the first rather than starting from a clean slate.
+        auto [first, first_overbooked] = co_await mrow.reserve_or_wait_or_overbook(10, 0);
+        EXPECT_EQ(first.size(), 10);
+        EXPECT_EQ(first_overbooked, 10);
+
+        auto [second, second_overbooked] =
+            co_await mrow.reserve_or_wait_or_overbook(10, 0);
+        EXPECT_EQ(second.size(), 10);
+        // `reserve()` reports the total deficit, which now includes the first
+        // reservation as well.
+        EXPECT_EQ(second_overbooked, 20);
+    }(mrow));
+
+    auto const overbooked = stats->get_stat("reserve-device-overbook-bytes");
+    EXPECT_EQ(overbooked.count(), 2u);
+    // 10 each. Recording the raw `reserve()` result instead would double count the
+    // first reservation and give 30.
+    EXPECT_EQ(overbooked.value(), 20.0);
+    EXPECT_EQ(overbooked.max(), 10.0);
+}
+
+TEST_P(StreamingMemoryReserveOrWait, StatisticsDisabledRecordsNothing) {
+    // The fixture's buffer resource carries `Statistics::disabled()`.
+    auto stats = ctx->br()->statistics();
+    ASSERT_FALSE(stats->enabled());
+
+    MemoryReserveOrWait mrow{
+        config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
+        MemoryType::DEVICE,
+        ctx->executor(),
+        ctx->br()
+    };
+    set_mem_avail(1024);
+
+    std::vector<Actor> actors;
+    actors.push_back(waiter(mrow, 10, 0, 10));  // behaviour is unchanged
+    run_actor_network(std::move(actors));
+
+    EXPECT_TRUE(stats->list_stat_names().empty());
 }

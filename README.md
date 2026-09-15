@@ -2,16 +2,16 @@
 
 Collection of multi-GPU, distributed memory algorithms. RapidsMPF provides a unified
 framework for asynchronous, multi-GPU pipelines using simple streaming primitives built
-on RAPIDS components.
+using NVIDIA CUDA-X components.
 
 ## Documentation
 
-- [Getting Started](https://docs.rapids.ai/api/rapidsmpf/nightly/getting-started/)
-- [Background](https://docs.rapids.ai/api/rapidsmpf/nightly/background/)
-- [Configuration Options](https://docs.rapids.ai/api/rapidsmpf/nightly/configuration/)
-- [Python API Reference](https://docs.rapids.ai/api/rapidsmpf/nightly/python/api/)
-- [C++ API Reference](https://docs.rapids.ai/api/librapidsmpf/nightly/)
-- [Glossary](https://docs.rapids.ai/api/rapidsmpf/nightly/glossary/)
+- [Getting Started](https://docs.nvidia.com/rapidsmpf/latest/getting-started/)
+- [Background](https://docs.nvidia.com/rapidsmpf/latest/background/)
+- [Configuration Options](https://docs.nvidia.com/rapidsmpf/latest/configuration/)
+- [Python API Reference](https://docs.nvidia.com/rapidsmpf/latest/python/api/)
+- [C++ API Reference](https://docs.nvidia.com/rapidsmpf/latest/cpp/)
+- [Glossary](https://docs.nvidia.com/rapidsmpf/latest/glossary/)
 
 ## Build from Source
 
@@ -22,5 +22,5 @@ mamba env create --name rapidsmpf-dev --file conda/environments/all_cuda-133_arc
 ./build.sh
 ```
 
-See the [Getting Started guide](https://docs.rapids.ai/api/rapidsmpf/nightly/getting-started/)
+See the [Getting Started guide](https://docs.nvidia.com/rapidsmpf/latest/getting-started/)
 for debug builds, AddressSanitizer, MPI/UCX test suites, and rrun launcher details.

@@ -5,13 +5,17 @@
 
 #pragma once
 
+#include <mutex>
 #include <optional>
 #include <set>
+#include <string>
+#include <string_view>
 
 #include <coro/task.hpp>
 
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/coro_executor.hpp>
 #include <rapidsmpf/streaming/core/coro_utils.hpp>
@@ -29,6 +33,10 @@ class Context;
  * memory with backpressure. Callers submit reservation requests via
  * `reserve_or_wait()`, which suspends until enough memory is available or
  * progress must be forced.
+ *
+ * While requests are pending and none of them fit into the available memory,
+ * they wait for a reservation release or for the progress timeout. The timeout
+ * path attempts a reservation without spilling queued data.
  */
 class MemoryReserveOrWait {
   public:
@@ -38,8 +46,7 @@ class MemoryReserveOrWait {
      *
      * This value is used when a reasonable estimate of the net memory delta is not
      * yet available. Any use of this sentinel should be treated as a TODO, since
-     * providing a concrete estimate enables better spilling and scheduling
-     * decisions.
+     * providing a concrete estimate enables better scheduling decisions.
      *
      * @see reserve_or_wait()
      */
@@ -84,12 +91,16 @@ class MemoryReserveOrWait {
      * (including other pending requests) makes progress within the configured
      * timeout.
      *
-     * The timeout does not apply specifically to this request. Instead, it is used
-     * as a global progress guarantee: if no pending reservation request can be
-     * satisfied within the timeout, `MemoryReserveOrWait` forces progress by
-     * selecting the smallest pending request and attempting to reserve memory for
-     * it. The forced reservation attempt may result in an empty `MemoryReservation`
-     * if the selected request still cannot be satisfied.
+     * While no pending request fits, it remains pending until another reservation
+     * releases memory or the progress timeout expires.
+     *
+     * The timeout does not apply specifically to this request. Instead, it bounds
+     * when a final recovery attempt begins, not when it completes: if no pending
+     * reservation request can be satisfied within the timeout, `MemoryReserveOrWait`
+     * forces progress by selecting the smallest pending request and attempting to
+     * reserve memory without spilling queued data. The forced reservation attempt
+     * may result in an empty `MemoryReservation` if the selected request still
+     * cannot be satisfied.
      *
      * When multiple reservation requests are eligible, `MemoryReserveOrWait` uses
      * @p net_memory_delta as a heuristic to prefer requests that are expected to
@@ -239,6 +250,9 @@ class MemoryReserveOrWait {
         /// @brief Queue into which a reservation is pushed once the request is satisfied.
         coro::queue<MemoryReservation>& queue;
 
+        /// @brief When the request was submitted, used to measure how long it waited.
+        Clock::time_point submitted_at;
+
         /// @brief Ordering by `size` and `sequence_number` (ascending).
         friend bool operator<(Request const& a, Request const& b) {
             return std::tie(a.size, a.sequence_number)
@@ -278,15 +292,33 @@ class MemoryReserveOrWait {
      */
     coro::task<void> periodic_memory_check();
 
+    /**
+     * @brief Adds a value to one of this instance's statistics.
+     *
+     * The name recorded is `stat_prefix_` followed by @p suffix. Returns without
+     * building the name when statistics are disabled, so a disabled `Statistics`
+     * costs a single atomic load.
+     *
+     * Callers must not hold `mutex_`, since `Statistics` takes a lock of its own.
+     *
+     * @param suffix Stat name suffix, appended to `stat_prefix_`.
+     * @param value Value to add.
+     */
+    void record_stat(std::string_view suffix, double value) const;
+
     mutable std::mutex mutex_;
     std::uint64_t sequence_counter{0};
     MemoryType const mem_type_;
     std::shared_ptr<CoroThreadPoolExecutor> executor_;
     std::shared_ptr<BufferResource> br_;
     Duration const timeout_;
+    std::shared_ptr<Statistics> statistics_;
+    std::string const stat_prefix_;
+    mutable std::once_flag report_entries_once_;
     std::set<Request> reservation_requests_;
     std::atomic<std::uint64_t> periodic_memory_check_counter_{0};
     std::optional<coro::task<void>> periodic_memory_check_task_;
+    bool periodic_task_running_{false};
 };
 
 /**

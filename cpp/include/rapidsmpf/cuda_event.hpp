@@ -8,7 +8,7 @@
 
 #include <cuda_runtime.h>
 
-#include <rmm/cuda_stream_view.hpp>
+#include <cuda/stream>
 
 #include <rapidsmpf/error.hpp>
 
@@ -57,7 +57,7 @@ class CudaEvent {
      * @throws rapidsmpf::cuda_error if event creation or recording fails.
      */
     static std::shared_ptr<CudaEvent> make_shared_record(
-        rmm::cuda_stream_view stream, unsigned flags = cudaEventDisableTiming
+        cuda::stream_ref stream, unsigned flags = cudaEventDisableTiming
     );
 
     /**
@@ -100,7 +100,7 @@ class CudaEvent {
      *
      * @throws rapidsmpf::cuda_error if cudaEventRecord fails.
      */
-    void record(rmm::cuda_stream_view stream);
+    void record(cuda::stream_ref stream);
 
     /**
      * @brief Check if the CUDA event has been completed.
@@ -128,7 +128,7 @@ class CudaEvent {
      *
      * @throws rapidsmpf::cuda_error if cudaStreamWaitEvent fails.
      */
-    void stream_wait(rmm::cuda_stream_view stream) const;
+    void stream_wait(cuda::stream_ref stream) const;
 
     /**
      * @brief Access the underlying CUDA event handle.

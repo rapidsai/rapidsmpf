@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from libcpp.memory cimport make_unique
@@ -35,6 +35,7 @@ def fanout(Context ctx, Channel ch_in, chs_out, FanoutPolicy policy):
         output channels are being consumed by independent consumers in the
         downstream. :attr:`~.FanoutPolicy.UNBOUNDED` can be used if the output channels
         are being consumed by a single/ shared consumer in the downstream.
+
     Returns
     -------
     Streaming actor representing the fanout operation.
