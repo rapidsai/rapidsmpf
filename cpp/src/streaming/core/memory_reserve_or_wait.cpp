@@ -138,6 +138,9 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
     }
     lock.unlock();
 
+    // Recorded each time a request starts waiting, not sampled over time. The set
+    // only grows at the insert above, so every sample is a local peak: the maximum is
+    // exact, while the mean only covers those peaks.
     record_stat("waiting-requests", static_cast<double>(waiting_requests));
 
     // If a previous periodic task existed, wait for it to fully exit before
@@ -162,8 +165,12 @@ MemoryReserveOrWait::reserve_or_wait_or_overbook(
     auto ret = co_await reserve_or_wait(size, net_memory_delta);
     if (ret.size() < size) {
         auto overbooked = br_->reserve(mem_type_, size, AllowOverbooking::YES);
-        if (overbooked.second > 0) {
-            record_stat("overbook-bytes", static_cast<double>(overbooked.second));
+        // `reserve()` returns the total deficit after the reservation, including any
+        // overbooking already outstanding, so clamp to `size` for the amount this
+        // request added.
+        auto const added = std::min(size, overbooked.second);
+        if (added > 0) {
+            record_stat("overbook-bytes", static_cast<double>(added));
         }
         co_return overbooked;
     }
