@@ -39,6 +39,20 @@ class ChunksToSend {
     [[nodiscard]] std::vector<Chunk> extract_ready();
 
     /**
+     * @brief Extract ready chunks and restore disk-backed data to addressable memory.
+     *
+     * Extracts ready chunks in order through the first disk-backed chunk, restores that
+     * chunk, and leaves all subsequent chunks queued.
+     *
+     * @param br The buffer resource used to restore disk-backed data.
+     * @param memory_types Addressable memory types to try in preference order.
+     * @return Vector of chunks ready to send.
+     */
+    [[nodiscard]] std::vector<Chunk> extract_and_restore(
+        BufferResource* br, std::span<MemoryType const> memory_types
+    );
+
+    /**
      * @brief @return Whether the container is empty.
      */
     [[nodiscard]] bool empty() const;
