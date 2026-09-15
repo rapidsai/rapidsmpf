@@ -186,18 +186,30 @@ TEST(ReceivedChunks, ReturnsDiskResidentPackedDataForCallerToUnspill) {
     EXPECT_EQ(host_bytes(std::move(restored[0].data), stream), expected);
 }
 
-TEST(ChunksToSend, AcceptsReadyDiskResidentChunks) {
+TEST(ChunksToSend, ExtractAndRestoreDiskResidentChunks) {
+    constexpr std::size_t data_size = 16;
+    auto const expected = iota_vector<std::uint8_t>(data_size, 5);
     TempDir temp_dir;
     auto br = make_disk_spill_buffer_resource(temp_dir);
     auto stream = cuda::stream_ref{cudaStreamLegacy};
-    auto chunk = make_device_chunk(*br, stream, 16);
-    auto reservation = br->reserve_or_fail(chunk.data_size(), MemoryType::DISK);
-    chunk.set_data_buffer(br->move(chunk.release_data_buffer(), reservation));
-    EXPECT_TRUE(chunk.is_ready());
-
     ChunksToSend to_send;
-    to_send.insert(std::make_unique<Chunk>(std::move(chunk)));
-    auto ready = to_send.extract_ready();
-    ASSERT_EQ(ready.size(), 1);
-    EXPECT_EQ(ready[0].data_memory_type(), MemoryType::DISK);
+    std::vector<std::filesystem::path> paths;
+    for (int i = 0; i < 2; ++i) {
+        auto chunk = make_device_chunk(*br, stream, data_size);
+        auto reservation = br->reserve_or_fail(chunk.data_size(), MemoryType::DISK);
+        auto disk_data = br->move(chunk.release_data_buffer(), reservation);
+        paths.push_back((*disk_data->get_storage<Buffer::DiskBufferT>()).path());
+        chunk.set_data_buffer(std::move(disk_data));
+        EXPECT_TRUE(chunk.is_ready());
+        to_send.insert(std::make_unique<Chunk>(std::move(chunk)));
+    }
+
+    for (std::size_t i = 0; i < paths.size(); ++i) {
+        auto ready = to_send.extract_and_restore(br.get(), ADDRESSABLE_MEMORY_TYPES);
+        ASSERT_EQ(ready.size(), 1);
+        EXPECT_NE(ready[0].data_memory_type(), MemoryType::DISK);
+        EXPECT_FALSE(std::filesystem::exists(paths[i]));
+        EXPECT_EQ(host_bytes(ready[0].release_data_buffer(), stream), expected);
+    }
+    EXPECT_TRUE(to_send.empty());
 }

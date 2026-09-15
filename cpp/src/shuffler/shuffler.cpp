@@ -93,31 +93,12 @@ class Shuffler::Progress {
 
         // Submit outgoing chunks to the metadata payload exchange
         {
-            auto ready_chunks = shuffler_.to_send_.extract_ready();
+            auto ready_chunks = shuffler_.to_send_.extract_and_restore(
+                shuffler_.br_, shuffler_.reservation_memory_types_
+            );
             RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE("submit_outgoing", ready_chunks.size());
 
             if (!ready_chunks.empty()) {
-                for (auto& chunk : ready_chunks) {
-                    if (chunk.is_data_buffer_set() && chunk.data_size() > 0) {
-                        if (chunk.data_memory_type() == MemoryType::DISK) {
-                            auto reservation = shuffler_.br_->try_reserve_or_spill(
-                                chunk.data_size(), shuffler_.reservation_memory_types_
-                            );
-                            RAPIDSMPF_EXPECTS(
-                                reservation.has_value(),
-                                "failed to reserve addressable memory for an "
-                                "outgoing "
-                                "disk-backed chunk",
-                                std::runtime_error
-                            );
-                            chunk.set_data_buffer(shuffler_.br_->move(
-                                chunk.release_data_buffer(), *reservation
-                            ));
-                        }
-                        stats->add_bytes_stat("shuffle-payload-send", chunk.data_size());
-                    }
-                }
-
                 auto peer_rank_fn = [&shuffler =
                                          shuffler_](detail::Chunk const& chunk) -> Rank {
                     auto dst = shuffler.partition_owner(
@@ -131,6 +112,12 @@ class Shuffler::Progress {
                     );
                     return dst;
                 };
+
+                for (auto const& chunk : ready_chunks) {
+                    if (chunk.is_data_buffer_set() && chunk.data_size() > 0) {
+                        stats->add_bytes_stat("shuffle-payload-send", chunk.data_size());
+                    }
+                }
 
                 auto messages =
                     convert_chunks_to_messages(std::move(ready_chunks), peer_rank_fn);
