@@ -110,6 +110,24 @@ class Shuffler {
      */
     using FinishedCallback = std::function<void()>;
 
+    // clang-format off
+    /// @copydoc Shuffler(std::shared_ptr<Communicator>, OpID, PartID, BufferResource*, PartitionOwner, std::unique_ptr<communicator::MetadataPayloadExchange>, std::vector<MemoryType>, std::vector<MemoryType>)
+    // clang-format on
+    /// @param finished_callback Callback to notify when all partitions are finished.
+    Shuffler(
+        std::shared_ptr<Communicator> comm,
+        OpID op_id,
+        PartID total_num_partitions,
+        BufferResource* br,
+        FinishedCallback&& finished_callback,
+        PartitionOwner partition_owner = round_robin,
+        std::unique_ptr<communicator::MetadataPayloadExchange> mpe = nullptr,
+        std::vector<MemoryType> spillable_memory_types =
+            to_vector(SPILL_TARGET_MEMORY_TYPES),
+        std::vector<MemoryType> reservation_memory_types =
+            to_vector(ADDRESSABLE_MEMORY_TYPES)
+    );
+
     /**
      * @brief Construct a new shuffler for a single shuffle.
      *
@@ -117,10 +135,16 @@ class Shuffler {
      * @param op_id The operation ID of the shuffle.
      * @param total_num_partitions Total number of partitions in the shuffle.
      * @param br Buffer resource used to allocate temporary and the shuffle result.
-     * @param finished_callback Callback to notify when all partitions are finished.
      * @param partition_owner Function to determine partition ownership.
      * @param mpe Optional custom metadata payload exchange. If not provided,
      * uses the default tag-based implementation.
+     * @param spillable_memory_types Memory types available as spill destinations, in
+     * preference order. An empty vector disables spilling. Device memory is not a valid
+     * spill destination.
+     * @param reservation_memory_types Addressable memory types available for
+     * shuffler-managed payload allocations, in preference order.
+     * @throws std::invalid_argument If @p reservation_memory_types is empty or contains
+     * a non-addressable memory type.
      *
      * @note It is safe to reuse the `op_id` as soon as `wait` has completed
      * locally.
@@ -134,34 +158,12 @@ class Shuffler {
         OpID op_id,
         PartID total_num_partitions,
         BufferResource* br,
-        FinishedCallback&& finished_callback,
         PartitionOwner partition_owner = round_robin,
-        std::unique_ptr<communicator::MetadataPayloadExchange> mpe = nullptr
-    );
-
-    /**
-     * @brief Construct a new shuffler for a single shuffle.
-     *
-     * @param comm The communicator to use.
-     * @param op_id The operation ID of the shuffle. This ID is unique for this operation,
-     * and should not be reused until all nodes has called `Shuffler::shutdown()`.
-     * @param total_num_partitions Total number of partitions in the shuffle.
-     * @param br Buffer resource used to allocate temporary and the shuffle result.
-     * @param partition_owner Function to determine partition ownership.
-     * @param mpe Optional custom metadata payload exchange. If not provided,
-     * uses the default tag-based implementation.
-     *
-     * @note The caller promises that inserted buffers are stream-ordered with respect
-     * to their own stream, and extracted buffers are likewise guaranteed to be stream-
-     * ordered with respect to their own stream.
-     */
-    Shuffler(
-        std::shared_ptr<Communicator> comm,
-        OpID op_id,
-        PartID total_num_partitions,
-        BufferResource* br,
-        PartitionOwner partition_owner = round_robin,
-        std::unique_ptr<communicator::MetadataPayloadExchange> mpe = nullptr
+        std::unique_ptr<communicator::MetadataPayloadExchange> mpe = nullptr,
+        std::vector<MemoryType> spillable_memory_types =
+            to_vector(SPILL_TARGET_MEMORY_TYPES),
+        std::vector<MemoryType> reservation_memory_types =
+            to_vector(ADDRESSABLE_MEMORY_TYPES)
     )
         : Shuffler(
               comm,
@@ -170,7 +172,9 @@ class Shuffler {
               br,
               nullptr,
               partition_owner,
-              std::move(mpe)
+              std::move(mpe),
+              std::move(spillable_memory_types),
+              std::move(reservation_memory_types)
           ) {}
 
     ~Shuffler();
@@ -225,6 +229,9 @@ class Shuffler {
      * To ensure the partition is complete, use `wait()`
      * or another appropriate synchronization mechanism beforehand.
      *
+     * @note Extracted buffers retain their current storage tier and may be
+     * disk-resident. Use `unspill_partitions()` when device-resident output is needed.
+     *
      * @param pid The ID of the partition to extract.
      * @return A vector of PackedData chunks associated with the partition.
      */
@@ -258,6 +265,8 @@ class Shuffler {
      * @param amount An optional amount of memory to spill. If not provided, the
      * function will check the current available device memory.
      * @return The amount of memory actually spilled.
+     *
+     * @note Returns zero when spilling is disabled.
      */
     std::size_t spill(std::optional<std::size_t> amount = std::nullopt);
 
@@ -322,6 +331,8 @@ class Shuffler {
 
   private:
     BufferResource* br_;
+    std::vector<MemoryType> spillable_memory_types_;
+    std::vector<MemoryType> reservation_memory_types_;
     std::atomic<bool> active_{true};
     // Have we called `insert_finished()` on this rank.
     std::atomic<bool> locally_finished_{false};
