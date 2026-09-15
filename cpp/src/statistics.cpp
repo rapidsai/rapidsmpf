@@ -38,6 +38,44 @@ struct Names {
 using NamesArray = std::array<Names, MEMORY_TYPES.size()>;
 using Names2DArray = std::array<NamesArray, MEMORY_TYPES.size()>;
 
+Names const& copy_names(MemoryType src, MemoryType dst) {
+    static Names2DArray const name_map = [] {
+        Names2DArray ret;
+        for (MemoryType s : MEMORY_TYPES) {
+            auto const src_name = to_lower(to_string(s));
+            for (MemoryType d : MEMORY_TYPES) {
+                auto const dst_name = to_lower(to_string(d));
+                auto base = "copy-" + src_name + "-to-" + dst_name;
+                ret[static_cast<std::size_t>(s)][static_cast<std::size_t>(d)] = Names{
+                    .base = base,
+                    .nbytes = base + "-bytes",
+                    .time = base + "-time",
+                    .stream_delay = base + "-stream-delay",
+                };
+            }
+        }
+        return ret;
+    }();
+    return name_map[static_cast<std::size_t>(src)][static_cast<std::size_t>(dst)];
+}
+
+Names const& alloc_names(MemoryType mem_type) {
+    static NamesArray const name_map = [] {
+        NamesArray ret;
+        for (MemoryType mt : MEMORY_TYPES) {
+            auto base = "alloc-" + to_lower(to_string(mt));
+            ret[static_cast<std::size_t>(mt)] = Names{
+                .base = base,
+                .nbytes = base + "-bytes",
+                .time = base + "-time",
+                .stream_delay = base + "-stream-delay",
+            };
+        }
+        return ret;
+    }();
+    return name_map[static_cast<std::size_t>(mem_type)];
+}
+
 // Predefined render functions.
 using FormatterFn = void (*)(std::ostream&, std::vector<Statistics::Stat> const&);
 
@@ -684,26 +722,7 @@ std::shared_ptr<Statistics> Statistics::merge(
 void Statistics::record_copy(
     MemoryType src, MemoryType dst, std::size_t nbytes, StreamOrderedTiming&& timing
 ) {
-    // Construct all stat names once, at first call.
-    static Names2DArray const name_map = [] {
-        Names2DArray ret;
-        for (MemoryType s : MEMORY_TYPES) {
-            auto const src_name = to_lower(to_string(s));
-            for (MemoryType d : MEMORY_TYPES) {
-                auto const dst_name = to_lower(to_string(d));
-                auto base = "copy-" + src_name + "-to-" + dst_name;
-                ret[static_cast<std::size_t>(s)][static_cast<std::size_t>(d)] = Names{
-                    .base = base,
-                    .nbytes = base + "-bytes",
-                    .time = base + "-time",
-                    .stream_delay = base + "-stream-delay",
-                };
-            }
-        }
-        return ret;
-    }();
-    auto const& names =
-        name_map[static_cast<std::size_t>(src)][static_cast<std::size_t>(dst)];
+    auto const& names = copy_names(src, dst);
 
     timing.stop_and_record(names.time, names.stream_delay);
     add_stat(names.nbytes, static_cast<double>(nbytes));
@@ -714,30 +733,36 @@ void Statistics::record_copy(
     );
 }
 
+void Statistics::record_copy(
+    MemoryType src, MemoryType dst, std::size_t nbytes, Duration duration
+) {
+    auto const& names = copy_names(src, dst);
+
+    add_stat(names.nbytes, static_cast<double>(nbytes));
+    add_stat(names.time, duration.count());
+    add_stat(names.stream_delay, 0);
+    add_report_entry(
+        names.base,
+        {names.nbytes, names.time, names.stream_delay},
+        Formatter::MemoryThroughput
+    );
+}
+
 void Statistics::record_alloc(
     MemoryType mem_type, std::size_t nbytes, StreamOrderedTiming&& timing
 ) {
-    // Construct all stat names once, at first call.
-    static NamesArray const names = [] {
-        NamesArray ret;
-        for (MemoryType mt : MEMORY_TYPES) {
-            auto base = "alloc-" + to_lower(to_string(mt));
-            ret[static_cast<std::size_t>(mt)] = Names{
-                .base = base,
-                .nbytes = base + "-bytes",
-                .time = base + "-time",
-                .stream_delay = base + "-stream-delay",
-            };
-        }
-        return ret;
-    }();
+    if (mem_type == MemoryType::DISK) {
+        return;  // disk allocation are not stream ordered
+    }
 
-    auto const& n = names[static_cast<std::size_t>(mem_type)];
+    auto const& names = alloc_names(mem_type);
 
-    timing.stop_and_record(n.time, n.stream_delay);
-    add_stat(n.nbytes, static_cast<double>(nbytes));
+    timing.stop_and_record(names.time, names.stream_delay);
+    add_stat(names.nbytes, static_cast<double>(nbytes));
     add_report_entry(
-        n.base, {n.nbytes, n.time, n.stream_delay}, Formatter::MemoryThroughput
+        names.base,
+        {names.nbytes, names.time, names.stream_delay},
+        Formatter::MemoryThroughput
     );
 }
 

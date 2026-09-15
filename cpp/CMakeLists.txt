@@ -203,6 +203,8 @@ add_library(
   src/memory/scoped_memory_record.cpp
   src/memory/spill.cpp
   src/memory/spill_manager.cpp
+  src/disk/disk_resource.cpp
+  src/disk/disk_buffer.cpp
   src/pausable_thread_loop.cpp
   src/progress_thread.cpp
   src/rmm_resource_adaptor.cpp
