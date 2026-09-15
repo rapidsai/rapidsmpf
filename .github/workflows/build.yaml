@@ -129,7 +129,6 @@ jobs:
     with:
       docs-projects: rapidsmpf
       dry-run: false
-      version-map: ${{ vars.VERSION_MAP }}
   wheel-build-librapidsmpf:
     needs: [build-details]
     permissions:
