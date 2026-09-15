@@ -466,6 +466,34 @@ TEST_F(BufferResourceReserveOrFailTest, TryReserve) {
     EXPECT_FALSE(br->try_reserve(100_KiB, MemoryType::DEVICE).has_value());
 }
 
+TEST(BufferResourceTryReserveOrSpill, EmptyReservationUsesFirstMemoryType) {
+    rmm::mr::cuda_memory_resource mr;
+    auto br = BufferResource::create(
+        mr, PinnedMemoryDisabled, {{MemoryType::DEVICE, 0}, {MemoryType::HOST, 0}}
+    );
+    auto [existing_reservation, overbooking] =
+        br->reserve(MemoryType::DEVICE, 1, AllowOverbooking::YES);
+    ASSERT_EQ(overbooking, 1);
+    constexpr std::array mem_types{MemoryType::DEVICE, MemoryType::HOST};
+
+    auto reservation = br->try_reserve_or_spill(0, mem_types);
+
+    ASSERT_TRUE(reservation.has_value());
+    EXPECT_EQ(reservation->size(), 0);
+    EXPECT_EQ(reservation->mem_type(), MemoryType::DEVICE);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), existing_reservation.size());
+}
+
+TEST(BufferResourceTryReserveOrSpill, EmptyMemoryTypesThrows) {
+    rmm::mr::cuda_memory_resource mr;
+    auto br = BufferResource::create(mr);
+    constexpr std::array<MemoryType, 0> mem_types{};
+
+    EXPECT_THROW(
+        std::ignore = br->try_reserve_or_spill(0, mem_types), std::invalid_argument
+    );
+}
+
 TEST(BufferResourceTryReserveOrSpill, RetriesAfterSpilling) {
     constexpr std::size_t data_size = 16;
     rmm::mr::cuda_memory_resource mr;
