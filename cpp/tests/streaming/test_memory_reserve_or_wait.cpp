@@ -691,12 +691,26 @@ TEST_P(StreamingMemoryReserveOrWait, StatisticsRecordOverbooking) {
     };
 
     coro::sync_wait([](MemoryReserveOrWait& mrow) -> Actor {
-        auto [res, overbooked_bytes] = co_await mrow.reserve_or_wait_or_overbook(10, 0);
-        EXPECT_EQ(res.size(), 10);
-        EXPECT_EQ(overbooked_bytes, 10);
+        // Both reservations are held for the duration, so the second one overbooks on
+        // top of the first rather than starting from a clean slate.
+        auto [first, first_overbooked] = co_await mrow.reserve_or_wait_or_overbook(10, 0);
+        EXPECT_EQ(first.size(), 10);
+        EXPECT_EQ(first_overbooked, 10);
+
+        auto [second, second_overbooked] =
+            co_await mrow.reserve_or_wait_or_overbook(10, 0);
+        EXPECT_EQ(second.size(), 10);
+        // `reserve()` reports the total deficit, which now includes the first
+        // reservation as well.
+        EXPECT_EQ(second_overbooked, 20);
     }(mrow));
 
-    EXPECT_EQ(stats->get_stat("reserve-device-overbook-bytes").value(), 10.0);
+    auto const overbooked = stats->get_stat("reserve-device-overbook-bytes");
+    EXPECT_EQ(overbooked.count(), 2u);
+    // 10 each. Recording the raw `reserve()` result instead would double count the
+    // first reservation and give 30.
+    EXPECT_EQ(overbooked.value(), 20.0);
+    EXPECT_EQ(overbooked.max(), 10.0);
 }
 
 TEST_P(StreamingMemoryReserveOrWait, StatisticsDisabledRecordsNothing) {

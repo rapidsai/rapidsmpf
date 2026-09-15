@@ -13,7 +13,7 @@ This table gives an overview of the different statistics collected.
 | `reserve-{memtype}-wait-timeout` | Waiting requests that ran out `memory_reserve_timeout`, over the requests that had to wait. A miss means memory was released in time. |
 | `reserve-{memtype}-wait-satisfied-time` | Time requests spent waiting before a reservation release satisfied them. |
 | `reserve-{memtype}-wait-timeout-time` | Time requests spent waiting before the progress timeout fired. |
-| `reserve-{memtype}-waiting-requests` | Requests waiting concurrently. Recorded each time a request starts waiting, not sampled over time, so the maximum is exact but the mean only covers those peaks and overstates the typical number of waiters. |
+| `reserve-{memtype}-waiting-requests` | Requests waiting concurrently. Recorded each time a request starts waiting, not sampled over time, so the maximum is exact while the mean is the queue depth seen when a request starts waiting. |
 | `reserve-{memtype}-request-bytes` | Bytes requested from `reserve_or_wait()`. |
 | `reserve-{memtype}-overbook-bytes` | Bytes by which `reserve_or_wait_or_overbook()` exceeded the memory limit after the timeout, counting only what each request added rather than the total outstanding deficit. |
 | `shuffle-payload-recv` | Shuffle data received by this rank, excluding self-transfers. |

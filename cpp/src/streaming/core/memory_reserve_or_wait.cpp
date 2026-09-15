@@ -139,8 +139,8 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
     lock.unlock();
 
     // Recorded each time a request starts waiting, not sampled over time. The set
-    // only grows at the insert above, so every sample is a local peak: the maximum is
-    // exact, while the mean only covers those peaks.
+    // only grows at the insert above, so the maximum is exact, while the mean is the
+    // queue depth seen when a request starts waiting.
     record_stat("waiting-requests", static_cast<double>(waiting_requests));
 
     // If a previous periodic task existed, wait for it to fully exit before
