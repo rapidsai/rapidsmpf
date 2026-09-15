@@ -23,14 +23,14 @@ std::vector<PackedData> spill_partitions(
             device_size += data->size;
         }
     }
-    // Spill each partition to host memory.
+    // Spill device partitions to the spill target memory types.
     auto reservation = br->reserve_or_fail(device_size, SPILL_TARGET_MEMORY_TYPES);
-    std::vector<PackedData> ret;
-    ret.reserve(partitions.size());
-    for (auto& [metadata, data] : partitions) {
-        ret.emplace_back(std::move(metadata), br->move(std::move(data), reservation));
+    for (auto& [_, data] : partitions) {
+        if (data->mem_type() == MemoryType::DEVICE) {
+            data = br->move(std::move(data), reservation);
+        }
     }
-    return ret;
+    return std::move(partitions);
 }
 
 std::vector<PackedData> unspill_partitions(
@@ -38,7 +38,6 @@ std::vector<PackedData> unspill_partitions(
     BufferResource* br,
     AllowOverbooking allow_overbooking
 ) {
-    auto statistics = br->statistics();
     // Sum the total size of all packed data not in device memory already.
     std::size_t non_device_size{0};
     for (auto& [_, data] : partitions) {
@@ -47,16 +46,16 @@ std::vector<PackedData> unspill_partitions(
         }
     }
 
-    // Unspill each partition.
+    // Unspill non-device partitions.
     auto reservation =
         br->reserve_device_memory_and_spill(non_device_size, allow_overbooking);
-    std::vector<PackedData> ret;
-    ret.reserve(partitions.size());
-    for (auto& [metadata, data] : partitions) {
-        ret.emplace_back(std::move(metadata), br->move(std::move(data), reservation));
+    for (auto& [_, data] : partitions) {
+        if (data->mem_type() != MemoryType::DEVICE) {
+            data = br->move(std::move(data), reservation);
+        }
     }
 
-    return ret;
+    return std::move(partitions);
 }
 
 }  // namespace rapidsmpf

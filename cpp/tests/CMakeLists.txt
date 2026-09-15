@@ -84,6 +84,7 @@ target_sources(
           test_config.cpp
           test_cuda_stream.cpp
           test_cupti_monitor.cpp
+          test_disk_resource.cpp
           test_error_macros.cpp
           test_host_buffer.cpp
           test_memory_resources.cpp
