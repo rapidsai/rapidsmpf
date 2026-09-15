@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 set -xeuo pipefail
@@ -17,6 +17,23 @@ export OMPI_MCA_opal_cuda_support=1  # enable CUDA support in OpenMPI
 # Ensure that benchmarks are runnable
 python "${TIMEOUT_TOOL_PATH}" 30 \
     mpirun --map-by node --bind-to none -np 3 ./bench_comm -m cuda
+
+python "${TIMEOUT_TOOL_PATH}" 30 \
+    mpirun --map-by node --bind-to none -np 3 ./bench_shuffle -m cuda -n 65536 -o 1
+
+DISK_SPILL_DIR="$(mktemp -d)"
+trap 'rm -rf "${DISK_SPILL_DIR}"' EXIT
+python "${TIMEOUT_TOOL_PATH}" 30 \
+    env RAPIDSMPF_SPILL_DEVICE_LIMIT=0B \
+        RAPIDSMPF_SPILL_HOST_LIMIT=0B \
+        RAPIDSMPF_PINNED_MEMORY=false \
+        RAPIDSMPF_PERIODIC_SPILL_CHECK=disabled \
+        RAPIDSMPF_DISK_SPILL_DIR="${DISK_SPILL_DIR}" \
+    mpirun --map-by node --bind-to none -np 1 ./bench_shuffle -m cuda -n 4096 -o 2 -p 2
+if [[ -n "$(find "${DISK_SPILL_DIR}" -type f -print -quit)" ]]; then
+  echo "Error: bench_shuffle left spill files under ${DISK_SPILL_DIR}"
+  exit 1
+fi
 
 RAPIDSMPF_SMOKE_TEST_MODE="ON" \
     python "${TIMEOUT_TOOL_PATH}" 30 ./bench_memory_resources
