@@ -18,6 +18,7 @@
 #include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/memory/resource_types.hpp>
 #include <rapidsmpf/stream_ordered_timing.hpp>
+#include <rapidsmpf/system_info.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
 namespace rapidsmpf {
@@ -68,6 +69,12 @@ std::shared_ptr<BufferResource> BufferResource::create(
             "may apply. Pass `PinnedMemoryDisabled` to disable pinned host memory.",
             std::runtime_error
         );
+        RAPIDSMPF_EXPECTS(
+            !pinned_pool_properties->max_pool_size.has_value()
+                || *pinned_pool_properties->max_pool_size > 0,
+            "PinnedPoolProperties::max_pool_size must be greater than zero",
+            std::invalid_argument
+        );
         pinned_mr = PinnedMemoryResource{*pinned_pool_properties};
     }
 
@@ -100,12 +107,56 @@ std::shared_ptr<BufferResource> BufferResource::from_options(
     config::Options options,
     std::shared_ptr<Statistics> statistics
 ) {
+    // BufferResource defaults to unlimited memory for each memory type. Setting limits
+    // only if they are provided.
     std::unordered_map<MemoryType, std::int64_t> memory_limits{
         {MemoryType::DEVICE, device_limit_from_options(options)}
     };
+
+    auto pinned_pool_properties = pinned_pool_properties_from_options(options);
+    auto const host_limit = host_limit_from_options(options);
+
+    if (pinned_pool_properties.has_value()) {
+        auto const& pinned_max_pool_size = pinned_pool_properties->max_pool_size;
+        if (pinned_max_pool_size.has_value()) {
+            auto const numa_host =
+                get_numa_node_host_memory(pinned_pool_properties->numa_id);
+            RAPIDSMPF_EXPECTS(
+                *pinned_max_pool_size <= numa_host,
+                "pinned_max_pool_size exceeds NUMA node host memory",
+                std::invalid_argument
+            );
+            if (host_limit.has_value()) {
+                // while pinned pool is tied to a specific NUMA node, total addressable
+                // host memory depends on the NUMA policy (eg. MPOL_BIND). Hence we need
+                // to accumulate the total host memory across all current NUMA nodes for
+                // this thread.
+                std::uint64_t total_host = 0;
+                for (auto const numa_id : get_current_numa_nodes()) {
+                    total_host += get_numa_node_host_memory(numa_id);
+                }
+                RAPIDSMPF_EXPECTS(
+                    *pinned_max_pool_size <= total_host
+                        && *host_limit <= (total_host - *pinned_max_pool_size),
+                    "spill_host_limit exceeds host memory in the current NUMA policy "
+                    "after pinned_max_pool_size",
+                    std::invalid_argument
+                );
+            }
+            memory_limits[MemoryType::PINNED_HOST] =
+                safe_cast<std::int64_t>(*pinned_pool_properties->max_pool_size);
+        }
+    } else {
+        memory_limits[MemoryType::PINNED_HOST] = 0;  // Disable pinned memory.
+    }
+
+    if (host_limit.has_value()) {
+        memory_limits[MemoryType::HOST] = safe_cast<std::int64_t>(*host_limit);
+    }
+
     return create(
         std::move(mr),
-        pinned_pool_properties_from_options(options),
+        std::move(pinned_pool_properties),
         std::move(memory_limits),
         periodic_spill_check_from_options(options),
         stream_pool_from_options(options),
@@ -127,7 +178,7 @@ std::int64_t BufferResource::memory_available(MemoryType mem_type) const noexcep
             return limit - pinned_mr_->current_allocated();
         }
     case MemoryType::HOST:
-        return limit;
+        return limit - host_mr_.current_allocated();
     }
     return std::numeric_limits<std::int64_t>::max();
 }
@@ -358,6 +409,20 @@ std::int64_t device_limit_from_options(config::Options options) {
             parse_nbytes_or_percent(s, total_mem), rmm::CUDA_ALLOCATION_ALIGNMENT
         );
     });
+}
+
+std::optional<std::uint64_t> host_limit_from_options(config::Options options) {
+    return options.get<std::optional<std::uint64_t>>(
+        "spill_host_limit", [](auto const& s) -> std::optional<std::uint64_t> {
+            auto const value = parse_optional(s);
+            if (!value.has_value()) {
+                return std::nullopt;
+            }
+            return rmm::align_down(
+                parse_nbytes_unsigned(*value), rmm::CUDA_ALLOCATION_ALIGNMENT
+            );
+        }
+    );
 }
 
 std::optional<Duration> periodic_spill_check_from_options(config::Options options) {

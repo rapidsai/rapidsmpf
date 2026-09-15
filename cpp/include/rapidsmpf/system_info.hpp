@@ -78,7 +78,7 @@ std::uint64_t get_numa_node_host_memory(int numa_id = get_current_numa_node()) n
  * @brief Get the amount of host memory per GPU.
  *
  * This is calculated as the total host memory available for the current NUMA node divided
- * by the number of GPUs bound to that NUMA node.
+ * by the number of GPUs bound to that NUMA node. The result is computed once and cached.
  *
  * @throws std::runtime_error if no GPUs are found on the current NUMA node.
  *
