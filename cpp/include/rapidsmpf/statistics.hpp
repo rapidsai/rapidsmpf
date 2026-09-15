@@ -97,6 +97,10 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
      *   the wall-clock gap between CPU submission and GPU execution of the operation:
      *   "1.2 GiB | 2.5 ms | 480 GiB/s | avg-stream-delay 10 us"
      *
+     * - Gauge (1 stat): for quantities that rise and fall, such as a queue size,
+     *   where the running total carries no meaning and the peak is the point:
+     *   "max 8 | avg 2.5 (100 samples)"
+     *
      * `_Count` is an internal sentinel — always keep it last.
      */
     enum class Formatter : std::uint8_t {
@@ -105,6 +109,7 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
         Duration,
         HitRate,
         MemoryThroughput,
+        Gauge,
         _Count,  ///< Sentinel; must remain last.
     };
 
