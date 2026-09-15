@@ -7,6 +7,7 @@
 #include <concepts>
 #include <cstddef>
 #include <filesystem>
+#include <functional>
 #include <initializer_list>
 #include <limits>
 #include <map>
@@ -29,6 +30,43 @@
 #include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf {
+
+class Statistics;
+
+/**
+ * @brief Follows a buffer's data while it is spilled.
+ *
+ * Copying a buffer's data moves the token to the copy.
+ */
+struct SpillTrackToken {
+    /// @brief When the data was spilled, unset when the spill was not recorded.
+    Clock::time_point since{};
+    /// @brief The measured cost of the copy that spilled the data, in seconds, or zero
+    /// when that copy has not been timed.
+    std::atomic<double> out_seconds{0.0};
+
+    /**
+     * @brief Whether the spill that the token follows was recorded.
+     *
+     * False when the spill happened while statistics were disabled, leaving nothing to
+     * measure the unspill against.
+     *
+     * @return True if the token has a start time.
+     */
+    [[nodiscard]] bool is_open() const noexcept {
+        return since != Clock::time_point{};
+    }
+};
+
+namespace detail {
+/**
+ * @brief Called with a stream-ordered duration once the stream reaches its stop marker.
+ *
+ * @param duration The measured duration.
+ * @param statistics The statistics the timing was recorded into.
+ */
+using TimingSink = std::function<void(Duration duration, Statistics& statistics)>;
+}  // namespace detail
 
 class StreamOrderedTiming;
 
@@ -101,6 +139,10 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
      *   where the running total carries no meaning and the peak is the point:
      *   "max 8 | avg 2.5 (100 samples)"
      *
+     * - Ratio (1 stat): how often something held, recorded as one sample per
+     *   occasion carrying one or zero:
+     *   "3/12 (25%)"
+     *
      * `_Count` is an internal sentinel — always keep it last.
      */
     enum class Formatter : std::uint8_t {
@@ -110,6 +152,7 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
         HitRate,
         MemoryThroughput,
         Gauge,
+        Ratio,
         _Count,  ///< Sentinel; must remain last.
     };
 
@@ -516,9 +559,16 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
      * @param timing A `StreamOrderedTiming` that should be started just before the copy
      * was enqueued on the stream. Its `stop_and_record()` is called here to enqueue the
      * stop callback.
+     * @param spill_token The spill token of the data being copied, or null when the copy
+     * does not relocate data. A spill opens the record, and an unspill closes it and
+     * writes the `buffer-spilled-*` statistics.
      */
     void record_copy(
-        MemoryType src, MemoryType dst, std::size_t nbytes, StreamOrderedTiming&& timing
+        MemoryType src,
+        MemoryType dst,
+        std::size_t nbytes,
+        StreamOrderedTiming&& timing,
+        std::shared_ptr<SpillTrackToken> spill_token = nullptr
     );
 
     /**
@@ -631,6 +681,30 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
         std::vector<std::string> stat_names;
         Formatter formatter;
     };
+
+    /**
+     * @brief Carries @p spill_token across a copy, opening or closing it.
+     *
+     * A spill opens the token and an unspill closes it, writing the `buffer-spilled-*`
+     * statistics.
+     *
+     * @warning Reads and clears `spill_token->since` without synchronisation, so two
+     * copies sharing a token must not run concurrently. Relocations through
+     * `BufferResource` cannot, since each destroys its source, but `buffer_copy()` used
+     * directly can leave two live buffers holding one token.
+     *
+     * @param src Source memory type.
+     * @param dst Destination memory type.
+     * @param nbytes Number of bytes copied.
+     * @param spill_token The spill token, or null.
+     * @return The sink to hand to `StreamOrderedTiming::stop_and_record()`, or null.
+     */
+    detail::TimingSink update_spill_token(
+        MemoryType src,
+        MemoryType dst,
+        std::size_t nbytes,
+        std::shared_ptr<SpillTrackToken> spill_token
+    );
 
     explicit Statistics(bool enabled);
 

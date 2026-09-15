@@ -42,6 +42,8 @@ struct Timing {
 
     TimePoint host_start{};
     std::optional<std::string> stream_delay_name;
+
+    detail::TimingSink sink;
 };
 
 // The global map owns the `Timing` state for all in-flight stream-ordered timers.
@@ -95,6 +97,9 @@ void timing_stop_cb(void* data) {
             (timing.stream_ordered_start - timing.host_start).count()
         );
     }
+    if (timing.sink) {
+        timing.sink(now - timing.stream_ordered_start, *statistics);
+    }
 }
 
 }  // namespace
@@ -122,7 +127,9 @@ StreamOrderedTiming::StreamOrderedTiming(
 }
 
 void StreamOrderedTiming::stop_and_record(
-    std::string const& name, std::optional<std::string> stream_delay_name
+    std::string const& name,
+    std::optional<std::string> stream_delay_name,
+    detail::TimingSink sink
 ) {
     if (statistics_ == nullptr) {
         return;
@@ -132,6 +139,7 @@ void StreamOrderedTiming::stop_and_record(
         auto& entry = global_timings_.at(uid_);
         entry.stream_ordered_name = name;
         entry.stream_delay_name = std::move(stream_delay_name);
+        entry.sink = std::move(sink);
     }
 
     RAPIDSMPF_CUDA_TRY(

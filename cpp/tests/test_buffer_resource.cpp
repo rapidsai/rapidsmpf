@@ -13,6 +13,7 @@
 
 #include <rmm/mr/limiting_resource_adaptor.hpp>
 #include <rmm/mr/per_device_resource.hpp>
+#include <rmm/mr/pool_memory_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/communicator/mpi.hpp>
@@ -942,4 +943,261 @@ TEST(BufferResource, DeviceMrIsAddressableByMemoryRecorder) {
     EXPECT_EQ(rec.global_peak, static_cast<std::int64_t>(kAllocBytes));
     EXPECT_EQ(rec.scoped.peak(), static_cast<std::int64_t>(kAllocBytes));
     EXPECT_EQ(rec.scoped.total(), static_cast<std::int64_t>(kAllocBytes));
+}
+
+// buffer-spilled-time
+
+class BufferSpillStatistics : public ::testing::Test {
+  public:
+    void SetUp() override {
+        pinned_available = is_pinned_memory_resources_supported();
+        br = BufferResource::create(
+            mr_pool,
+            pinned_available ? std::optional<PinnedPoolProperties>{PinnedPoolProperties{}}
+                             : PinnedMemoryDisabled,
+            {},
+            std::nullopt,
+            std::make_shared<StreamPool>(1),
+            stats
+        );
+    }
+
+    void TearDown() override {
+        stream.sync();
+    }
+
+    /// @brief Allocate a buffer of `nbytes` bytes in `mem_type`.
+    std::unique_ptr<Buffer> allocate(MemoryType mem_type, std::size_t nbytes = size) {
+        auto [res, _] = br->reserve(mem_type, nbytes, AllowOverbooking::YES);
+        return br->make_buffer(nbytes, stream, res);
+    }
+
+    /// @brief Move `buffer` into `mem_type`.
+    std::unique_ptr<Buffer> move(std::unique_ptr<Buffer> buffer, MemoryType mem_type) {
+        auto [res, _] = br->reserve(mem_type, buffer->size, AllowOverbooking::YES);
+        return br->move(std::move(buffer), res);
+    }
+
+    /// @brief Copy a large buffer to host and back, waiting for each copy.
+    ///
+    /// Blocks the calling thread for as long as the copies take. Returns only once its
+    /// own verdict has been written, so a caller can read a count straight afterwards.
+    void wait_for_a_large_round_trip() {
+        auto buffer = allocate(MemoryType::DEVICE, large);
+        buffer = move(std::move(buffer), MemoryType::HOST);
+        stream.sync();
+        buffer = move(std::move(buffer), MemoryType::DEVICE);
+        stream.sync();
+    }
+
+    /// @brief A second resource whose statistics are disabled.
+    std::pair<std::shared_ptr<BufferResource>, std::shared_ptr<Statistics>>
+    disabled_resource() {
+        auto disabled = Statistics::create(Statistics::Mode::Disabled);
+        return {
+            BufferResource::create(
+                mr_cuda,
+                PinnedMemoryDisabled,
+                {},
+                std::nullopt,
+                std::make_shared<StreamPool>(1),
+                disabled
+            ),
+            disabled
+        };
+    }
+
+    /// @brief The number of samples recorded under `name`.
+    std::size_t samples(std::string const& name = "buffer-spilled-time") const {
+        try {
+            return stats->get_stat(name).count();
+        } catch (std::out_of_range const&) {
+            return 0;
+        }
+    }
+
+    /// @brief The accumulated value of the statistic `name`.
+    double value(std::string const& name) const {
+        return stats->get_stat(name).value();
+    }
+
+    static constexpr std::size_t size = 4_KiB;
+    static constexpr std::size_t medium = 4_MiB;
+    static constexpr std::size_t large = 64_MiB;
+    rmm::mr::cuda_memory_resource mr_cuda;
+    // Pooled, as in production, so that an allocation is not the dominant cost of
+    // bringing a buffer back to device.
+    rmm::mr::pool_memory_resource mr_pool{mr_cuda, 256_MiB, 512_MiB};
+    std::shared_ptr<Statistics> stats = Statistics::create();
+    std::shared_ptr<BufferResource> br;
+    cuda::stream_ref stream{cudaStreamLegacy};
+    bool pinned_available = false;
+};
+
+TEST_F(BufferSpillStatistics, RecordedOnTheReturnTrip) {
+    auto buffer = allocate(MemoryType::DEVICE);
+    buffer = move(std::move(buffer), MemoryType::HOST);
+    EXPECT_EQ(samples(), 0u);  // Still away, so there is nothing to record yet.
+
+    buffer = move(std::move(buffer), MemoryType::DEVICE);
+    EXPECT_EQ(samples(), 1u);
+}
+
+TEST_F(BufferSpillStatistics, RecordSurvivesADemotion) {
+    if (!pinned_available) {
+        GTEST_SKIP() << "Pinned memory not supported on this system";
+    }
+    // `spill_partitions` demotes an already spilled buffer when the pinned pool is
+    // exhausted, which must not drop the spill.
+    auto buffer = allocate(MemoryType::DEVICE, medium);
+    buffer = move(std::move(buffer), MemoryType::PINNED_HOST);
+    buffer = move(std::move(buffer), MemoryType::HOST);
+    buffer = move(std::move(buffer), MemoryType::DEVICE);
+    stream.sync();
+
+    EXPECT_EQ(samples(), 1u);
+}
+
+TEST_F(BufferSpillStatistics, DeviceMemoryCannotAdoptARecord) {
+    // A record belongs to data that is off device, so attaching one to a device buffer
+    // would lose it silently.
+    auto device_buffer =
+        std::make_unique<rmm::device_buffer>(size, stream, br->device_mr());
+    EXPECT_THROW(
+        std::ignore = br->move(
+            std::move(device_buffer), stream, std::make_shared<SpillTrackToken>()
+        ),
+        std::invalid_argument
+    );
+}
+
+TEST_F(BufferSpillStatistics, NotRecordedForBuffersBornOffDevice) {
+    // Nothing observed this data leaving device memory, because it never did, so
+    // there is no residence to measure.
+    auto buffer = allocate(MemoryType::HOST);
+    buffer = move(std::move(buffer), MemoryType::DEVICE);
+    stream.sync();
+    EXPECT_EQ(samples(), 0u);
+    EXPECT_EQ(samples("buffer-spilled-wasted-bytes"), 0u);
+}
+
+TEST_F(BufferSpillStatistics, ImmediateReturnCountsAsWasted) {
+    if (!pinned_available) {
+        GTEST_SKIP() << "Pinned memory not supported on this system";
+    }
+    // Straight back to device, so the data was away for far less than the copies that
+    // moved it cost. Pinned memory keeps the copies off the calling thread, so the
+    // interval is not padded by waiting for them.
+    auto buffer = allocate(MemoryType::DEVICE, large);
+    buffer = move(std::move(buffer), MemoryType::PINNED_HOST);
+    buffer = move(std::move(buffer), MemoryType::DEVICE);
+    stream.sync();  // The verdict is written when the return copy completes.
+
+    EXPECT_EQ(samples("buffer-spilled-wasted-bytes"), 1u);
+    EXPECT_EQ(value("buffer-spilled-wasted-bytes"), static_cast<double>(large));
+    // One judged spill, and it was wasted.
+    EXPECT_EQ(samples("buffer-spilled-wasted"), 1u);
+    EXPECT_EQ(value("buffer-spilled-wasted"), 1.0);
+}
+
+TEST_F(BufferSpillStatistics, LongResidenceIsNotWasted) {
+    auto buffer = allocate(MemoryType::DEVICE, medium);
+    buffer = move(std::move(buffer), MemoryType::HOST);
+
+    // Waiting on a large copy keeps the small buffer spilled for far longer than its
+    // own copies cost. That round trip is itself wasted, so count from after it, and
+    // the helper's trailing sync is what makes those counts final.
+    wait_for_a_large_round_trip();
+    auto const wasted = samples("buffer-spilled-wasted-bytes");
+    auto const judged = samples("buffer-spilled-wasted");
+
+    buffer = move(std::move(buffer), MemoryType::DEVICE);
+    stream.sync();  // The verdict is written when the return copy completes.
+
+    EXPECT_EQ(samples("buffer-spilled-wasted-bytes"), wasted);
+    // The verdict is recorded either way, so the report says how many paid off.
+    EXPECT_EQ(samples("buffer-spilled-wasted"), judged + 1);
+}
+
+TEST_F(BufferSpillStatistics, TheTokenMovesWithTheData) {
+    // A relocation hands the token to the destination, so the source is left with
+    // nothing and the spill is counted once however many buffers carried it.
+    auto device_buffer = allocate(MemoryType::DEVICE, medium);
+    auto host_buffer = allocate(MemoryType::HOST, medium);
+    buffer_copy(stats, *host_buffer, *device_buffer, medium);
+
+    auto second_host_buffer = allocate(MemoryType::HOST, medium);
+    buffer_copy(stats, *second_host_buffer, *host_buffer, medium);  // takes the token
+
+    device_buffer = allocate(MemoryType::DEVICE, medium);
+    buffer_copy(stats, *device_buffer, *host_buffer, medium);  // nothing left to close
+    EXPECT_EQ(samples(), 0u);
+
+    auto other = allocate(MemoryType::DEVICE, medium);
+    buffer_copy(stats, *other, *second_host_buffer, medium);
+    stream.sync();
+
+    EXPECT_EQ(samples(), 1u);
+}
+
+TEST_F(BufferSpillStatistics, APartialCopyTakesTheToken) {
+    // Any copy moves the token, a slice included, so the spill is reported against the
+    // slice rather than the whole buffer and the rest is left untracked.
+    auto device_buffer = allocate(MemoryType::DEVICE, medium);
+    auto host_buffer = allocate(MemoryType::HOST, medium);
+    buffer_copy(stats, *host_buffer, *device_buffer, medium);
+
+    auto slice = allocate(MemoryType::DEVICE, medium);
+    buffer_copy(stats, *slice, *host_buffer, medium / 2);
+    stream.sync();
+
+    EXPECT_EQ(samples(), 1u);
+
+    // The token is gone, so unspilling the rest records nothing more.
+    auto rest = allocate(MemoryType::DEVICE, medium);
+    buffer_copy(stats, *rest, *host_buffer, medium);
+    stream.sync();
+    EXPECT_EQ(samples(), 1u);
+}
+
+TEST_F(BufferSpillStatistics, NotRecordedWithoutATransition) {
+    auto buffer = allocate(MemoryType::HOST);
+    buffer = move(std::move(buffer), MemoryType::HOST);
+    EXPECT_EQ(samples(), 0u);
+
+    auto device_buffer = allocate(MemoryType::DEVICE);
+    device_buffer = move(std::move(device_buffer), MemoryType::DEVICE);
+    EXPECT_EQ(samples(), 0u);
+}
+
+TEST_F(BufferSpillStatistics, NotRecordedWhenFreedOffDevice) {
+    // A buffer that is never needed on device again records nothing. Such a spill was
+    // never paid back, which this statistic does not count.
+    auto buffer = allocate(MemoryType::DEVICE);
+    buffer = move(std::move(buffer), MemoryType::HOST);
+    buffer.reset();
+    EXPECT_EQ(samples(), 0u);
+}
+
+TEST_F(BufferSpillStatistics, NotRecordedWhenEnabledMidInterval) {
+    // The spill happened while statistics were disabled, so enabling them before the
+    // unspill must not report a spill whose start was never observed.
+    auto [disabled_br, disabled_stats] = disabled_resource();
+    auto [device_res, _] =
+        disabled_br->reserve(MemoryType::DEVICE, size, AllowOverbooking::YES);
+    auto buffer = disabled_br->make_buffer(size, stream, device_res);
+
+    auto [host_res, __] =
+        disabled_br->reserve(MemoryType::HOST, size, AllowOverbooking::YES);
+    buffer = disabled_br->move(std::move(buffer), host_res);
+
+    disabled_stats->enable();
+    auto [back_res, ___] =
+        disabled_br->reserve(MemoryType::DEVICE, size, AllowOverbooking::YES);
+    buffer = disabled_br->move(std::move(buffer), back_res);
+    stream.sync();
+
+    EXPECT_THROW(
+        std::ignore = disabled_stats->get_stat("buffer-spilled-time"), std::out_of_range
+    );
 }

@@ -47,6 +47,14 @@ namespace rapidsmpf {
  */
 class Buffer {
     friend class BufferResource;
+    friend void buffer_copy(
+        std::shared_ptr<Statistics> statistics,
+        Buffer& dst,
+        Buffer const& src,
+        std::size_t size,
+        std::ptrdiff_t dst_offset,
+        std::ptrdiff_t src_offset
+    );
 
   public:
     /// @brief Storage type for a device buffer.
@@ -367,6 +375,7 @@ class Buffer {
 
   private:
     MemoryType const mem_type_;
+    mutable std::shared_ptr<SpillTrackToken> spill_track_token_;
     std::variant<DeviceBufferT, HostBufferT> storage_;
     cuda::stream_ref stream_{cudaStreamLegacy};
     CudaEvent latest_write_event_;

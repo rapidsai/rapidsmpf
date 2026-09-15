@@ -279,8 +279,15 @@ std::unique_ptr<Buffer> BufferResource::make_buffer(
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
-    std::unique_ptr<rmm::device_buffer> data, cuda::stream_ref stream
+    std::unique_ptr<rmm::device_buffer> data,
+    cuda::stream_ref stream,
+    std::shared_ptr<SpillTrackToken> spill_token
 ) {
+    RAPIDSMPF_EXPECTS(
+        spill_token == nullptr || is_host_accessible(data->memory_resource()),
+        "a spill token cannot be attached to device memory",
+        std::invalid_argument
+    );
     cuda::stream_ref upstream = data->stream();
     if (upstream.get() != stream.get()) {
         cuda_stream_join(stream, upstream);
@@ -291,9 +298,11 @@ std::unique_ptr<Buffer> BufferResource::move(
         auto pinned_host_buffer = std::make_unique<HostBuffer>(
             HostBuffer::from_rmm_device_buffer(std::move(data), stream)
         );
-        return std::unique_ptr<Buffer>(
+        auto ret = std::unique_ptr<Buffer>(
             new Buffer(std::move(pinned_host_buffer), stream, MemoryType::PINNED_HOST)
         );
+        ret->spill_track_token_ = std::move(spill_token);
+        return ret;
     }
     return std::unique_ptr<Buffer>(new Buffer(std::move(data), MemoryType::DEVICE));
 }

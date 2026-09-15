@@ -7,6 +7,9 @@ This table gives an overview of the different statistics collected.
 | --- | --- |
 | `alloc-{memtype}` | Bytes allocated via `BufferResource::allocate()`, broken down by memory type (`device`, `pinned_host`, `host`). Shows total bytes, total time, allocation throughput, and average stream delay. |
 | `copy-{src}-to-{dst}` | Amount of data copied between memory types by RapidsMPF. `{src}` and `{dst}` are `device`, `pinned_host`, or `host`. Shows total bytes, total copy time, throughput, and average stream delay (time between CPU submission and GPU execution of the copy). |
+| `buffer-spilled-time` | How long a buffer stayed spilled, from the copy that spilled it to the copy that unspilled it. Data that is never unspilled is not counted. |
+| `buffer-spilled-wasted` | How many spills stayed spilled for less time than their spill-unspill round trip took. Such a spill cost more to move than it saved. |
+| `buffer-spilled-wasted-bytes` | How much data stayed spilled for less time than its spill-unspill round trip took, so moving it cost more than it saved. |
 | `event-loop-total` | Time spent in in the background `ProgressThread` event-loop. |
 | `recv-into-host-memory` | Data received directly into host memory rather than device memory, due to memory pressure at receive time. |
 | `reserve-{memtype}-wait-avoided` | Reservation requests that `MemoryReserveOrWait` satisfied at once, over all requests. A miss means the request had to wait. |
