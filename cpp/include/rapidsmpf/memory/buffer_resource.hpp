@@ -464,17 +464,30 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @param mem_types Memory types to try in preference order.
      * @param num_spill_retries Maximum number of device spill attempts.
      * @return A full reservation, or `std::nullopt` if no reservation can be satisfied.
+     * @throws std::invalid_argument if @p mem_types is empty.
      */
     template <std::ranges::input_range Range>
         requires std::convertible_to<std::ranges::range_value_t<Range>, MemoryType>
     [[nodiscard]] std::optional<MemoryReservation> try_reserve_or_spill(
         std::size_t size, Range mem_types, std::size_t num_spill_retries = 8
     ) {
+        auto first = std::ranges::begin(mem_types);
+        auto const last = std::ranges::end(mem_types);
+        RAPIDSMPF_EXPECTS(
+            first != last, "mem_types cannot be empty", std::invalid_argument
+        );
+
+        if (size == 0) {
+            auto const mem_type = static_cast<MemoryType>(*first);
+            return MemoryReservation{mem_type, this, 0};
+        }
+
         std::optional<MemoryReservation> device_reservation;
         std::size_t device_overbooking{0};
         std::array<bool, MEMORY_TYPES.size()> seen{};
 
-        for (auto const mem_type : mem_types) {
+        for (; first != last; ++first) {
+            auto const mem_type = static_cast<MemoryType>(*first);
             auto const index = static_cast<std::size_t>(mem_type);
             RAPIDSMPF_EXPECTS(index < seen.size(), "invalid memory type");
             if (std::exchange(seen[index], true)) {

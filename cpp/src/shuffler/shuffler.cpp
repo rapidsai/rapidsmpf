@@ -101,7 +101,7 @@ class Shuffler::Progress {
                     if (chunk.is_data_buffer_set() && chunk.data_size() > 0) {
                         if (chunk.data_memory_type() == MemoryType::DISK) {
                             auto reservation = shuffler_.br_->try_reserve_or_spill(
-                                chunk.data_size(), ADDRESSABLE_MEMORY_TYPES
+                                chunk.data_size(), shuffler_.reservation_memory_types_
                             );
                             RAPIDSMPF_EXPECTS(
                                 reservation.has_value(),
@@ -235,12 +235,14 @@ Shuffler::Shuffler(
     FinishedCallback&& finished_callback,
     PartitionOwner partition_owner_fn,
     std::unique_ptr<communicator::MetadataPayloadExchange> mpe,
-    std::vector<MemoryType> spillable_memory_types
+    std::vector<MemoryType> spillable_memory_types,
+    std::vector<MemoryType> reservation_memory_types
 )
     : total_num_partitions{total_num_partitions},
       partition_owner{std::move(partition_owner_fn)},
       br_{br},
       spillable_memory_types_{std::move(spillable_memory_types)},
+      reservation_memory_types_{std::move(reservation_memory_types)},
       to_send_{},
       received_{safe_cast<std::size_t>(total_num_partitions)},
       comm_{std::move(comm)},
@@ -251,7 +253,7 @@ Shuffler::Shuffler(
                     op_id,
                     [this](std::size_t size) -> std::unique_ptr<Buffer> {
                         auto reservation =
-                            br_->try_reserve_or_spill(size, ADDRESSABLE_MEMORY_TYPES);
+                            br_->try_reserve_or_spill(size, reservation_memory_types_);
                         if (!reservation.has_value()) {
                             return nullptr;
                         }
@@ -277,18 +279,30 @@ Shuffler::Shuffler(
     );
     RAPIDSMPF_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be NULL");
     RAPIDSMPF_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be NULL");
-    for (auto const mem_type : spillable_memory_types_) {
-        RAPIDSMPF_EXPECTS(
-            mem_type != MemoryType::DEVICE,
-            "device memory cannot be a spill destination",
-            std::invalid_argument
-        );
-        RAPIDSMPF_EXPECTS(
-            contains(RESERVABLE_MEMORY_TYPES, mem_type),
-            "spillable_memory_types contains an invalid memory type",
-            std::invalid_argument
-        );
-    }
+    RAPIDSMPF_EXPECTS(
+        !reservation_memory_types_.empty(),
+        "reservation_memory_types cannot be empty",
+        std::invalid_argument
+    );
+    RAPIDSMPF_EXPECTS(
+        std::ranges::all_of(
+            reservation_memory_types_,
+            [](auto mem_type) { return contains(ADDRESSABLE_MEMORY_TYPES, mem_type); }
+        ),
+        "reservation_memory_types contains a non-addressable memory type",
+        std::invalid_argument
+    );
+    RAPIDSMPF_EXPECTS(
+        std::ranges::all_of(
+            spillable_memory_types_,
+            [](auto mem_type) {
+                return mem_type != MemoryType::DEVICE
+                       && contains(RESERVABLE_MEMORY_TYPES, mem_type);
+            }
+        ),
+        "spillable_memory_types contains an invalid spill destination",
+        std::invalid_argument
+    );
 
     // We need to register the progress function with the progress thread, but
     // that cannot be done in the constructor's initializer list because the
@@ -465,6 +479,9 @@ void Shuffler::wait(std::optional<std::chrono::milliseconds> timeout) {
 
 std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
+    if (spillable_memory_types_.empty()) {
+        return 0;
+    }
     std::size_t spill_need{0};
     if (amount.has_value()) {
         spill_need = amount.value();
