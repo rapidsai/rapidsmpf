@@ -24,6 +24,8 @@ std::istream& operator>>(std::istream& is, MemoryType& out) {
         out = MemoryType::PINNED_HOST;
     } else if (token == "HOST") {
         out = MemoryType::HOST;
+    } else if (token == "DISK") {
+        out = MemoryType::DISK;
     } else {
         is.setstate(std::ios::failbit);
     }
