@@ -300,6 +300,11 @@ TagMetadataPayloadExchange::setup_data_receives() {
                     auto buffer = allocate_buffer_fn_(payload_size);
                     if (buffer == nullptr) {
                         peer_allocation_deferred_[p] = true;
+                        RAPIDSMPF_EXPECTS(
+                            --tag_msg.allocation_retries_remaining > 0,
+                            "receive buffer allocation retries exhausted",
+                            std::runtime_error
+                        );
                         break;
                     }
                     tag_msg.message->set_data(std::move(buffer));

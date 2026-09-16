@@ -3,6 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <chrono>
+#include <string>
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -155,6 +158,60 @@ TEST_F(MetadataPayloadExchangeTest, DefersReceiveBufferAllocation) {
     verify_data_content(received_messages[0]->data(), first_data_size);
     verify_data_content(received_messages[1]->data(), second_data_size);
 
+    wait_for_communication_complete();
+}
+
+TEST_F(MetadataPayloadExchangeTest, ThrowsWhenReceiveBufferAllocationRetriesExhausted) {
+    if (comm->nranks() < 2) {
+        GTEST_SKIP() << "Test requires at least 2 ranks";
+    }
+
+    constexpr std::size_t data_size = 1024;
+    constexpr std::size_t expected_allocation_attempts = 8;
+    constexpr auto timeout = std::chrono::seconds{30};
+    std::size_t allocation_attempts = 0;
+    bool fail_allocation = true;
+    auto allocate_fn = [this,
+                        &allocation_attempts,
+                        &fail_allocation](std::size_t size) -> std::unique_ptr<Buffer> {
+        ++allocation_attempts;
+        return fail_allocation ? nullptr : allocate_receive_buffer(size);
+    };
+    comm_interface = std::make_unique<TagMetadataPayloadExchange>(
+        GlobalEnvironment->comm_, OpID{42}, allocate_fn, statistics
+    );
+
+    Rank const next_rank = (comm->rank() + 1) % comm->nranks();
+    comm_interface->send(create_test_message(next_rank, {0x01}, data_size));
+
+    std::string allocation_error;
+    auto const deadline = std::chrono::steady_clock::now() + timeout;
+    while (allocation_error.empty() && std::chrono::steady_clock::now() < deadline) {
+        try {
+            comm_interface->progress();
+        } catch (std::runtime_error const& error) {
+            allocation_error = error.what();
+        }
+        std::this_thread::yield();
+    }
+
+    ASSERT_THAT(allocation_error, testing::HasSubstr("allocation retries exhausted"))
+        << "allocation attempts: " << allocation_attempts;
+    EXPECT_EQ(allocation_attempts, expected_allocation_attempts);
+
+    // Let the pending receive complete so no messages leak into subsequent tests.
+    fail_allocation = false;
+    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> received_messages;
+    auto const recovery_deadline = std::chrono::steady_clock::now() + timeout;
+    while (received_messages.empty()
+           && std::chrono::steady_clock::now() < recovery_deadline)
+    {
+        comm_interface->progress();
+        received_messages = comm_interface->recv();
+        std::this_thread::yield();
+    }
+    ASSERT_EQ(received_messages.size(), 1);
+    verify_data_content(received_messages[0]->data(), data_size);
     wait_for_communication_complete();
 }
 
