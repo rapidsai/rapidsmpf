@@ -124,6 +124,15 @@ constexpr std::array<FormatterFn, static_cast<std::size_t>(Statistics::Formatter
                << " | avg-stream-delay "
                << format_duration(s.at(2).value() / static_cast<double>(s.at(1).count()));
         },
+        // Implement `Statistics::Formatter::Gauge`
+        [](std::ostream& os, std::vector<Statistics::Stat> const& s) {
+            auto const count = s.at(0).count();
+            os << "max " << s.at(0).max();
+            if (count > 1) {
+                os << " | avg " << s.at(0).value() / static_cast<double>(count) << " ("
+                   << count << " samples)";
+            }
+        },
     }};
 
 template <typename T, typename... Properties>

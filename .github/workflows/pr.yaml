@@ -371,7 +371,6 @@ jobs:
     with:
       docs-projects: rapidsmpf
       dry-run: true
-      version-map: ${{ vars.VERSION_MAP }}
   devcontainer:
     permissions:
       actions: read

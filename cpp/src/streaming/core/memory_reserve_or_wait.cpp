@@ -8,7 +8,10 @@
 #include <mutex>
 #include <ranges>
 #include <stdexcept>
+#include <string>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 #include <coro/sync_wait.hpp>
 
@@ -29,9 +32,36 @@ MemoryReserveOrWait::MemoryReserveOrWait(
     : mem_type_{mem_type},
       executor_{std::move(executor)},
       br_{std::move(br)},
-      timeout_{options.get<Duration>("memory_reserve_timeout", parse_duration)} {
+      timeout_{options.get<Duration>("memory_reserve_timeout", parse_duration)},
+      stat_prefix_{"reserve-" + to_lower(to_string(mem_type)) + "-"} {
     RAPIDSMPF_EXPECTS(executor_ != nullptr, "executor cannot be NULL");
     RAPIDSMPF_EXPECTS(br_ != nullptr, "br cannot be NULL");
+
+    // Shared with `br_` and `Context`, see `Context::statistics()`.
+    statistics_ = br_->statistics();
+}
+
+void MemoryReserveOrWait::record_stat(std::string_view suffix, double value) const {
+    if (!statistics_->enabled()) {
+        return;
+    }
+    std::call_once(report_entries_once_, [this] {
+        using Formatter = Statistics::Formatter;
+        auto entry = [this](std::string_view name, Formatter formatter) {
+            auto full = stat_prefix_ + std::string{name};
+            statistics_->add_report_entry(
+                full, std::vector<std::string>{full}, formatter
+            );
+        };
+        entry("wait-avoided", Formatter::HitRate);
+        entry("wait-timeout", Formatter::HitRate);
+        entry("waiting-requests", Formatter::Gauge);
+        entry("wait-satisfied-time", Formatter::Duration);
+        entry("wait-timeout-time", Formatter::Duration);
+        entry("request-bytes", Formatter::Bytes);
+        entry("overbook-bytes", Formatter::Bytes);
+    });
+    statistics_->add_stat(stat_prefix_ + std::string{suffix}, value);
 }
 
 MemoryReserveOrWait::~MemoryReserveOrWait() noexcept {
@@ -65,11 +95,15 @@ Actor MemoryReserveOrWait::shutdown() {
 coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
     std::size_t size, std::int64_t net_memory_delta
 ) {
+    record_stat("request-bytes", static_cast<double>(size));
+
     // First, check whether the requested memory is immediately available.
     auto [res, _] = br_->reserve(mem_type_, size, AllowOverbooking::NO);
     if (res.size() == size) {
+        record_stat("wait-avoided", 1);
         co_return std::move(res);
     }
+    record_stat("wait-avoided", 0);
 
     // Use libcoro's queue to track completion of this reservation request.
     // The queue will have at most one item: the fulfilled memory reservation.
@@ -82,9 +116,11 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
             .size = size,
             .net_memory_delta = net_memory_delta,
             .sequence_number = sequence_counter++,
-            .queue = request_queue
+            .queue = request_queue,
+            .submitted_at = Clock::now()
         }
     );
+    auto const waiting_requests = reservation_requests_.size();
 
     // If no periodic memory check task is running, start one.
     std::optional<coro::task<void>> previous_periodic_task;
@@ -101,6 +137,11 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
         periodic_task_running_ = true;
     }
     lock.unlock();
+
+    // Recorded each time a request starts waiting, not sampled over time. The set
+    // only grows at the insert above, so the maximum is exact, while the mean is the
+    // queue depth seen when a request starts waiting.
+    record_stat("waiting-requests", static_cast<double>(waiting_requests));
 
     // If a previous periodic task existed, wait for it to fully exit before
     // continuing. The await must happen without holding the mutex, otherwise the
@@ -123,7 +164,15 @@ MemoryReserveOrWait::reserve_or_wait_or_overbook(
 ) {
     auto ret = co_await reserve_or_wait(size, net_memory_delta);
     if (ret.size() < size) {
-        co_return br_->reserve(mem_type_, size, AllowOverbooking::YES);
+        auto overbooked = br_->reserve(mem_type_, size, AllowOverbooking::YES);
+        // `reserve()` returns the total deficit after the reservation, including any
+        // overbooking already outstanding, so clamp to `size` for the amount this
+        // request added.
+        auto const added = std::min(size, overbooked.second);
+        if (added > 0) {
+            record_stat("overbook-bytes", static_cast<double>(added));
+        }
+        co_return overbooked;
     }
     co_return {std::move(ret), 0};
 }
@@ -265,8 +314,17 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
             // Extract the selected request and push the reservation into its queue.
             Request request = reservation_requests_.extract(it).value();
             lock.unlock();
-            push_into_queue(request.queue, std::move(res));
             last_reservation_success = Clock::now();
+
+            // Satisfied: a reservation release made room for this request, so it
+            // did not reach the timeout.
+            record_stat("wait-timeout", 0);
+            record_stat(
+                "wait-satisfied-time",
+                Duration{last_reservation_success - request.submitted_at}.count()
+            );
+
+            push_into_queue(request.queue, std::move(res));
         }
 
         // Reaching this point means we hit the timeout. Force bounded progress by
@@ -305,6 +363,15 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
         // Reserve memory and accept a zero-size result if it does not fit into the
         // currently available memory.
         auto [res, _] = br_->reserve(mem_type_, request.size, AllowOverbooking::NO);
+
+        // Forced progress: this request ran out the timeout rather than being admitted
+        // by a reservation release. Whether the forced attempt then found memory is
+        // visible as the `overbook-bytes` count, which only moves when it did not.
+        record_stat("wait-timeout", 1);
+        record_stat(
+            "wait-timeout-time", Duration{Clock::now() - request.submitted_at}.count()
+        );
+
         push_into_queue(request.queue, std::move(res));
     }
 }
