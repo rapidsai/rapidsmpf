@@ -88,6 +88,9 @@ files:
   py_rapids_build_librapidsmpf:
     output: pyproject
     pyproject_dir: python/librapidsmpf
+    matrix:
+      cuda_suffixed: ["false"]
+      use_cuda_wheels: ["true"]
     extras:
       table: tool.rapids-build-backend
       key: requires
@@ -99,6 +102,9 @@ files:
   py_run_librapidsmpf:
     output: pyproject
     pyproject_dir: python/librapidsmpf
+    matrix:
+      cuda_suffixed: ["false"]
+      use_cuda_wheels: ["true"]
     extras:
       table: project
     includes:
@@ -114,6 +120,9 @@ files:
   py_rapids_build_rapidsmpf:
     output: pyproject
     pyproject_dir: python/rapidsmpf
+    matrix:
+      cuda_suffixed: ["false"]
+      use_cuda_wheels: ["true"]
     extras:
       table: tool.rapids-build-backend
       key: requires
@@ -127,6 +136,9 @@ files:
   py_run_rapidsmpf:
     output: pyproject
     pyproject_dir: python/rapidsmpf
+    matrix:
+      cuda_suffixed: ["false"]
+      use_cuda_wheels: ["true"]
     extras:
       table: project
     includes:
@@ -136,6 +148,9 @@ files:
   py_test_rapidsmpf:
     output: pyproject
     pyproject_dir: python/rapidsmpf
+    matrix:
+      cuda_suffixed: ["false"]
+      use_cuda_wheels: ["true"]
     extras:
       table: project.optional-dependencies
       key: test
@@ -209,6 +224,7 @@ dependencies:
             packages:
               - &nvml_cu13 cuda-toolkit[nvml]==13.*
           - matrix:
+              use_cuda_wheels: "true"
             packages:
               - *nvml_cu13
   build-mpi:
@@ -412,10 +428,12 @@ dependencies:
               - *cupy_cu13
           - matrix:
               cuda: "12.*"
+              use_cuda_wheels: "true"
             packages:
               - cupy-cuda12x[ctk]>=14.0.1,!=14.1.0
           # fallback to CUDA 13 versions if 'cuda' is '13.*' or not provided
           - matrix:
+              use_cuda_wheels: "true"
             packages:
               - cupy-cuda13x[ctk]>=14.0.1,!=14.1.0
   depends_on_librapidsmpf:
@@ -440,7 +458,10 @@ dependencies:
               cuda_suffixed: "true"
             packages:
               - librapidsmpf-cu13==26.12.*,>=0.0.0a0
-          - {matrix: null, packages: [*librapidsmpf_unsuffixed]}
+          - matrix:
+              cuda_suffixed: "false"
+            packages:
+              - *librapidsmpf_unsuffixed
   depends_on_librapidsmpf_tests:
     common:
       - output_types: conda
@@ -468,7 +489,10 @@ dependencies:
               cuda_suffixed: "true"
             packages:
               - rapidsmpf-cu13==26.12.*,>=0.0.0a0
-          - {matrix: null, packages: [*rapidsmpf_unsuffixed]}
+          - matrix:
+              cuda_suffixed: "false"
+            packages:
+              - *rapidsmpf_unsuffixed
   clang_tidy:
     common:
       - output_types: conda
@@ -515,6 +539,7 @@ dependencies:
             packages:
               - librmm-cu13==26.12.*,>=0.0.0a0
           - matrix:
+              cuda_suffixed: "false"
             packages:
               - *librmm_unsuffixed
   depends_on_rmm:
@@ -540,6 +565,7 @@ dependencies:
             packages:
               - rmm-cu13==26.12.*,>=0.0.0a0
           - matrix:
+              cuda_suffixed: "false"
             packages:
               - *rmm_unsuffixed
   depends_on_libucxx:
@@ -565,6 +591,7 @@ dependencies:
             packages:
               - libucxx-cu13==0.53.*,>=0.0.0a0
           - matrix:
+              cuda_suffixed: "false"
             packages:
               - *libucxx_unsuffixed
   depends_on_ucxx:
@@ -590,6 +617,7 @@ dependencies:
             packages:
               - ucxx-cu13==0.53.*,>=0.0.0a0
           - matrix:
+              cuda_suffixed: "false"
             packages:
               - *ucxx_unsuffixed
   depends_on_ray:
