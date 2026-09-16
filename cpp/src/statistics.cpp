@@ -95,15 +95,6 @@ constexpr std::array<FormatterFn, static_cast<std::size_t>(Statistics::Formatter
                    << count << " samples)";
             }
         },
-        // Implement `Statistics::Formatter::Ratio`
-        [](std::ostream& os, std::vector<Statistics::Stat> const& s) {
-            auto const count = s.at(0).count();
-            os << s.at(0).value() << "/" << count;
-            if (count > 0) {
-                os << " (" << std::fixed << std::setprecision(0)
-                   << s.at(0).value() / static_cast<double>(count) * 100.0 << "%)";
-            }
-        },
     }};
 
 template <typename T, typename... Properties>
@@ -727,7 +718,7 @@ void Statistics::record_copy(
     auto const& names =
         name_map[static_cast<std::size_t>(src)][static_cast<std::size_t>(dst)];
 
-    auto sink = update_spill_token(src, dst, nbytes, std::move(spill_token));
+    auto sink = update_spill_token(src, dst, std::move(spill_token));
     timing.stop_and_record(names.time, names.stream_delay, std::move(sink));
     add_stat(names.nbytes, static_cast<double>(nbytes));
     add_report_entry(
@@ -738,45 +729,35 @@ void Statistics::record_copy(
 }
 
 detail::TimingSink Statistics::update_spill_token(
-    MemoryType src,
-    MemoryType dst,
-    std::size_t nbytes,
-    std::shared_ptr<SpillTrackToken> spill_token
+    MemoryType src, MemoryType dst, std::shared_ptr<SpillTrackToken> spill_token
 ) {
     if (spill_token == nullptr || src == dst || !enabled()) {
         return nullptr;
     }
     if (src == MemoryType::DEVICE && dst != MemoryType::DEVICE) {
-        // The data is being spilled.
-        spill_token->since = Clock::now();
-        return [spill_token](Duration duration, Statistics&) {
-            spill_token->out_seconds.store(duration.count(), std::memory_order_release);
+        // The data is being spilled. The device memory is not free until the copy has
+        // run, so the interval starts in the sink rather than here.
+        spill_token->opened = true;
+        return [spill_token](Duration, Statistics&) {
+            spill_token->since = Clock::now();
+            spill_token->freed.store(true, std::memory_order_release);
         };
     }
     if (src != MemoryType::DEVICE && dst == MemoryType::DEVICE) {
         if (!spill_token->is_open()) {
             return nullptr;
         }
-        Duration const spilled{Clock::now() - spill_token->since};
-        add_duration_stat("buffer-spilled-time", spilled);
-        add_report_entry(
-            "buffer-spilled-wasted", {"buffer-spilled-wasted"}, Formatter::Ratio
-        );
-        return [spill_token, nbytes, spilled](Duration back, Statistics& statistics) {
-            auto const out = spill_token->out_seconds.load(std::memory_order_acquire);
-            if (out <= 0.0) {
-                // Either the copy that spilled the data was not measured, or its
-                // timing has yet to land, which can happen when the two copies use
-                // different streams. Skip rather than judge against half a round trip.
+        return [spill_token](Duration back, Statistics& statistics) {
+            if (!spill_token->freed.load(std::memory_order_acquire)) {
+                // The copy that spilled the data has yet to report, which can happen
+                // when the two copies use different streams, leaving no point to
+                // measure the interval from.
                 return;
             }
-            // Recorded for every spill that could be judged, so the report says how
-            // many paid off rather than going quiet when none were wasted.
-            bool const wasted = spilled.count() < out + back.count();
-            statistics.add_stat("buffer-spilled-wasted", wasted ? 1.0 : 0.0);
-            if (wasted) {
-                statistics.add_bytes_stat("buffer-spilled-wasted-bytes", nbytes);
-            }
+            Duration const window{Duration{Clock::now() - spill_token->since} - back};
+            statistics.add_duration_stat(
+                "buffer-spilled-time", std::max(Duration::zero(), window)
+            );
         };
     }
     return nullptr;

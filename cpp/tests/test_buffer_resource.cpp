@@ -978,18 +978,6 @@ class BufferSpillStatistics : public ::testing::Test {
         return br->move(std::move(buffer), res);
     }
 
-    /// @brief Copy a large buffer to host and back, waiting for each copy.
-    ///
-    /// Blocks the calling thread for as long as the copies take. Returns only once its
-    /// own verdict has been written, so a caller can read a count straight afterwards.
-    void wait_for_a_large_round_trip() {
-        auto buffer = allocate(MemoryType::DEVICE, large);
-        buffer = move(std::move(buffer), MemoryType::HOST);
-        stream.sync();
-        buffer = move(std::move(buffer), MemoryType::DEVICE);
-        stream.sync();
-    }
-
     /// @brief A second resource whose statistics are disabled.
     std::pair<std::shared_ptr<BufferResource>, std::shared_ptr<Statistics>>
     disabled_resource() {
@@ -1016,17 +1004,10 @@ class BufferSpillStatistics : public ::testing::Test {
         }
     }
 
-    /// @brief The accumulated value of the statistic `name`.
-    double value(std::string const& name) const {
-        return stats->get_stat(name).value();
-    }
-
     static constexpr std::size_t size = 4_KiB;
     static constexpr std::size_t medium = 4_MiB;
-    static constexpr std::size_t large = 64_MiB;
     rmm::mr::cuda_memory_resource mr_cuda;
-    // Pooled, as in production, so that an allocation is not the dominant cost of
-    // bringing a buffer back to device.
+    // Pooled, as in production.
     rmm::mr::pool_memory_resource mr_pool{mr_cuda, 256_MiB, 512_MiB};
     std::shared_ptr<Statistics> stats = Statistics::create();
     std::shared_ptr<BufferResource> br;
@@ -1040,6 +1021,7 @@ TEST_F(BufferSpillStatistics, RecordedOnTheReturnTrip) {
     EXPECT_EQ(samples(), 0u);  // Still away, so there is nothing to record yet.
 
     buffer = move(std::move(buffer), MemoryType::DEVICE);
+    stream.sync();  // The spill is recorded when the return copy completes.
     EXPECT_EQ(samples(), 1u);
 }
 
@@ -1078,45 +1060,6 @@ TEST_F(BufferSpillStatistics, NotRecordedForBuffersBornOffDevice) {
     buffer = move(std::move(buffer), MemoryType::DEVICE);
     stream.sync();
     EXPECT_EQ(samples(), 0u);
-    EXPECT_EQ(samples("buffer-spilled-wasted-bytes"), 0u);
-}
-
-TEST_F(BufferSpillStatistics, ImmediateReturnCountsAsWasted) {
-    if (!pinned_available) {
-        GTEST_SKIP() << "Pinned memory not supported on this system";
-    }
-    // Straight back to device, so the data was away for far less than the copies that
-    // moved it cost. Pinned memory keeps the copies off the calling thread, so the
-    // interval is not padded by waiting for them.
-    auto buffer = allocate(MemoryType::DEVICE, large);
-    buffer = move(std::move(buffer), MemoryType::PINNED_HOST);
-    buffer = move(std::move(buffer), MemoryType::DEVICE);
-    stream.sync();  // The verdict is written when the return copy completes.
-
-    EXPECT_EQ(samples("buffer-spilled-wasted-bytes"), 1u);
-    EXPECT_EQ(value("buffer-spilled-wasted-bytes"), static_cast<double>(large));
-    // One judged spill, and it was wasted.
-    EXPECT_EQ(samples("buffer-spilled-wasted"), 1u);
-    EXPECT_EQ(value("buffer-spilled-wasted"), 1.0);
-}
-
-TEST_F(BufferSpillStatistics, LongResidenceIsNotWasted) {
-    auto buffer = allocate(MemoryType::DEVICE, medium);
-    buffer = move(std::move(buffer), MemoryType::HOST);
-
-    // Waiting on a large copy keeps the small buffer spilled for far longer than its
-    // own copies cost. That round trip is itself wasted, so count from after it, and
-    // the helper's trailing sync is what makes those counts final.
-    wait_for_a_large_round_trip();
-    auto const wasted = samples("buffer-spilled-wasted-bytes");
-    auto const judged = samples("buffer-spilled-wasted");
-
-    buffer = move(std::move(buffer), MemoryType::DEVICE);
-    stream.sync();  // The verdict is written when the return copy completes.
-
-    EXPECT_EQ(samples("buffer-spilled-wasted-bytes"), wasted);
-    // The verdict is recorded either way, so the report says how many paid off.
-    EXPECT_EQ(samples("buffer-spilled-wasted"), judged + 1);
 }
 
 TEST_F(BufferSpillStatistics, TheTokenMovesWithTheData) {
