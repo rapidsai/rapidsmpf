@@ -32,7 +32,7 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      * @param op_id The operation ID for tagging messages.
      * @param allocate_buffer_fn Function to allocate buffers for incoming data. May
      * return `nullptr` when allocation is temporarily unavailable; allocation is
-     * retried by subsequent calls to `progress()`.
+     * retried by subsequent calls to `progress()` up to the allocation retry limit.
      * @param statistics The statistics to use for tracking communication operations.
      */
     TagMetadataPayloadExchange(
@@ -68,6 +68,8 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      * - Setting up data transfers
      * - Handling completed data transfers
      * - Cleaning up completed operations
+     *
+     * @throws std::runtime_error if receive-buffer allocation retries are exhausted.
      */
     void progress() override;
 
@@ -95,14 +97,21 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      * through the public interface.
      */
     struct TagMessage {
+        static constexpr std::int8_t allocation_retry_limit{8};
+
         std::unique_ptr<Message> message;
         std::uint64_t message_id{0};
         std::size_t expected_payload_size{0};
+        std::int8_t allocation_retries_remaining{allocation_retry_limit};
 
         TagMessage(
             std::unique_ptr<Message> msg, std::uint64_t id = 0, std::size_t size = 0
         )
-            : message(std::move(msg)), message_id(id), expected_payload_size(size) {}
+            : message(std::move(msg)), message_id(id), expected_payload_size(size) {
+            if (expected_payload_size > 0 && message->data() == nullptr) {
+                --allocation_retries_remaining;
+            }
+        }
     };
 
     // Core communication infrastructure
@@ -162,7 +171,8 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      *
      * @return A vector of completed metadata-only messages.
      *
-     * @throw std::runtime_error if an in-transit message or future is not found.
+     * @throw std::runtime_error if an in-transit message or future is not found, or
+     * receive-buffer allocation retries are exhausted.
      */
     std::vector<std::unique_ptr<Message>> setup_data_receives();
 
