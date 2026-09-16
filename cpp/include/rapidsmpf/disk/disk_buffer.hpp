@@ -9,9 +9,11 @@
 #include <memory>
 #include <vector>
 
+#include <cuda/stream>
+
 #include <rapidsmpf/disk/disk_resource.hpp>
 
-namespace rapidsmpf::disk {
+namespace rapidsmpf {
 
 /**
  * @brief File-backed handle to a byte buffer.
@@ -72,6 +74,9 @@ class DiskBuffer {
         return disk_;
     }
 
+    ///@brief No-op stream rebind.
+    void set_stream(cuda::stream_ref) noexcept {}
+
     /**
      * @brief Delete the backing file, if any.
      *
@@ -84,4 +89,4 @@ class DiskBuffer {
     std::filesystem::path path_;
 };
 
-}  // namespace rapidsmpf::disk
+}  // namespace rapidsmpf

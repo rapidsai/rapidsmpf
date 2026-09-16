@@ -34,8 +34,6 @@ using namespace rapidsmpf;
 
 namespace {
 
-using namespace disk;
-
 std::filesystem::path test_spill_dir() {
     return spill_dir_from_options(GlobalEnvironment->options())
         .value_or(std::filesystem::temp_directory_path());
@@ -160,6 +158,27 @@ TEST_F(DiskResourceTest, UnalignedOffsetRoundTrip) {
             pattern.end()
         )
     );
+
+    ASSERT_TRUE(std::filesystem::remove(path));
+}
+
+TEST_F(DiskResourceTest, SequentialOffsetWritesPreserveExistingBytes) {
+    auto const path = test_path("two-ranges");
+    auto const first = make_pattern(8 * 1024);
+    auto const second = make_pattern(4 * 1024);
+    auto const second_offset = std::size_t{12 * 1024};
+
+    EXPECT_EQ(
+        disk_->write(path, first.data(), first.size(), MemoryType::HOST), first.size()
+    );
+    EXPECT_EQ(
+        disk_->write(path, second.data(), second.size(), MemoryType::HOST, second_offset),
+        second.size()
+    );
+
+    EXPECT_EQ(std::filesystem::file_size(path), second_offset + second.size());
+    check_file_contents(path, 0, first);
+    check_file_contents(path, second_offset, second);
 
     ASSERT_TRUE(std::filesystem::remove(path));
 }

@@ -21,21 +21,19 @@ enum class MemoryType : int {
 };
 
 /// @brief All memory types sorted in decreasing order of preference.
-constexpr std::array<MemoryType, 4> MEMORY_TYPES{
-    {MemoryType::DEVICE, MemoryType::PINNED_HOST, MemoryType::HOST, MemoryType::DISK}
-};
-
-/// @brief Memory types that support `BufferResource::reserve`.
-constexpr auto RESERVABLE_MEMORY_TYPES = MEMORY_TYPES;
-
-/// @brief Memory types that expose an addressable host or device pointer.
-constexpr std::array<MemoryType, 3> ADDRESSABLE_MEMORY_TYPES{
-    {MemoryType::DEVICE, MemoryType::PINNED_HOST, MemoryType::HOST}
+constexpr std::array MEMORY_TYPES{
+    MemoryType::DEVICE, MemoryType::PINNED_HOST, MemoryType::HOST, MemoryType::DISK
 };
 
 /// @brief Memory type names sorted to match `MemoryType` and `MEMORY_TYPES`.
 constexpr std::array<char const*, MEMORY_TYPES.size()> MEMORY_TYPE_NAMES{
     {"DEVICE", "PINNED_HOST", "HOST", "DISK"}
+};
+
+/// @brief Memory types that expose an addressable host or device pointer.
+/// @note This is an ordered subset of `MEMORY_TYPES` based on decreasing preference.
+constexpr std::array ADDRESSABLE_MEMORY_TYPES{
+    MemoryType::DEVICE, MemoryType::PINNED_HOST, MemoryType::HOST
 };
 
 /**
@@ -46,9 +44,7 @@ constexpr std::array<char const*, MEMORY_TYPES.size()> MEMORY_TYPE_NAMES{
  * insufficient. The ordering reflects the policy of spilling in RapidsMPF, where
  * earlier entries are considered more desirable spill destinations.
  */
-constexpr std::array<MemoryType, 2> SPILL_TARGET_MEMORY_TYPES{
-    {MemoryType::PINNED_HOST, MemoryType::HOST}
-};
+constexpr std::array SPILL_TARGET_MEMORY_TYPES{MemoryType::PINNED_HOST, MemoryType::HOST};
 
 /**
  * @brief Get the memory types with preference lower than or equal to @p mem_type.

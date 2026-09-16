@@ -16,8 +16,6 @@ namespace rapidsmpf {
 
 class BufferResource;
 
-namespace disk {
-
 /**
  * @brief Non-stream-ordered disk I/O for host or device byte buffers.
  *
@@ -67,7 +65,9 @@ class DiskResource : public BackRefMixin<BufferResource> {
      *        valid until this call returns.
      * @param size Number of bytes to write.
      * @param mem_type Memory type of @p data.
-     * @param file_offset Byte offset within the file.
+     * @param file_offset Byte offset within the file. Existing bytes outside
+     *        the written range are preserved when the file already exists.
+     *        A missing file is created.
      * @return Number of bytes transferred. The caller must check this against
      *         @p size.
      */
@@ -100,7 +100,7 @@ class DiskResource : public BackRefMixin<BufferResource> {
     ) const;
 
     /**
-     * @brief Durably synchronize file data to storage (fdatasync).
+     * @brief Durably synchronize file data to storage.
      *
      * Not used on the default spill path; exposed for benchmark durability cases.
      *
@@ -119,13 +119,13 @@ class DiskResource : public BackRefMixin<BufferResource> {
   private:
     explicit DiskResource(std::filesystem::path dir) : dir_{std::move(dir)} {}
 
-    friend class rapidsmpf::BufferResource;
+    friend class BufferResource;
 
     std::filesystem::path dir_;
 };
 
 /**
- * @brief Spill directory from `disk_spill_dir` (`RAPIDSMPF_DISK_SPILL_DIR`).
+ * @brief Spill directory from options.
  *
  * Disabled values (`false`, `none`, …) yield `std::nullopt`. An empty
  * string is treated as unset and uses the default (`false`). A
@@ -139,5 +139,4 @@ class DiskResource : public BackRefMixin<BufferResource> {
     config::Options options
 );
 
-}  // namespace disk
 }  // namespace rapidsmpf

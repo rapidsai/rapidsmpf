@@ -59,9 +59,7 @@ Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, MemoryType mem
 }
 
 Buffer::Buffer(
-    std::unique_ptr<disk::DiskBuffer> disk_buffer,
-    std::size_t size,
-    cuda::stream_ref stream
+    std::unique_ptr<DiskBuffer> disk_buffer, std::size_t size, cuda::stream_ref stream
 )
     : size{size},
       mem_type_{MemoryType::DISK},
@@ -72,6 +70,7 @@ Buffer::Buffer(
         "the disk buffer cannot be NULL",
         std::invalid_argument
     );
+    latest_write_event_.record(stream_);
 }
 
 void Buffer::throw_if_locked() const {
@@ -158,67 +157,54 @@ void Buffer::rebind_stream(cuda::stream_ref new_stream) {
     latest_write_event_.stream_wait(new_stream);
     stream_ = new_stream;
 
-    std::visit(
-        [&](auto&& storage) {
-            if constexpr (!std::is_same_v<std::decay_t<decltype(storage)>, DiskBufferT>) {
-                storage->set_stream(new_stream);
-            }
-        },
-        storage_
-    );
+    std::visit([&](auto&& storage) { storage->set_stream(new_stream); }, storage_);
 }
 
 namespace {
 
 Duration copy_from_disk(
-    Buffer& destination,
-    disk::DiskBuffer const& source,
+    Buffer& dst,
+    DiskBuffer const& src,
     std::size_t size,
-    std::ptrdiff_t destination_offset,
-    std::ptrdiff_t source_offset
+    std::ptrdiff_t dst_offset,
+    std::ptrdiff_t src_offset
 ) {
-    RAPIDSMPF_EXPECTS(
-        source.disk_resource() != nullptr, "DiskBuffer has no DiskResource"
-    );
+    RAPIDSMPF_EXPECTS(src.disk_resource() != nullptr, "DiskBuffer has no DiskResrc");
 
     auto const start = Clock::now();
-    destination.write_access([&](std::byte* destination_data, cuda::stream_ref) {
-        auto const transferred = source.disk_resource()->read(
-            source.path(),
-            destination_data + destination_offset,
-            size,
-            destination.mem_type(),
-            static_cast<std::size_t>(source_offset)
-        );
-        RAPIDSMPF_EXPECTS(
-            transferred == size,
-            "disk read transferred " + format_nbytes(transferred) + " of "
-                + format_nbytes(size),
-            std::runtime_error
-        );
-    });
-    destination.stream().sync();
+    ExclusiveDataAccess dest_access{dst};
+    auto const transferred = src.disk_resource()->read(
+        src.path(),
+        dest_access.data() + dst_offset,
+        size,
+        dst.mem_type(),
+        static_cast<std::size_t>(src_offset)
+    );
+    RAPIDSMPF_EXPECTS(
+        transferred == size,
+        "disk read transferred " + format_nbytes(transferred) + " of "
+            + format_nbytes(size),
+        std::runtime_error
+    );
     return Clock::now() - start;
 }
 
 Duration copy_to_disk(
-    disk::DiskBuffer const& destination,
-    Buffer const& source,
+    DiskBuffer const& dst,
+    Buffer const& src,
     std::size_t size,
-    std::ptrdiff_t destination_offset,
-    std::ptrdiff_t source_offset
+    std::ptrdiff_t dst_offset,
+    std::ptrdiff_t src_offset
 ) {
-    RAPIDSMPF_EXPECTS(
-        destination.disk_resource() != nullptr, "DiskBuffer has no DiskResource"
-    );
+    RAPIDSMPF_EXPECTS(dst.disk_resource() != nullptr, "DiskBuffer has no DiskResrc");
 
     auto const start = Clock::now();
-    auto const transferred = destination.disk_resource()->write(
-        destination.path(),
-        source.data() + source_offset,
+    auto const transferred = dst.disk_resource()->write(
+        dst.path(),
+        src.data() + src_offset,
         size,
-        source.mem_type(),
-        static_cast<std::size_t>(destination_offset)
+        src.mem_type(),
+        static_cast<std::size_t>(dst_offset)
     );
     RAPIDSMPF_EXPECTS(
         transferred == size,
@@ -241,7 +227,7 @@ void buffer_copy(
 ) {
     RAPIDSMPF_EXPECTS(
         &dst != &src,
-        "the source and destination cannot be the same buffer",
+        "the source and dst cannot be the same buffer",
         std::invalid_argument
     );
     RAPIDSMPF_EXPECTS(

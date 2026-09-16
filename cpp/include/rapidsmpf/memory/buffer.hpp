@@ -66,7 +66,7 @@ class Buffer {
     using HostBufferT = std::unique_ptr<HostBuffer>;
 
     /// @brief Storage type for a disk-backed buffer.
-    using DiskBufferT = std::unique_ptr<disk::DiskBuffer>;
+    using DiskBufferT = std::unique_ptr<DiskBuffer>;
 
     /**
      * @brief Return the selected storage alternative.
@@ -202,7 +202,7 @@ class Buffer {
      * @throws std::logic_error If the buffer is already locked.
      * @throws std::logic_error If `is_latest_write_done() != true`.
      *
-     * @see write_access(), is_locked(), unlock()
+     * @see write_access(), is_locked(), unlock(), ExclusiveDataAccess
      */
     std::byte* exclusive_data_access();
 
@@ -372,9 +372,7 @@ class Buffer {
      * @param stream CUDA stream associated with subsequent in-memory operations.
      */
     Buffer(
-        std::unique_ptr<disk::DiskBuffer> disk_buffer,
-        std::size_t size,
-        cuda::stream_ref stream
+        std::unique_ptr<DiskBuffer> disk_buffer, std::size_t size, cuda::stream_ref stream
     );
 
     /**
@@ -423,6 +421,47 @@ class Buffer {
     cuda::stream_ref stream_{cudaStreamLegacy};
     CudaEvent latest_write_event_;
     std::atomic<bool> lock_;
+};
+
+/**
+ * @brief RAII exclusive access to a `Buffer`'s memory.
+ *
+ * @see Buffer::exclusive_data_access(), Buffer::unlock()
+ */
+class ExclusiveDataAccess {
+  public:
+    /**
+     * @brief Lock @p buffer and expose its storage pointer.
+     *
+     * @param buffer Buffer to lock.
+     *
+     * @throws std::logic_error If the buffer is already locked.
+     * @throws std::logic_error If `buffer.is_latest_write_done() != true`.
+     */
+    explicit ExclusiveDataAccess(Buffer& buffer)
+        : buffer_{buffer}, data_{buffer.exclusive_data_access()} {}
+
+    ExclusiveDataAccess(ExclusiveDataAccess const&) = delete;
+    ExclusiveDataAccess& operator=(ExclusiveDataAccess const&) = delete;
+    ExclusiveDataAccess(ExclusiveDataAccess&&) = delete;
+    ExclusiveDataAccess& operator=(ExclusiveDataAccess&&) = delete;
+
+    ~ExclusiveDataAccess() {
+        buffer_.unlock();
+    }
+
+    /**
+     * @brief Pointer to the locked buffer's storage.
+     *
+     * @return Pointer valid for the lifetime of this object.
+     */
+    [[nodiscard]] constexpr std::byte* data() const noexcept {
+        return data_;
+    }
+
+  private:
+    Buffer& buffer_;
+    std::byte* data_;
 };
 
 /**

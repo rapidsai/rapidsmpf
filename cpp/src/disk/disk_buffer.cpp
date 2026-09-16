@@ -10,7 +10,7 @@
 #include <rapidsmpf/disk/disk_buffer.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
-namespace rapidsmpf::disk {
+namespace rapidsmpf {
 
 DiskBuffer::DiskBuffer(std::shared_ptr<DiskResource> disk) : disk_{std::move(disk)} {
     RAPIDSMPF_EXPECTS(disk_ != nullptr, "disk resource cannot be null");
@@ -50,4 +50,4 @@ DiskBuffer::~DiskBuffer() {
     deallocate();
 }
 
-}  // namespace rapidsmpf::disk
+}  // namespace rapidsmpf

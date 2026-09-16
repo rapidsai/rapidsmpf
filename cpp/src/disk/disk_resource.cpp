@@ -6,7 +6,6 @@
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
-#include <future>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -22,17 +21,7 @@
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
-namespace rapidsmpf::disk {
-
-namespace {
-
-std::size_t wait_io(kvikio::FileHandle& file, std::future<std::size_t> io) {
-    auto const n = io.get();
-    file.close();
-    return n;
-}
-
-}  // namespace
+namespace rapidsmpf {
 
 std::filesystem::path DiskResource::create_unique_path() const {
     std::error_code ec;
@@ -72,11 +61,13 @@ std::size_t DiskResource::write(
     std::size_t file_offset
 ) const {
     kvikio::FileHandle file{
-        path.string(), "w+", kvikio::FileHandle::m644, kvikio::CompatMode::AUTO
+        path.string(),
+        std::filesystem::exists(path) ? "r+" : "w+",
+        kvikio::FileHandle::m644,
+        kvikio::CompatMode::AUTO
     };
-    return wait_io(
-        file,
-        file.pwrite(
+    return file
+        .pwrite(
             data,
             size,
             file_offset,
@@ -84,7 +75,7 @@ std::size_t DiskResource::write(
             kvikio::defaults::gds_threshold(),
             false  // sync_default_stream
         )
-    );
+        .get();
 }
 
 std::size_t DiskResource::read(
@@ -97,9 +88,8 @@ std::size_t DiskResource::read(
     kvikio::FileHandle file{
         path.string(), "r", kvikio::FileHandle::m644, kvikio::CompatMode::AUTO
     };
-    return wait_io(
-        file,
-        file.pread(
+    return file
+        .pread(
             data,
             size,
             file_offset,
@@ -107,7 +97,7 @@ std::size_t DiskResource::read(
             kvikio::defaults::gds_threshold(),
             false  // sync_default_stream
         )
-    );
+        .get();
 }
 
 void DiskResource::flush(std::filesystem::path const& path) const {
@@ -147,4 +137,4 @@ std::optional<std::filesystem::path> spill_dir_from_options(config::Options opti
     );
 }
 
-}  // namespace rapidsmpf::disk
+}  // namespace rapidsmpf

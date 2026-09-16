@@ -606,13 +606,10 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     /**
      * @brief Disk I/O resource and spill directory configuration.
      *
-     * Returned as a `std::shared_ptr`; `DiskBuffer`s keep a copy so the disk
-     * resource outlives those buffers if this `BufferResource` is destroyed.
-     *
      * @return Shared pointer to the disk resource, or `nullptr` if no spill
      * directory was configured.
      */
-    [[nodiscard]] std::shared_ptr<disk::DiskResource> disk_resource() const {
+    [[nodiscard]] std::shared_ptr<DiskResource> disk_resource() const {
         return disk_resource_;
     }
 
@@ -625,14 +622,14 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         std::optional<Duration> periodic_spill_check,
         std::shared_ptr<StreamPool> stream_pool,
         std::shared_ptr<Statistics> statistics,
-        std::shared_ptr<disk::DiskResource> disk_resource
+        std::shared_ptr<DiskResource> disk_resource
     );
 
     mutable std::mutex mutex_;
     RmmResourceAdaptor owning_mr_;
     std::optional<PinnedMemoryResource> pinned_mr_;
     HostMemoryResource host_mr_;
-    std::shared_ptr<disk::DiskResource> disk_resource_;
+    std::shared_ptr<DiskResource> disk_resource_;
     std::array<std::atomic<std::int64_t>, MEMORY_TYPES.size()> memory_limits_;
     // Zero initialized reserved counters.
     std::array<std::size_t, MEMORY_TYPES.size()> memory_reserved_ = {};

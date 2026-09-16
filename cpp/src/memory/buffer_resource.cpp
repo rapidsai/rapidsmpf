@@ -35,7 +35,7 @@ BufferResource::BufferResource(
     std::optional<Duration> periodic_spill_check,
     std::shared_ptr<StreamPool> stream_pool,
     std::shared_ptr<Statistics> statistics,
-    std::shared_ptr<disk::DiskResource> disk_resource
+    std::shared_ptr<DiskResource> disk_resource
 )
     : owning_mr_{std::move(device_mr)},
       pinned_mr_{std::move(pinned_mr)},
@@ -80,11 +80,9 @@ std::shared_ptr<BufferResource> BufferResource::create(
         pinned_mr = PinnedMemoryResource{*pinned_pool_properties};
     }
 
-    std::shared_ptr<disk::DiskResource> disk_res;
+    std::shared_ptr<DiskResource> disk_res;
     if (spill_directory.has_value()) {
-        disk_res.reset(
-            new disk::DiskResource{*spill_directory / std::to_string(::getpid())}
-        );
+        disk_res.reset(new DiskResource{*spill_directory / std::to_string(::getpid())});
     }
     std::shared_ptr<BufferResource> br{new BufferResource{
         std::move(device_mr),
@@ -129,7 +127,7 @@ std::shared_ptr<BufferResource> BufferResource::from_options(
         periodic_spill_check_from_options(options),
         stream_pool_from_options(options),
         std::move(statistics),
-        disk::spill_dir_from_options(options)
+        spill_dir_from_options(options)
     );
 }
 
@@ -296,7 +294,7 @@ std::unique_ptr<Buffer> BufferResource::make_buffer(
         break;
     case MemoryType::DISK:
         ret = std::unique_ptr<Buffer>(
-            new Buffer(std::make_unique<disk::DiskBuffer>(disk_resource_), size, stream)
+            new Buffer(std::make_unique<DiskBuffer>(disk_resource_), size, stream)
         );
         break;
     default:
