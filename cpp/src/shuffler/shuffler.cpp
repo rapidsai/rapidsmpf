@@ -283,8 +283,7 @@ Shuffler::Shuffler(
         std::ranges::all_of(
             spillable_memory_types_,
             [](auto mem_type) {
-                return mem_type != MemoryType::DEVICE
-                       && contains(MEMORY_TYPES, mem_type);
+                return mem_type != MemoryType::DEVICE && contains(MEMORY_TYPES, mem_type);
             }
         ),
         "spillable_memory_types contains an invalid spill destination",
