@@ -227,7 +227,7 @@ void buffer_copy(
 ) {
     RAPIDSMPF_EXPECTS(
         &dst != &src,
-        "the source and dst cannot be the same buffer",
+        "the source and destination cannot be the same buffer",
         std::invalid_argument
     );
     RAPIDSMPF_EXPECTS(
