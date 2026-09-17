@@ -61,8 +61,7 @@ class DiskResource : public BackRefMixin<BufferResource> {
      * @brief Write bytes to a file and block until the transfer completes.
      *
      * @param path File path.
-     * @param data Host or device pointer to the source bytes. Must remain
-     *        valid until this call returns.
+     * @param data Host or device pointer to the source bytes.
      * @param size Number of bytes to write.
      * @param mem_type Memory type of @p data.
      * @param file_offset Byte offset within the file. Existing bytes outside

@@ -18,7 +18,7 @@ DiskBuffer::DiskBuffer(std::shared_ptr<DiskResource> disk) : disk_{std::move(dis
 }
 
 DiskBuffer::DiskBuffer(DiskBuffer&& other) noexcept
-    : disk_{std::move(other.disk_)}, path_{std::move(other.path_)} {}
+    : disk_{std::move(other.disk_)}, path_{std::exchange(other.path_, {})} {}
 
 std::uintmax_t DiskBuffer::file_size() const {
     return std::filesystem::file_size(path_);
