@@ -67,13 +67,10 @@ class StreamOrderedTiming {
      * @param name Name of the stream-ordered duration statistic.
      * @param stream_delay_name Name of the stream-delay statistic. If `std::nullopt`
      * (the default), no stream-delay entry is written.
-     * @param sink Called with the stream-ordered duration after the statistics are
-     * written, on the thread CUDA runs the stop callback on.
      */
     void stop_and_record(
         std::string const& name,
-        std::optional<std::string> stream_delay_name = std::nullopt,
-        detail::TimingSink sink = nullptr
+        std::optional<std::string> stream_delay_name = std::nullopt
     );
 
     /**

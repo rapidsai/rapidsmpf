@@ -168,19 +168,7 @@ void buffer_copy(
     // we need the src.stream() to wait for that event.
     dst.latest_write_event().stream_wait(src.stream());
 
-    // The spill token follows the data.
-    std::shared_ptr<SpillTrackToken> spill_token;
-    if (dst.mem_type() == MemoryType::DEVICE) {
-        spill_token = std::move(src.spill_track_token_);  // An unspill, so it closes.
-    } else if (src.mem_type() == MemoryType::DEVICE) {
-        dst.spill_track_token_ = std::make_shared<SpillTrackToken>();  // A spill.
-        spill_token = dst.spill_track_token_;
-    } else {
-        dst.spill_track_token_ = std::move(src.spill_track_token_);
-    }
-    statistics->record_copy(
-        src.mem_type(), dst.mem_type(), size, std::move(timing), std::move(spill_token)
-    );
+    statistics->record_copy(src.mem_type(), dst.mem_type(), size, std::move(timing));
 }
 
 }  // namespace rapidsmpf

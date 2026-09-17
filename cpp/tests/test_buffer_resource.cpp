@@ -1021,7 +1021,6 @@ TEST_F(BufferSpillStatistics, RecordedOnTheReturnTrip) {
     EXPECT_EQ(samples(), 0u);  // Still away, so there is nothing to record yet.
 
     buffer = move(std::move(buffer), MemoryType::DEVICE);
-    stream.sync();  // The spill is recorded when the return copy completes.
     EXPECT_EQ(samples(), 1u);
 }
 
@@ -1062,45 +1061,29 @@ TEST_F(BufferSpillStatistics, NotRecordedForBuffersBornOffDevice) {
     EXPECT_EQ(samples(), 0u);
 }
 
-TEST_F(BufferSpillStatistics, TheTokenMovesWithTheData) {
-    // A relocation hands the token to the destination, so the source is left with
-    // nothing and the spill is counted once however many buffers carried it.
+TEST_F(BufferSpillStatistics, ACopyThatKeepsItsSourceIsNotASpill) {
+    // `buffer_copy` leaves the device source allocated, as `PackedData::copy` relies
+    // on, so no capacity was released and there is nothing to measure. Only a
+    // relocation through `move()` is a spill.
     auto device_buffer = allocate(MemoryType::DEVICE, medium);
     auto host_buffer = allocate(MemoryType::HOST, medium);
     buffer_copy(stats, *host_buffer, *device_buffer, medium);
 
-    auto second_host_buffer = allocate(MemoryType::HOST, medium);
-    buffer_copy(stats, *second_host_buffer, *host_buffer, medium);  // takes the token
-
-    device_buffer = allocate(MemoryType::DEVICE, medium);
-    buffer_copy(stats, *device_buffer, *host_buffer, medium);  // nothing left to close
-    EXPECT_EQ(samples(), 0u);
-
-    auto other = allocate(MemoryType::DEVICE, medium);
-    buffer_copy(stats, *other, *second_host_buffer, medium);
+    auto returned = allocate(MemoryType::DEVICE, medium);
+    buffer_copy(stats, *returned, *host_buffer, medium);
     stream.sync();
 
-    EXPECT_EQ(samples(), 1u);
+    EXPECT_EQ(samples(), 0u);
 }
 
-TEST_F(BufferSpillStatistics, APartialCopyTakesTheToken) {
-    // Any copy moves the token, a slice included, so the spill is reported against the
-    // slice rather than the whole buffer and the rest is left untracked.
-    auto device_buffer = allocate(MemoryType::DEVICE, medium);
-    auto host_buffer = allocate(MemoryType::HOST, medium);
-    buffer_copy(stats, *host_buffer, *device_buffer, medium);
+TEST_F(BufferSpillStatistics, AnEmptyBufferIsNotASpill) {
+    // Zero bytes is no capacity, so relocating an empty buffer has nothing to measure.
+    // Empty partitions make these common in a shuffle.
+    auto buffer = allocate(MemoryType::DEVICE, 0);
+    buffer = move(std::move(buffer), MemoryType::HOST);
+    buffer = move(std::move(buffer), MemoryType::DEVICE);
 
-    auto slice = allocate(MemoryType::DEVICE, medium);
-    buffer_copy(stats, *slice, *host_buffer, medium / 2);
-    stream.sync();
-
-    EXPECT_EQ(samples(), 1u);
-
-    // The token is gone, so unspilling the rest records nothing more.
-    auto rest = allocate(MemoryType::DEVICE, medium);
-    buffer_copy(stats, *rest, *host_buffer, medium);
-    stream.sync();
-    EXPECT_EQ(samples(), 1u);
+    EXPECT_EQ(samples(), 0u);
 }
 
 TEST_F(BufferSpillStatistics, NotRecordedWithoutATransition) {

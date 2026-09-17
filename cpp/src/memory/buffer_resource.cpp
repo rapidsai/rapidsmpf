@@ -310,13 +310,40 @@ std::unique_ptr<Buffer> BufferResource::move(
 std::unique_ptr<Buffer> BufferResource::move(
     std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
 ) {
-    if (reservation.mem_type_ != buffer->mem_type()) {
-        auto const nbytes = buffer->size;
-        auto ret = make_buffer(nbytes, buffer->stream(), reservation);
-        buffer_copy(statistics_, *ret, *buffer, nbytes);
-        return ret;
+    if (reservation.mem_type_ == buffer->mem_type()) {
+        return buffer;
     }
-    return buffer;
+    auto const nbytes = buffer->size;
+    // An empty buffer holds no capacity, so relocating it is not a spill. `buffer_copy`
+    // skips it too.
+    bool const tracked = nbytes > 0;
+    auto const from = buffer->mem_type();
+    auto token = std::move(buffer->spill_track_token_);
+
+    // Closes the spill: `make_buffer` takes the capacity back here.
+    auto ret = make_buffer(nbytes, buffer->stream(), reservation);
+    if (tracked && reservation.mem_type_ == MemoryType::DEVICE && token != nullptr) {
+        statistics_->add_duration_stat(
+            "buffer-spilled-time", Duration{Clock::now() - token->since}
+        );
+        token.reset();
+    }
+
+    buffer_copy(statistics_, *ret, *buffer, nbytes);
+
+    // Opens the spill: releasing the source gives the capacity back. `buffer_copy` has
+    // made the source's stream wait for the copy, so destroying it here is safe.
+    buffer.reset();
+    if (from == MemoryType::DEVICE) {
+        // Not opened while disabled, since enabling later would close an interval
+        // whose start was never observed.
+        if (tracked && statistics_->enabled()) {
+            ret->spill_track_token_ = std::make_shared<SpillTrackToken>();
+        }
+    } else {
+        ret->spill_track_token_ = std::move(token);
+    }
+    return ret;
 }
 
 std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(

@@ -34,42 +34,25 @@ namespace rapidsmpf {
 class Statistics;
 
 /**
- * @brief Follows a buffer's data while it is spilled.
+ * @brief Marks data as spilled, measuring how long the device memory stayed free.
  *
- * Copying a buffer's data moves the token to the copy.
+ * A token's life:
+ *  - Opened when a relocation releases a device buffer.
+ *  - Carried along by further relocations, so one token follows the data.
+ *  - Closed when a relocation allocates a device buffer again, recording the interval.
+ *
+ * A copy that keeps its source frees nothing and opens no token, and data freed while
+ * spilled is never closed and never recorded.
+ *
+ * **Stream ordering.** The interval is not stream ordered. CUDA allocation and
+ * deallocation are, but RMM's accounting is not, and the accounting is what
+ * reservations are checked against and what triggers spilling. So a spill is measured
+ * on the clock those decisions are made on rather than on the one the copies run on.
  */
 struct SpillTrackToken {
-    /// @brief Whether the copy that spilled the data was recorded.
-    bool opened{false};
-    /// @brief When the copy that spilled the data finished, which is when the device
-    /// memory it held became free. Readable once `freed` loads true.
-    Clock::time_point since{};
-    /// @brief Whether the copy that spilled the data has reported, which publishes
-    /// `since`.
-    std::atomic<bool> freed{false};
-
-    /**
-     * @brief Whether the spill that the token follows was recorded.
-     *
-     * False when the spill happened while statistics were disabled, leaving nothing to
-     * measure the unspill against.
-     *
-     * @return True if the spill was recorded.
-     */
-    [[nodiscard]] bool is_open() const noexcept {
-        return opened;
-    }
+    /// @brief When the spill released the device memory.
+    Clock::time_point since{Clock::now()};
 };
-
-namespace detail {
-/**
- * @brief Called with a stream-ordered duration once the stream reaches its stop marker.
- *
- * @param duration The measured duration.
- * @param statistics The statistics the timing was recorded into.
- */
-using TimingSink = std::function<void(Duration duration, Statistics& statistics)>;
-}  // namespace detail
 
 class StreamOrderedTiming;
 
@@ -557,16 +540,9 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
      * @param timing A `StreamOrderedTiming` that should be started just before the copy
      * was enqueued on the stream. Its `stop_and_record()` is called here to enqueue the
      * stop callback.
-     * @param spill_token The spill token of the data being copied, or null when the copy
-     * does not relocate data. A spill opens the record, and an unspill closes it and
-     * records `buffer-spilled-time`.
      */
     void record_copy(
-        MemoryType src,
-        MemoryType dst,
-        std::size_t nbytes,
-        StreamOrderedTiming&& timing,
-        std::shared_ptr<SpillTrackToken> spill_token = nullptr
+        MemoryType src, MemoryType dst, std::size_t nbytes, StreamOrderedTiming&& timing
     );
 
     /**
@@ -680,25 +656,6 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
         Formatter formatter;
     };
 
-    /**
-     * @brief Carries @p spill_token across a copy, opening or closing it.
-     *
-     * A spill opens the token and an unspill closes it, writing the `buffer-spilled-*`
-     * statistics.
-     *
-     * @warning Writes `spill_token` without synchronisation, so two copies sharing a
-     * token must not run concurrently. Relocations through `BufferResource` cannot,
-     * since each destroys its source, but `buffer_copy()` used directly can leave two
-     * live buffers holding one token.
-     *
-     * @param src Source memory type.
-     * @param dst Destination memory type.
-     * @param spill_token The spill token, or null.
-     * @return The sink to hand to `StreamOrderedTiming::stop_and_record()`, or null.
-     */
-    detail::TimingSink update_spill_token(
-        MemoryType src, MemoryType dst, std::shared_ptr<SpillTrackToken> spill_token
-    );
 
     explicit Statistics(bool enabled);
 

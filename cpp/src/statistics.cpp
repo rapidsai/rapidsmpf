@@ -691,11 +691,7 @@ std::shared_ptr<Statistics> Statistics::merge(
 }
 
 void Statistics::record_copy(
-    MemoryType src,
-    MemoryType dst,
-    std::size_t nbytes,
-    StreamOrderedTiming&& timing,
-    std::shared_ptr<SpillTrackToken> spill_token
+    MemoryType src, MemoryType dst, std::size_t nbytes, StreamOrderedTiming&& timing
 ) {
     // Construct all stat names once, at first call.
     static Names2DArray const name_map = [] {
@@ -718,49 +714,13 @@ void Statistics::record_copy(
     auto const& names =
         name_map[static_cast<std::size_t>(src)][static_cast<std::size_t>(dst)];
 
-    auto sink = update_spill_token(src, dst, std::move(spill_token));
-    timing.stop_and_record(names.time, names.stream_delay, std::move(sink));
+    timing.stop_and_record(names.time, names.stream_delay);
     add_stat(names.nbytes, static_cast<double>(nbytes));
     add_report_entry(
         names.base,
         {names.nbytes, names.time, names.stream_delay},
         Formatter::MemoryThroughput
     );
-}
-
-detail::TimingSink Statistics::update_spill_token(
-    MemoryType src, MemoryType dst, std::shared_ptr<SpillTrackToken> spill_token
-) {
-    if (spill_token == nullptr || src == dst || !enabled()) {
-        return nullptr;
-    }
-    if (src == MemoryType::DEVICE && dst != MemoryType::DEVICE) {
-        // The data is being spilled. The device memory is not free until the copy has
-        // run, so the interval starts in the sink rather than here.
-        spill_token->opened = true;
-        return [spill_token](Duration, Statistics&) {
-            spill_token->since = Clock::now();
-            spill_token->freed.store(true, std::memory_order_release);
-        };
-    }
-    if (src != MemoryType::DEVICE && dst == MemoryType::DEVICE) {
-        if (!spill_token->is_open()) {
-            return nullptr;
-        }
-        return [spill_token](Duration back, Statistics& statistics) {
-            if (!spill_token->freed.load(std::memory_order_acquire)) {
-                // The copy that spilled the data has yet to report, which can happen
-                // when the two copies use different streams, leaving no point to
-                // measure the interval from.
-                return;
-            }
-            Duration const window{Duration{Clock::now() - spill_token->since} - back};
-            statistics.add_duration_stat(
-                "buffer-spilled-time", std::max(Duration::zero(), window)
-            );
-        };
-    }
-    return nullptr;
 }
 
 void Statistics::record_alloc(
