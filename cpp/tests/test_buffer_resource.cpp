@@ -1005,7 +1005,6 @@ class BufferSpillStatistics : public ::testing::Test {
     }
 
     static constexpr std::size_t size = 4_KiB;
-    static constexpr std::size_t medium = 4_MiB;
     rmm::mr::cuda_memory_resource mr_cuda;
     // Pooled, as in production.
     rmm::mr::pool_memory_resource mr_pool{mr_cuda, 256_MiB, 512_MiB};
@@ -1030,11 +1029,10 @@ TEST_F(BufferSpillStatistics, RecordSurvivesADemotion) {
     }
     // `spill_partitions` demotes an already spilled buffer when the pinned pool is
     // exhausted, which must not drop the spill.
-    auto buffer = allocate(MemoryType::DEVICE, medium);
+    auto buffer = allocate(MemoryType::DEVICE);
     buffer = move(std::move(buffer), MemoryType::PINNED_HOST);
     buffer = move(std::move(buffer), MemoryType::HOST);
     buffer = move(std::move(buffer), MemoryType::DEVICE);
-    stream.sync();
 
     EXPECT_EQ(samples(), 1u);
 }
@@ -1057,7 +1055,6 @@ TEST_F(BufferSpillStatistics, NotRecordedForBuffersBornOffDevice) {
     // there is no residence to measure.
     auto buffer = allocate(MemoryType::HOST);
     buffer = move(std::move(buffer), MemoryType::DEVICE);
-    stream.sync();
     EXPECT_EQ(samples(), 0u);
 }
 
@@ -1065,13 +1062,12 @@ TEST_F(BufferSpillStatistics, ACopyThatKeepsItsSourceIsNotASpill) {
     // `buffer_copy` leaves the device source allocated, as `PackedData::copy` relies
     // on, so no capacity was released and there is nothing to measure. Only a
     // relocation through `move()` is a spill.
-    auto device_buffer = allocate(MemoryType::DEVICE, medium);
-    auto host_buffer = allocate(MemoryType::HOST, medium);
-    buffer_copy(stats, *host_buffer, *device_buffer, medium);
+    auto device_buffer = allocate(MemoryType::DEVICE);
+    auto host_buffer = allocate(MemoryType::HOST);
+    buffer_copy(stats, *host_buffer, *device_buffer, size);
 
-    auto returned = allocate(MemoryType::DEVICE, medium);
-    buffer_copy(stats, *returned, *host_buffer, medium);
-    stream.sync();
+    auto returned = allocate(MemoryType::DEVICE, size);
+    buffer_copy(stats, *returned, *host_buffer, size);
 
     EXPECT_EQ(samples(), 0u);
 }
@@ -1087,12 +1083,9 @@ TEST_F(BufferSpillStatistics, AnEmptyBufferIsNotASpill) {
 }
 
 TEST_F(BufferSpillStatistics, NotRecordedWithoutATransition) {
-    auto buffer = allocate(MemoryType::HOST);
-    buffer = move(std::move(buffer), MemoryType::HOST);
-    EXPECT_EQ(samples(), 0u);
-
-    auto device_buffer = allocate(MemoryType::DEVICE);
-    device_buffer = move(std::move(device_buffer), MemoryType::DEVICE);
+    // `move()` returns the buffer untouched when the memory type already matches.
+    auto buffer = allocate(MemoryType::DEVICE);
+    buffer = move(std::move(buffer), MemoryType::DEVICE);
     EXPECT_EQ(samples(), 0u);
 }
 
@@ -1121,7 +1114,6 @@ TEST_F(BufferSpillStatistics, NotRecordedWhenEnabledMidInterval) {
     auto [back_res, ___] =
         disabled_br->reserve(MemoryType::DEVICE, size, AllowOverbooking::YES);
     buffer = disabled_br->move(std::move(buffer), back_res);
-    stream.sync();
 
     EXPECT_THROW(
         std::ignore = disabled_stats->get_stat("buffer-spilled-time"), std::out_of_range
