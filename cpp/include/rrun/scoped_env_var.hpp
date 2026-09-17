@@ -47,6 +47,7 @@ class ScopedEnvVar {
         }
     }
 
+    /// @brief Restore the environment variable to its original state.
     ~ScopedEnvVar() {
         if (had_value_) {
             setenv(name_.c_str(), old_value_.c_str(), 1);
