@@ -47,14 +47,6 @@ namespace rapidsmpf {
  */
 class Buffer {
     friend class BufferResource;
-    friend void buffer_copy(
-        std::shared_ptr<Statistics> statistics,
-        Buffer& dst,
-        Buffer const& src,
-        std::size_t size,
-        std::ptrdiff_t dst_offset,
-        std::ptrdiff_t src_offset
-    );
 
   public:
     /// @brief Storage type for a device buffer.

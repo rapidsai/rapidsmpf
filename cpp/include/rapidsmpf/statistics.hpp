@@ -656,7 +656,6 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
         Formatter formatter;
     };
 
-
     explicit Statistics(bool enabled);
 
     mutable std::mutex mutex_;

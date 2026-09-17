@@ -314,8 +314,7 @@ std::unique_ptr<Buffer> BufferResource::move(
         return buffer;
     }
     auto const nbytes = buffer->size;
-    // An empty buffer holds no capacity, so relocating it is not a spill. `buffer_copy`
-    // skips it too.
+    // An empty buffer holds no capacity, so relocating it is not a spill.
     bool const tracked = nbytes > 0;
     auto const from = buffer->mem_type();
     auto token = std::move(buffer->spill_track_token_);
