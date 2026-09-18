@@ -7,6 +7,7 @@
 #include <concepts>
 #include <cstddef>
 #include <filesystem>
+#include <functional>
 #include <initializer_list>
 #include <limits>
 #include <map>
@@ -29,6 +30,29 @@
 #include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf {
+
+class Statistics;
+
+/**
+ * @brief Marks data as spilled, measuring how long a spill keeps device memory free.
+ *
+ * A token's life:
+ *  - Opened when a relocation frees a device buffer.
+ *  - Carried along by further relocations, so one token follows the data.
+ *  - Closed when a relocation allocates a device buffer again, recording the interval.
+ *
+ * A copy that keeps its source frees nothing and opens no token, and data freed while
+ * spilled is never closed and never recorded.
+ *
+ * **Stream ordering.** The interval is not stream ordered. CUDA allocation and
+ * deallocation are, but RMM's accounting is not, and the accounting is what
+ * reservations are checked against and what triggers spilling. So a spill is measured
+ * on the clock those decisions are made on rather than on the one the copies run on.
+ */
+struct SpillTrackToken {
+    /// @brief When the spilled buffer was freed.
+    Clock::time_point since{Clock::now()};
+};
 
 class StreamOrderedTiming;
 

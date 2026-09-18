@@ -19,7 +19,6 @@
 
 namespace rapidsmpf {
 
-
 Buffer::Buffer(
     std::unique_ptr<HostBuffer> host_buffer, cuda::stream_ref stream, MemoryType mem_type
 )
