@@ -5,6 +5,7 @@
 #pragma once
 
 #include <atomic>
+#include <concepts>
 #include <cstddef>
 #include <functional>
 #include <memory>
@@ -17,6 +18,7 @@
 #include <rmm/device_buffer.hpp>
 
 #include <rapidsmpf/cuda_event.hpp>
+#include <rapidsmpf/disk/disk_buffer.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/host_buffer.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
@@ -26,11 +28,11 @@
 namespace rapidsmpf {
 
 /**
- * @brief Buffer representing device or host memory.
+ * @brief Buffer representing device, host, or disk-backed storage.
  *
- * A `Buffer` holds either device memory or host memory, determined by its memory type
- * at construction. See `device_buffer_types` and `host_buffer_types` for the sets of
- * memory types that result in device-backed and host-backed storage.
+ * A `Buffer` holds device memory, host memory, or a disk-backed file handle,
+ * determined by its memory type at construction. See `device_buffer_types`,
+ * `host_buffer_types`, and `disk_buffer_types` for the supported memory types.
  *
  * Buffers are stream ordered and have an associated CUDA stream (see `stream()`). All
  * work that reads or writes the buffer must either be enqueued on that stream or be
@@ -47,6 +49,14 @@ namespace rapidsmpf {
  */
 class Buffer {
     friend class BufferResource;
+    friend void buffer_copy(
+        std::shared_ptr<Statistics> statistics,
+        Buffer& dst,
+        Buffer const& src,
+        std::size_t size,
+        std::ptrdiff_t dst_offset,
+        std::ptrdiff_t src_offset
+    );
 
   public:
     /// @brief Storage type for a device buffer.
@@ -54,6 +64,20 @@ class Buffer {
 
     /// @brief Storage type for a host buffer.
     using HostBufferT = std::unique_ptr<HostBuffer>;
+
+    /// @brief Storage type for a disk-backed buffer.
+    using DiskBufferT = std::unique_ptr<DiskBuffer>;
+
+    /**
+     * @brief Return the selected storage alternative.
+     *
+     * @tparam T One of `DeviceBufferT`, `HostBufferT`, or `DiskBufferT`.
+     * @return Const reference to the selected storage alternative.
+     */
+    template <typename T>
+    [[nodiscard]] T const& get_storage() const {
+        return std::get<T>(storage_);
+    }
 
     /**
      * @brief Memory types suitable for constructing a device backed buffer.
@@ -74,6 +98,11 @@ class Buffer {
     static constexpr std::array<MemoryType, 2> host_buffer_types{
         MemoryType::HOST, MemoryType::PINNED_HOST
     };
+
+    /**
+     * @brief Memory types suitable for constructing a disk backed buffer.
+     */
+    static constexpr std::array<MemoryType, 1> disk_buffer_types{MemoryType::DISK};
 
     /**
      * @brief Access the underlying memory buffer (host or device memory).
@@ -138,10 +167,10 @@ class Buffer {
         auto* ptr = const_cast<std::byte*>(data());
         if constexpr (std::is_void_v<R>) {
             std::invoke(std::forward<F>(f), ptr, stream_);
-            latest_write_event_.record(stream_);
+            record_write_event();
         } else {
             auto ret = std::invoke(std::forward<F>(f), ptr, stream_);
-            latest_write_event_.record(stream_);
+            record_write_event();
             return ret;
         }
     }
@@ -173,7 +202,7 @@ class Buffer {
      * @throws std::logic_error If the buffer is already locked.
      * @throws std::logic_error If `is_latest_write_done() != true`.
      *
-     * @see write_access(), is_locked(), unlock()
+     * @see write_access(), is_locked(), unlock(), ExclusiveDataAccess
      */
     std::byte* exclusive_data_access();
 
@@ -213,6 +242,13 @@ class Buffer {
     [[nodiscard]] CudaEvent const& latest_write_event() const noexcept {
         return latest_write_event_;
     }
+
+    /**
+     * @brief Record a write on the buffer's associated CUDA stream.
+     *
+     * Updates the event returned by `latest_write_event()`.
+     */
+    void record_write_event();
 
     /**
      * @brief Rebind the buffer to a new CUDA stream.
@@ -336,6 +372,14 @@ class Buffer {
     Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, MemoryType mem_type);
 
     /**
+     * @brief Construct a stream-ordered Buffer from a disk-backed handle.
+     *
+     * @param disk_buffer Unique pointer to a disk buffer. Must be non-null.
+     * @param stream CUDA stream associated with subsequent in-memory operations.
+     */
+    Buffer(std::unique_ptr<DiskBuffer> disk_buffer, cuda::stream_ref stream);
+
+    /**
      * @brief Throws if the buffer is currently locked by `exclusive_data_access()`.
      *
      * @throws std::logic_error If the buffer is locked.
@@ -362,22 +406,77 @@ class Buffer {
      */
     [[nodiscard]] HostBufferT release_host_buffer();
 
+    /**
+     * @brief Release the underlying disk buffer.
+     *
+     * @return The underlying disk buffer.
+     *
+     * @throws std::logic_error if the buffer does not manage a disk buffer.
+     * @throws std::logic_error If the buffer is locked.
+     */
+    [[nodiscard]] DiskBufferT release_disk_buffer();
+
   public:
     std::size_t const size;  ///< The size of the buffer in bytes.
 
   private:
     MemoryType const mem_type_;
-    std::variant<DeviceBufferT, HostBufferT> storage_;
+    std::variant<DeviceBufferT, HostBufferT, DiskBufferT> storage_;
     cuda::stream_ref stream_{cudaStreamLegacy};
     CudaEvent latest_write_event_;
     std::atomic<bool> lock_;
 };
 
 /**
- * @brief Asynchronously copy data between buffers.
+ * @brief RAII exclusive access to a `Buffer`'s memory.
  *
- * @note The copy is stream-ordered on @p dst's stream, correct cross-stream ordering
- * between @p src's stream and @p dst's stream is provided automatically.
+ * @see Buffer::exclusive_data_access(), Buffer::unlock()
+ */
+class ExclusiveDataAccess {
+  public:
+    /**
+     * @brief Lock @p buffer and expose its storage pointer.
+     *
+     * @param buffer Buffer to lock.
+     *
+     * @throws std::logic_error If the buffer is already locked.
+     * @throws std::logic_error If `buffer.is_latest_write_done() != true`.
+     */
+    explicit ExclusiveDataAccess(Buffer& buffer)
+        : buffer_{buffer}, data_{buffer.exclusive_data_access()} {}
+
+    ExclusiveDataAccess(ExclusiveDataAccess const&) = delete;
+    ExclusiveDataAccess& operator=(ExclusiveDataAccess const&) = delete;
+    ExclusiveDataAccess(ExclusiveDataAccess&&) = delete;
+    ExclusiveDataAccess& operator=(ExclusiveDataAccess&&) = delete;
+
+    /// @brief Unlock the buffer upon destruction.
+    ~ExclusiveDataAccess() {
+        buffer_.unlock();
+    }
+
+    /**
+     * @brief Pointer to the locked buffer's storage.
+     *
+     * @param offset Offset into the buffer's storage.
+     * @return Pointer valid for the lifetime of this object.
+     */
+    [[nodiscard]] constexpr std::byte* data(std::ptrdiff_t offset = 0) const noexcept {
+        return data_ + offset;
+    }
+
+  private:
+    Buffer& buffer_;
+    std::byte* data_;
+};
+
+/**
+ * @brief Copy data between buffers.
+ *
+ * @note Copies between in-memory buffers are stream-ordered on @p dst's stream with
+ * automatic cross-stream ordering between @p src and @p dst. Copies involving disk
+ * storage are synchronous and block until the transfer completes; neither @p src nor
+ * @p dst is consumed.
  *
  * Copies @p size bytes from @p src, starting at @p src_offset, into @p dst at
  * @p dst_offset.
