@@ -341,6 +341,13 @@ TEST_F(UtilsTest, ParseMemoryTypeFromStream) {
         EXPECT_FALSE(ss.fail());
         EXPECT_EQ(v, MemoryType::HOST);
     }
+    {
+        std::stringstream ss("disk");
+        MemoryType v{};
+        ss >> v;
+        EXPECT_FALSE(ss.fail());
+        EXPECT_EQ(v, MemoryType::DISK);
+    }
 }
 
 TEST_F(UtilsTest, ParseMemoryTypeRejectsInvalidToken) {
@@ -365,6 +372,7 @@ TEST_F(UtilsTest, ParseStringMemoryType) {
     EXPECT_EQ(parse_string<MemoryType>("pinned"), MemoryType::PINNED_HOST);
     EXPECT_EQ(parse_string<MemoryType>("pinned-host"), MemoryType::PINNED_HOST);
     EXPECT_EQ(parse_string<MemoryType>("HOST"), MemoryType::HOST);
+    EXPECT_EQ(parse_string<MemoryType>("DISK"), MemoryType::DISK);
     EXPECT_THROW(parse_string<MemoryType>("gpu"), std::invalid_argument);
     EXPECT_THROW(parse_string<MemoryType>(""), std::invalid_argument);
     EXPECT_THROW(parse_string<MemoryType>("   "), std::invalid_argument);
