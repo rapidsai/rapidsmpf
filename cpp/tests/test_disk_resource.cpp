@@ -60,7 +60,7 @@ std::vector<std::byte> make_pattern(std::size_t size) {
 
 void check_file_contents(
     std::filesystem::path const& path,
-    std::size_t file_offset,
+    std::ptrdiff_t file_offset,
     std::vector<std::byte> const& expected
 ) {
     std::vector<std::byte> actual(expected.size());
@@ -95,6 +95,7 @@ class DiskResourceTest : public ::testing::Test {
 
     std::shared_ptr<DiskResource> disk_;
     std::shared_ptr<BufferResource> br_;
+    cuda::stream_ref stream_{cudaStreamLegacy};
 };
 
 TEST_F(DiskResourceTest, RoundTrip) {
@@ -102,13 +103,13 @@ TEST_F(DiskResourceTest, RoundTrip) {
     auto const pattern = make_pattern(64 * 1024);
 
     EXPECT_EQ(
-        disk_->write(path, pattern.data(), pattern.size(), MemoryType::HOST),
+        disk_->write(path, pattern.data(), pattern.size(), MemoryType::HOST, stream_),
         pattern.size()
     );
 
     std::vector<std::byte> destination(pattern.size());
     EXPECT_EQ(
-        disk_->read(path, destination.data(), pattern.size(), MemoryType::HOST),
+        disk_->read(path, destination.data(), pattern.size(), MemoryType::HOST, stream_),
         pattern.size()
     );
 
@@ -120,7 +121,7 @@ TEST_F(DiskResourceTest, UnalignedOffsetRoundTrip) {
     auto const path = test_path("unaligned");
     auto const pattern = make_pattern(16 * 1024);
     auto const ptr_offset = std::size_t{1};
-    auto const file_offset = std::size_t{1};
+    auto const file_offset = std::ptrdiff_t{1};
 
     std::vector<std::byte> source(ptr_offset);
     source.insert(source.end(), pattern.begin(), pattern.end());
@@ -131,6 +132,7 @@ TEST_F(DiskResourceTest, UnalignedOffsetRoundTrip) {
             source.data() + ptr_offset,
             pattern.size(),
             MemoryType::HOST,
+            stream_,
             file_offset
         ),
         pattern.size()
@@ -146,6 +148,7 @@ TEST_F(DiskResourceTest, UnalignedOffsetRoundTrip) {
             destination.data() + ptr_offset,
             pattern.size(),
             MemoryType::HOST,
+            stream_,
             file_offset
         ),
         pattern.size()
@@ -166,13 +169,16 @@ TEST_F(DiskResourceTest, SequentialOffsetWritesPreserveExistingBytes) {
     auto const path = test_path("two-ranges");
     auto const first = make_pattern(8 * 1024);
     auto const second = make_pattern(4 * 1024);
-    auto const second_offset = std::size_t{12 * 1024};
+    auto const second_offset = std::ptrdiff_t{12 * 1024};
 
     EXPECT_EQ(
-        disk_->write(path, first.data(), first.size(), MemoryType::HOST), first.size()
+        disk_->write(path, first.data(), first.size(), MemoryType::HOST, stream_),
+        first.size()
     );
     EXPECT_EQ(
-        disk_->write(path, second.data(), second.size(), MemoryType::HOST, second_offset),
+        disk_->write(
+            path, second.data(), second.size(), MemoryType::HOST, stream_, second_offset
+        ),
         second.size()
     );
 
@@ -187,7 +193,7 @@ TEST_F(DiskResourceTest, FlushDoesNotThrow) {
     auto const path = test_path("flush");
     auto const pattern = make_pattern(4096);
     EXPECT_EQ(
-        disk_->write(path, pattern.data(), pattern.size(), MemoryType::HOST),
+        disk_->write(path, pattern.data(), pattern.size(), MemoryType::HOST, stream_),
         pattern.size()
     );
     EXPECT_NO_THROW(disk_->flush(path));
@@ -252,18 +258,49 @@ TEST(DiskResource, SharedPtrKeepsDiskResourceAlive) {
     EXPECT_TRUE(weak_disk.expired()) << "DiskResource not destructed, refcount cycle?";
 }
 
+TEST(DiskResource, DestructorRemovesDirectory) {
+    if (GlobalEnvironment->type() != TestEnvironmentType::SINGLE) {
+        GTEST_SKIP() << "Disk I/O tests run only in the single-process environment";
+    }
+
+    TempDir disk_dir;
+    auto const resource_dir = disk_dir.path() / std::to_string(::getpid());
+    {
+        auto br = BufferResource::create(
+            rmm::mr::get_current_device_resource_ref(),
+            PinnedMemoryDisabled,
+            {},
+            std::chrono::milliseconds{1},
+            std::make_shared<StreamPool>(16),
+            Statistics::disabled(),
+            disk_dir.path()
+        );
+        EXPECT_EQ(br->disk_resource()->directory(), resource_dir);
+    }
+    EXPECT_FALSE(std::filesystem::exists(resource_dir));
+}
+
 TEST_F(DiskResourceTest, DiskBufferDestructorRemovesFile) {
     std::filesystem::path path{};
     {
-        DiskBuffer disk_buffer{disk_};
+        DiskBuffer disk_buffer{disk_, stream_};
         path = disk_buffer.path();
         ASSERT_TRUE(std::filesystem::exists(path));
     }
     EXPECT_FALSE(std::filesystem::exists(path));
 }
 
+TEST_F(DiskResourceTest, DiskBufferTracksStream) {
+    DiskBuffer disk_buffer{disk_, stream_};
+    EXPECT_EQ(disk_buffer.stream().get(), stream_.get());
+
+    auto const new_stream = cuda::stream_ref{cudaStreamPerThread};
+    disk_buffer.set_stream(new_stream);
+    EXPECT_EQ(disk_buffer.stream().get(), new_stream.get());
+}
+
 TEST_F(DiskResourceTest, DiskBufferReportsFileSize) {
-    DiskBuffer disk_buffer{disk_};
+    DiskBuffer disk_buffer{disk_, stream_};
     EXPECT_EQ(disk_buffer.file_size(), 0U);
     EXPECT_TRUE(disk_buffer.copy_to_uint8_vector().empty());
 
@@ -271,7 +308,7 @@ TEST_F(DiskResourceTest, DiskBufferReportsFileSize) {
 
     EXPECT_EQ(
         disk_->write(
-            disk_buffer.path(), pattern.data(), pattern.size(), MemoryType::HOST
+            disk_buffer.path(), pattern.data(), pattern.size(), MemoryType::HOST, stream_
         ),
         pattern.size()
     );

@@ -28,8 +28,9 @@ class DiskBuffer {
      * @brief Create a file-backed buffer.
      *
      * @param disk Disk resource used to create and access the backing file.
+     * @param stream CUDA stream associated with the buffer.
      */
-    explicit DiskBuffer(std::shared_ptr<DiskResource> disk);
+    DiskBuffer(std::shared_ptr<DiskResource> disk, cuda::stream_ref stream);
 
     ~DiskBuffer();
 
@@ -74,8 +75,21 @@ class DiskBuffer {
         return disk_;
     }
 
-    ///@brief No-op stream rebind.
-    void set_stream(cuda::stream_ref) noexcept {}
+    /**
+     * @brief Get the CUDA stream associated with this buffer.
+     *
+     * @return CUDA stream reference.
+     */
+    [[nodiscard]] cuda::stream_ref stream() const noexcept {
+        return stream_;
+    }
+
+    /**
+     * @brief Set the CUDA stream associated with this buffer.
+     *
+     * @param stream New CUDA stream.
+     */
+    void set_stream(cuda::stream_ref stream) noexcept;
 
     /**
      * @brief Delete the backing file, if any.
@@ -87,6 +101,7 @@ class DiskBuffer {
   private:
     std::shared_ptr<DiskResource> disk_;
     std::filesystem::path path_;
+    cuda::stream_ref stream_;
 };
 
 }  // namespace rapidsmpf

@@ -609,7 +609,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @return Shared pointer to the disk resource, or `nullptr` if no spill
      * directory was configured.
      */
-    [[nodiscard]] std::shared_ptr<DiskResource> disk_resource() const {
+    [[nodiscard]] constexpr std::shared_ptr<DiskResource> const& disk_resource() const {
         return disk_resource_;
     }
 

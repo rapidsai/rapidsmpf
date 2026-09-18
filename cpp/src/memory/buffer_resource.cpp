@@ -294,7 +294,7 @@ std::unique_ptr<Buffer> BufferResource::make_buffer(
         break;
     case MemoryType::DISK:
         ret = std::unique_ptr<Buffer>(
-            new Buffer(std::make_unique<DiskBuffer>(disk_resource_), size, stream)
+            new Buffer(std::make_unique<DiskBuffer>(disk_resource_, stream), size, stream)
         );
         break;
     default:

@@ -4,6 +4,7 @@
  */
 
 #include <filesystem>
+#include <iostream>
 #include <stdexcept>
 #include <utility>
 
@@ -12,13 +13,16 @@
 
 namespace rapidsmpf {
 
-DiskBuffer::DiskBuffer(std::shared_ptr<DiskResource> disk) : disk_{std::move(disk)} {
+DiskBuffer::DiskBuffer(std::shared_ptr<DiskResource> disk, cuda::stream_ref stream)
+    : disk_{std::move(disk)}, stream_{stream} {
     RAPIDSMPF_EXPECTS(disk_ != nullptr, "disk resource cannot be null");
     path_ = disk_->create_unique_path();
 }
 
 DiskBuffer::DiskBuffer(DiskBuffer&& other) noexcept
-    : disk_{std::move(other.disk_)}, path_{std::exchange(other.path_, {})} {}
+    : disk_{std::move(other.disk_)},
+      path_{std::exchange(other.path_, {})},
+      stream_{other.stream_} {}
 
 std::uintmax_t DiskBuffer::file_size() const {
     return std::filesystem::file_size(path_);
@@ -28,7 +32,8 @@ std::vector<std::uint8_t> DiskBuffer::copy_to_uint8_vector() const {
     auto const size = safe_cast<std::size_t>(file_size());
     std::vector<std::uint8_t> ret(size);
     if (size > 0) {
-        auto const transferred = disk_->read(path_, ret.data(), size, MemoryType::HOST);
+        auto const transferred =
+            disk_->read(path_, ret.data(), size, MemoryType::HOST, stream_);
         RAPIDSMPF_EXPECTS(
             transferred == size,
             "failed to read the complete DiskBuffer backing file",
@@ -38,10 +43,18 @@ std::vector<std::uint8_t> DiskBuffer::copy_to_uint8_vector() const {
     return ret;
 }
 
+void DiskBuffer::set_stream(cuda::stream_ref stream) noexcept {
+    stream_ = stream;
+}
+
 void DiskBuffer::deallocate() noexcept {
     if (!path_.empty()) {
         std::error_code ec;
         std::filesystem::remove(path_, ec);
+        if (ec) {
+            std::cerr << "Error removing DiskBuffer backing file '" << path_
+                      << "': " << ec.message() << '\n';
+        }
         path_.clear();
     }
 }

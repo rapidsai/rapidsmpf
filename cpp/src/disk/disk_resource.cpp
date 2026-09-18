@@ -6,6 +6,7 @@
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
+#include <iostream>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -19,9 +20,19 @@
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/disk/disk_resource.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
 namespace rapidsmpf {
+
+DiskResource::~DiskResource() noexcept {
+    std::error_code ec;
+    std::filesystem::remove(dir_, ec);
+    if (ec) {
+        std::cerr << "Error removing DiskResource directory '" << dir_
+                  << "': " << ec.message() << '\n';
+    }
+}
 
 std::filesystem::path DiskResource::create_unique_path() const {
     std::error_code ec;
@@ -58,7 +69,8 @@ std::size_t DiskResource::write(
     void const* data,
     std::size_t size,
     [[maybe_unused]] MemoryType mem_type,
-    std::size_t file_offset
+    [[maybe_unused]] cuda::stream_ref stream,
+    std::ptrdiff_t file_offset
 ) const {
     kvikio::FileHandle file{
         path.string(),
@@ -70,7 +82,7 @@ std::size_t DiskResource::write(
         .pwrite(
             data,
             size,
-            file_offset,
+            safe_cast<std::size_t>(file_offset),
             kvikio::defaults::task_size(),
             kvikio::defaults::gds_threshold(),
             false  // sync_default_stream
@@ -83,7 +95,8 @@ std::size_t DiskResource::read(
     void* data,
     std::size_t size,
     [[maybe_unused]] MemoryType mem_type,
-    std::size_t file_offset
+    [[maybe_unused]] cuda::stream_ref stream,
+    std::ptrdiff_t file_offset
 ) const {
     kvikio::FileHandle file{
         path.string(), "r", kvikio::FileHandle::m644, kvikio::CompatMode::AUTO
@@ -92,7 +105,7 @@ std::size_t DiskResource::read(
         .pread(
             data,
             size,
-            file_offset,
+            safe_cast<std::size_t>(file_offset),
             kvikio::defaults::task_size(),
             kvikio::defaults::gds_threshold(),
             false  // sync_default_stream

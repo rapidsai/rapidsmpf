@@ -167,10 +167,10 @@ class Buffer {
         auto* ptr = const_cast<std::byte*>(data());
         if constexpr (std::is_void_v<R>) {
             std::invoke(std::forward<F>(f), ptr, stream_);
-            latest_write_event_.record(stream_);
+            record_write_event();
         } else {
             auto ret = std::invoke(std::forward<F>(f), ptr, stream_);
-            latest_write_event_.record(stream_);
+            record_write_event();
             return ret;
         }
     }
@@ -242,6 +242,13 @@ class Buffer {
     [[nodiscard]] CudaEvent const& latest_write_event() const noexcept {
         return latest_write_event_;
     }
+
+    /**
+     * @brief Record a write on the buffer's associated CUDA stream.
+     *
+     * Updates the event returned by `latest_write_event()`.
+     */
+    void record_write_event();
 
     /**
      * @brief Rebind the buffer to a new CUDA stream.
@@ -453,10 +460,11 @@ class ExclusiveDataAccess {
     /**
      * @brief Pointer to the locked buffer's storage.
      *
+     * @param offset Offset into the buffer's storage.
      * @return Pointer valid for the lifetime of this object.
      */
-    [[nodiscard]] constexpr std::byte* data() const noexcept {
-        return data_;
+    [[nodiscard]] constexpr std::byte* data(std::ptrdiff_t offset = 0) const noexcept {
+        return data_ + offset;
     }
 
   private:
