@@ -35,8 +35,13 @@ class Context;
  * progress must be forced.
  *
  * While requests are pending and none of them fit into the available memory,
- * they wait for a reservation release or for the progress timeout. The timeout
- * path attempts a reservation without spilling queued data.
+ * they wait for a reservation release or for the progress timeout.
+ *
+ * Nothing on this class's own code path ever spills, neither ordinary admission nor
+ * the timeout. All of it runs on the shared coroutine executor, where a synchronous
+ * spill would stall every other actor. Pending requests are instead published to the
+ * `SpillManager` as extra headroom, so the periodic spill thread can free memory on
+ * their behalf from a thread of its own.
  */
 class MemoryReserveOrWait {
   public:
@@ -98,9 +103,10 @@ class MemoryReserveOrWait {
      * when a final recovery attempt begins, not when it completes: if no pending
      * reservation request can be satisfied within the timeout, `MemoryReserveOrWait`
      * forces progress by selecting the smallest pending request and attempting to
-     * reserve memory without spilling queued data. The forced reservation attempt
-     * may result in an empty `MemoryReservation` if the selected request still
-     * cannot be satisfied.
+     * reserve memory. It does not spill, since it runs on the shared executor. The
+     * forced reservation attempt may result in an empty `MemoryReservation` if the
+     * selected request still cannot be satisfied, though the periodic spill thread
+     * may independently have freed memory for it in the meantime.
      *
      * When multiple reservation requests are eligible, `MemoryReserveOrWait` uses
      * @p net_memory_delta as a heuristic to prefer requests that are expected to
@@ -306,6 +312,22 @@ class MemoryReserveOrWait {
      */
     void record_stat(std::string_view suffix, double value) const;
 
+    /**
+     * @brief Republishes the extra headroom asked of the spill manager.
+     *
+     * A pending request holds no reservation, so it is otherwise invisible to the spill
+     * manager and nothing frees memory on its behalf. Holding a token sized to the
+     * smallest pending request asks the periodic spill thread to make that much room,
+     * which is the least that still unblocks somebody.
+     *
+     * The caller must hold `mutex_`, and must call this after every mutation of
+     * `reservation_requests_`. Holding the mutex is safe because the spill manager side
+     * is lock free.
+     *
+     * Device memory only, matching `SpillManager::add_extra_headroom()`.
+     */
+    void update_extra_headroom_unsafe();
+
     mutable std::mutex mutex_;
     std::uint64_t sequence_counter{0};
     MemoryType const mem_type_;
@@ -316,6 +338,7 @@ class MemoryReserveOrWait {
     std::string const stat_prefix_;
     mutable std::once_flag report_entries_once_;
     std::set<Request> reservation_requests_;
+    SpillManager::HeadroomToken extra_headroom_{};
     std::atomic<std::uint64_t> periodic_memory_check_counter_{0};
     std::optional<coro::task<void>> periodic_memory_check_task_;
     bool periodic_task_running_{false};
