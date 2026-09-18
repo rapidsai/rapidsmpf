@@ -450,6 +450,7 @@ class ExclusiveDataAccess {
     ExclusiveDataAccess(ExclusiveDataAccess&&) = delete;
     ExclusiveDataAccess& operator=(ExclusiveDataAccess&&) = delete;
 
+    /// @brief Unlock the buffer upon destruction.
     ~ExclusiveDataAccess() {
         buffer_.unlock();
     }
