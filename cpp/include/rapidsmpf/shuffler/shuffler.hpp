@@ -268,7 +268,7 @@ class Shuffler {
     [[nodiscard]] std::string str() const;
 
     /**
-     * @brief Returns the local partition IDs owned by the shuffler`.
+     * @brief Returns the local partition IDs owned by the shuffler.
      *
      * @return A span of partition IDs owned by the shuffler.
      */
