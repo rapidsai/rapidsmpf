@@ -7,47 +7,84 @@
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
+#include <stdexcept>
+#include <utility>
 
 #include <cuda/stream>
 
 #include <rmm/aligned.hpp>
 #include <rmm/resource_ref.hpp>
 
+#include <rapidsmpf/detail/rmm_resource_adaptor_impl.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/back_ref_mixin.hpp>
+#include <rapidsmpf/memory/scoped_memory_record.hpp>
 
 namespace rapidsmpf {
 
 class BufferResource;
 
+namespace detail {
+
+/// @brief Private primary allocator for `HostMemoryResource`. See that class for API
+/// docs.
+struct HostMemoryResourceImpl {
+    /// @brief Enables the `cuda::mr::host_accessible` property.
+    friend void get_property(
+        HostMemoryResourceImpl const&, cuda::mr::host_accessible
+    ) noexcept {}
+
+    HostMemoryResourceImpl(HostMemoryResourceImpl const&) = delete;
+    HostMemoryResourceImpl(HostMemoryResourceImpl&&) = delete;
+    HostMemoryResourceImpl& operator=(HostMemoryResourceImpl const&) = delete;
+    HostMemoryResourceImpl& operator=(HostMemoryResourceImpl&&) = delete;
+
+  private:
+    HostMemoryResourceImpl() = default;
+    ~HostMemoryResourceImpl() = default;
+
+    // See HostMemoryResource::allocate
+    void* allocate(
+        cuda::stream_ref stream,
+        std::size_t size,
+        std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
+    );
+
+    // See HostMemoryResource::deallocate
+    void deallocate(
+        cuda::stream_ref stream,
+        void* ptr,
+        std::size_t size,
+        std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
+    ) noexcept;
+
+    friend class RmmResourceAdaptorImpl<HostMemoryResourceImpl>;
+};
+
+}  // namespace detail
+
 /**
- * @brief Host memory resource using standard CPU allocation.
+ * @brief Shared, tracked pageable-host memory resource.
  *
- * This resource allocates pageable host memory using the ``new`` and ``delete``
- * operators. It is intended for use with `cuda::mr::resource` and related
- * facilities, and advertises the `cuda::mr::host_accessible` property.
+ * Wraps the standard CPU allocator in `RmmResourceAdaptorImpl` so live
+ * allocations and lifetime memory records are available to `BufferResource`.
+ * Copies share allocation statistics and the upstream resource. Equality is
+ * provided by `cuda::mr::shared_resource` via the adaptor's identity comparison.
  *
- * For sufficiently large allocations (>4 MiB), this resource also issues a
+ * For sufficiently large allocations (>4 MiB), the allocator issues a
  * best-effort request to enable Transparent Huge Pages (THP) on the allocated
  * region. THP can improve device-host memory transfer performance for large
  * buffers. The hint is applied via `madvise(MADV_HUGEPAGE)` and may be ignored
  * by the kernel depending on system configuration or resource availability.
  */
-class HostMemoryResource : public BackRefMixin<BufferResource> {
+class HostMemoryResource final
+    : public cuda::mr::shared_resource<
+          detail::RmmResourceAdaptorImpl<detail::HostMemoryResourceImpl>>,
+      public BackRefMixin<BufferResource> {
+    using shared_base = cuda::mr::shared_resource<
+        detail::RmmResourceAdaptorImpl<detail::HostMemoryResourceImpl>>;
+
   public:
-    ~HostMemoryResource() = default;
-
-    HostMemoryResource(HostMemoryResource const&) = default;  ///< Copyable.
-    HostMemoryResource(HostMemoryResource&&) = default;  ///< Movable.
-
-    /// @brief Copy assignment.
-    /// @return Reference to this object after assignment.
-    HostMemoryResource& operator=(HostMemoryResource const&) = default;
-
-    /// @brief Move assignment.
-    /// @return Reference to this object after assignment.
-    HostMemoryResource& operator=(HostMemoryResource&&) = default;
-
     /**
      * @brief Synchronously allocates host memory is disabled.
      *
@@ -91,7 +128,9 @@ class HostMemoryResource : public BackRefMixin<BufferResource> {
         cuda::stream_ref stream,
         std::size_t size,
         std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
-    );
+    ) {
+        return get().allocate(stream, size, alignment);
+    }
 
     /**
      * @brief Deallocates host memory associated with a CUDA stream.
@@ -109,42 +148,38 @@ class HostMemoryResource : public BackRefMixin<BufferResource> {
         void* ptr,
         std::size_t size,
         std::size_t alignment = rmm::CUDA_ALLOCATION_ALIGNMENT
-    ) noexcept;
-
-    /**
-     * @brief Compares this resource to another resource.
-     *
-     * All instances are stateless and interchangeable, so this always returns
-     * true.
-     *
-     * @param other The resource to compare with.
-     * @return true
-     */
-    [[nodiscard]] bool operator==(
-        [[maybe_unused]] HostMemoryResource const& other
-    ) const noexcept {
-        return true;
-    }
-
-    /// @copydoc operator==
-    [[nodiscard]] bool operator!=(
-        [[maybe_unused]] HostMemoryResource const& other
-    ) const noexcept {
-        return false;
+    ) noexcept {
+        get().deallocate(stream, ptr, size, alignment);
     }
 
     /**
-     * @brief Enables the `cuda::mr::host_accessible` property
+     * @brief Equality comparison.
      *
-     * This property declares that a `HostMemoryResource` provides host accessible memory
+     * @param other The other resource to compare.
+     * @return True if the two resources share the same underlying shared state.
      */
-    friend void get_property(
-        HostMemoryResource const&, cuda::mr::host_accessible
-    ) noexcept {}
+    [[nodiscard]] bool operator==(HostMemoryResource const& other) const noexcept {
+        return get() == other.get();
+    }
+
+    /// @copydoc RmmResourceAdaptor::current_allocated
+    [[nodiscard]] std::int64_t current_allocated() const noexcept {
+        return get().current_allocated();
+    }
+
+    /// @copydoc RmmResourceAdaptor::get_main_record
+    [[nodiscard]] ScopedMemoryRecord get_main_memory_record() const {
+        return get().get_main_record();
+    }
 
   private:
-    /// @brief Default construct. Private: only `BufferResource` creates instances.
-    HostMemoryResource() = default;
+    HostMemoryResource()
+        : shared_base(
+              cuda::mr::make_shared_resource<
+                  detail::RmmResourceAdaptorImpl<detail::HostMemoryResourceImpl>>(
+                  std::in_place
+              )
+          ) {}
 
     friend class BufferResource;
 };
