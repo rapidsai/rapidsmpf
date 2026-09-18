@@ -237,6 +237,7 @@ class RmmResourceAdaptorImpl {
     std::unordered_map<std::thread::id, std::stack<ScopedMemoryRecord>> record_stacks_;
     std::unordered_map<void*, std::thread::id> allocating_threads_;
 
+  protected:
     rmm::cuda_stream sync_stream_{
         rmm::cuda_stream::flags::non_blocking
     };  ///< Stream for synchronous allocations and deallocations.
