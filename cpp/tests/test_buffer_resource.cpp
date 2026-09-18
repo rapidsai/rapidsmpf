@@ -1064,16 +1064,11 @@ class BufferResourceDiskCopyTest : public ::testing::TestWithParam<MemoryType> {
     }
 
     std::unique_ptr<Buffer> make_buffer(std::size_t size) {
-        return br_->make_buffer(
-            cuda::stream_ref{cudaStreamLegacy}, br_->reserve_or_fail(size, GetParam())
-        );
+        return br_->make_buffer(stream_, br_->reserve_or_fail(size, GetParam()));
     }
 
     std::unique_ptr<Buffer> make_disk_backed_buffer(std::size_t size) {
-        return br_->make_buffer(
-            cuda::stream_ref{cudaStreamLegacy},
-            br_->reserve_or_fail(size, MemoryType::DISK)
-        );
+        return br_->make_buffer(stream_, br_->reserve_or_fail(size, MemoryType::DISK));
     }
 
     std::vector<std::uint8_t> copy_to_uint8_vector(Buffer const& buffer) {
@@ -1087,6 +1082,7 @@ class BufferResourceDiskCopyTest : public ::testing::TestWithParam<MemoryType> {
         return ret;
     }
 
+    cuda::stream_ref stream_{cudaStreamLegacy};
     std::shared_ptr<BufferResource> br_;
 };
 
@@ -1109,6 +1105,46 @@ TEST_P(BufferResourceDiskCopyTest, DiskBufferCopyRoundTrip) {
     auto destination = make_buffer(expected.size());
     buffer_copy(br_->statistics(), *destination, *disk_buffer, disk_buffer->size);
     EXPECT_EQ(copy_to_uint8_vector(*destination), expected);
+}
+
+TEST_P(BufferResourceDiskCopyTest, DiskBufferCopyRoundTripWithOffsets) {
+    constexpr std::size_t offset = 17;
+    auto source = make_buffer(1024);
+    auto const expected = fill_pattern(*source, source->size);
+
+    auto disk_buffer = make_disk_backed_buffer(source->size + offset);
+    buffer_copy(br_->statistics(), *disk_buffer, *source, source->size, offset, 0);
+
+    auto destination = make_buffer(source->size);
+    buffer_copy(br_->statistics(), *destination, *disk_buffer, source->size, 0, offset);
+    EXPECT_EQ(copy_to_uint8_vector(*destination), expected);
+}
+
+TEST_P(BufferResourceDiskCopyTest, DiskBufferCopyRejectsOutOfBoundsOffsets) {
+    constexpr std::size_t size = 1024;
+    auto source = make_buffer(size);
+    fill_pattern(*source, source->size);
+    auto disk_buffer = make_disk_backed_buffer(size);
+
+    EXPECT_THROW(
+        buffer_copy(br_->statistics(), *disk_buffer, *source, 2, size - 1, 0),
+        std::invalid_argument
+    );
+
+    auto destination = make_buffer(size);
+    EXPECT_THROW(
+        buffer_copy(br_->statistics(), *destination, *disk_buffer, 2, 0, size - 1),
+        std::invalid_argument
+    );
+}
+
+TEST_P(BufferResourceDiskCopyTest, DiskBufferCopyRejectsReadPastFileSize) {
+    auto disk_buffer = make_disk_backed_buffer(1);  // 1 byte backing, but no data written
+    auto destination = make_buffer(1);
+    EXPECT_THROW(
+        buffer_copy(br_->statistics(), *destination, *disk_buffer, destination->size),
+        std::invalid_argument
+    );
 }
 
 TEST_P(BufferResourceDiskCopyTest, DiskBufferZeroSizeRoundTrip) {

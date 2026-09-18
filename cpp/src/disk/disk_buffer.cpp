@@ -13,8 +13,10 @@
 
 namespace rapidsmpf {
 
-DiskBuffer::DiskBuffer(std::shared_ptr<DiskResource> disk, cuda::stream_ref stream)
-    : disk_{std::move(disk)}, stream_{stream} {
+DiskBuffer::DiskBuffer(
+    std::shared_ptr<DiskResource> disk, std::size_t size, cuda::stream_ref stream
+)
+    : disk_{std::move(disk)}, size_{size}, stream_{stream} {
     RAPIDSMPF_EXPECTS(disk_ != nullptr, "disk resource cannot be null");
     path_ = disk_->create_unique_path();
 }
@@ -22,14 +24,15 @@ DiskBuffer::DiskBuffer(std::shared_ptr<DiskResource> disk, cuda::stream_ref stre
 DiskBuffer::DiskBuffer(DiskBuffer&& other) noexcept
     : disk_{std::move(other.disk_)},
       path_{std::exchange(other.path_, {})},
+      size_{other.size_},
       stream_{other.stream_} {}
 
-std::uintmax_t DiskBuffer::file_size() const {
-    return std::filesystem::file_size(path_);
+std::size_t DiskBuffer::file_size() const {
+    return safe_cast<std::size_t>(std::filesystem::file_size(path_));
 }
 
 std::vector<std::uint8_t> DiskBuffer::copy_to_uint8_vector() const {
-    auto const size = safe_cast<std::size_t>(file_size());
+    auto const size = file_size();
     std::vector<std::uint8_t> ret(size);
     if (size > 0) {
         auto const transferred =

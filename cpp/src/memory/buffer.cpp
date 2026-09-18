@@ -58,10 +58,8 @@ Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, MemoryType mem
     latest_write_event_.record(stream_);
 }
 
-Buffer::Buffer(
-    std::unique_ptr<DiskBuffer> disk_buffer, std::size_t size, cuda::stream_ref stream
-)
-    : size{size},
+Buffer::Buffer(std::unique_ptr<DiskBuffer> disk_buffer, cuda::stream_ref stream)
+    : size{disk_buffer ? disk_buffer->size() : 0},
       mem_type_{MemoryType::DISK},
       storage_{std::move(disk_buffer)},
       stream_{stream} {
@@ -176,7 +174,13 @@ void copy_from_disk(
     std::ptrdiff_t src_offset
 ) {
     auto const& disk_src = *src.get_storage<Buffer::DiskBufferT>();
-    RAPIDSMPF_EXPECTS(disk_src.disk_resource() != nullptr, "DiskBuffer has no DiskResrc");
+    auto const file_size = disk_src.file_size();
+    auto const offset = static_cast<std::size_t>(src_offset);
+    RAPIDSMPF_EXPECTS(
+        offset <= file_size && size <= file_size - offset,
+        "src_offset + size can't be greater than the backing file size",
+        std::invalid_argument
+    );
 
     dst.latest_write_event().host_wait();
     auto const start = Clock::now();
@@ -210,7 +214,6 @@ void copy_to_disk(
     std::ptrdiff_t src_offset
 ) {
     auto const& disk_dst = *dst.get_storage<Buffer::DiskBufferT>();
-    RAPIDSMPF_EXPECTS(disk_dst.disk_resource() != nullptr, "DiskBuffer has no DiskResrc");
 
     src.latest_write_event().host_wait();
     auto const start = Clock::now();

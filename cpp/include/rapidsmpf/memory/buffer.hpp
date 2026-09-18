@@ -375,12 +375,9 @@ class Buffer {
      * @brief Construct a stream-ordered Buffer from a disk-backed handle.
      *
      * @param disk_buffer Unique pointer to a disk buffer. Must be non-null.
-     * @param size Logical buffer size in bytes.
      * @param stream CUDA stream associated with subsequent in-memory operations.
      */
-    Buffer(
-        std::unique_ptr<DiskBuffer> disk_buffer, std::size_t size, cuda::stream_ref stream
-    );
+    Buffer(std::unique_ptr<DiskBuffer> disk_buffer, cuda::stream_ref stream);
 
     /**
      * @brief Throws if the buffer is currently locked by `exclusive_data_access()`.

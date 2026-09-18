@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -28,9 +29,12 @@ class DiskBuffer {
      * @brief Create a file-backed buffer.
      *
      * @param disk Disk resource used to create and access the backing file.
+     * @param size Logical buffer size in bytes.
      * @param stream CUDA stream associated with the buffer.
      */
-    DiskBuffer(std::shared_ptr<DiskResource> disk, cuda::stream_ref stream);
+    DiskBuffer(
+        std::shared_ptr<DiskResource> disk, std::size_t size, cuda::stream_ref stream
+    );
 
     ~DiskBuffer();
 
@@ -42,11 +46,20 @@ class DiskBuffer {
     DiskBuffer& operator=(DiskBuffer const&) = delete;  ///< Not copy-assignable.
 
     /**
+     * @brief Logical size of the buffer.
+     *
+     * @return Buffer size in bytes.
+     */
+    [[nodiscard]] std::size_t size() const noexcept {
+        return size_;
+    }
+
+    /**
      * @brief Current size of the backing file.
      *
      * @return Backing file size in bytes.
      */
-    [[nodiscard]] std::uintmax_t file_size() const;
+    [[nodiscard]] std::size_t file_size() const;
 
     /**
      * @brief Copy the backing file contents into a host `std::vector`.
@@ -101,6 +114,7 @@ class DiskBuffer {
   private:
     std::shared_ptr<DiskResource> disk_;
     std::filesystem::path path_;
+    std::size_t size_;
     cuda::stream_ref stream_;
 };
 

@@ -283,7 +283,7 @@ TEST(DiskResource, DestructorRemovesDirectory) {
 TEST_F(DiskResourceTest, DiskBufferDestructorRemovesFile) {
     std::filesystem::path path{};
     {
-        DiskBuffer disk_buffer{disk_, stream_};
+        DiskBuffer disk_buffer{disk_, 0, stream_};
         path = disk_buffer.path();
         ASSERT_TRUE(std::filesystem::exists(path));
     }
@@ -291,7 +291,7 @@ TEST_F(DiskResourceTest, DiskBufferDestructorRemovesFile) {
 }
 
 TEST_F(DiskResourceTest, DiskBufferTracksStream) {
-    DiskBuffer disk_buffer{disk_, stream_};
+    DiskBuffer disk_buffer{disk_, 0, stream_};
     EXPECT_EQ(disk_buffer.stream().get(), stream_.get());
 
     auto const new_stream = cuda::stream_ref{cudaStreamPerThread};
@@ -300,11 +300,11 @@ TEST_F(DiskResourceTest, DiskBufferTracksStream) {
 }
 
 TEST_F(DiskResourceTest, DiskBufferReportsFileSize) {
-    DiskBuffer disk_buffer{disk_, stream_};
+    auto const pattern = make_pattern(1024);
+    DiskBuffer disk_buffer{disk_, pattern.size(), stream_};
+    EXPECT_EQ(disk_buffer.size(), pattern.size());
     EXPECT_EQ(disk_buffer.file_size(), 0U);
     EXPECT_TRUE(disk_buffer.copy_to_uint8_vector().empty());
-
-    auto const pattern = make_pattern(1024);
 
     EXPECT_EQ(
         disk_->write(
