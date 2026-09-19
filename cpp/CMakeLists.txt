@@ -132,6 +132,7 @@ include(../cmake/thirdparty/get_nvtx.cmake)
 include(../cmake/thirdparty/get_rmm.cmake)
 include(../cmake/thirdparty/get_cuco.cmake)
 include(../cmake/thirdparty/get_cucascade.cmake)
+include(../cmake/thirdparty/get_kvikio.cmake)
 
 if(RAPIDSMPF_HAVE_UCXX)
   rapids_find_package(
@@ -202,6 +203,8 @@ add_library(
   src/memory/scoped_memory_record.cpp
   src/memory/spill.cpp
   src/memory/spill_manager.cpp
+  src/disk/disk_resource.cpp
+  src/disk/disk_buffer.cpp
   src/pausable_thread_loop.cpp
   src/progress_thread.cpp
   src/rmm_resource_adaptor.cpp
@@ -306,8 +309,8 @@ endif()
 
 target_link_libraries(
   rapidsmpf
-  PUBLIC rmm::rmm CCCL::CCCL $<TARGET_NAME_IF_EXISTS:ucxx::ucxx> $<TARGET_NAME_IF_EXISTS:libcoro>
-         CUDA::cudart_static
+  PUBLIC rmm::rmm CCCL::CCCL kvikio::kvikio $<TARGET_NAME_IF_EXISTS:ucxx::ucxx>
+         $<TARGET_NAME_IF_EXISTS:libcoro> CUDA::cudart_static
   PRIVATE cuco::cuco
           cuCascade::cucascade_topology_discovery
           $<$<BOOL:${RAPIDSMPF_HAVE_NUMA}>:numa>
