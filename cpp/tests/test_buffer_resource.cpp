@@ -996,12 +996,10 @@ class BufferSpillStatistics : public ::testing::Test {
     }
 
     /// @brief The number of samples recorded under `name`.
-    std::size_t samples(std::string const& name = "buffer-spilled-time") const {
-        try {
-            return stats->get_stat(name).count();
-        } catch (std::out_of_range const&) {
-            return 0;
-        }
+    [[nodiscard]] std::size_t samples(
+        std::string const& name = "buffer-spilled-time"
+    ) const {
+        return stats->has_stat(name) ? stats->get_stat(name).count() : 0;
     }
 
     static constexpr std::size_t size = 4_KiB;

@@ -183,6 +183,11 @@ std::shared_ptr<Statistics> Statistics::from_options(config::Options options) {
     return create(enabled ? Mode::Enabled : Mode::Disabled);
 }
 
+bool Statistics::has_stat(std::string const& name) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return stats_.contains(name);
+}
+
 Statistics::Stat Statistics::get_stat(std::string const& name) const {
     std::lock_guard<std::mutex> lock(mutex_);
     return stats_.at(name);

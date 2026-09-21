@@ -319,7 +319,9 @@ std::unique_ptr<Buffer> BufferResource::move(
     auto const from = buffer->mem_type();
     auto token = std::move(buffer->spill_track_token_);
 
-    // Closes the spill: `make_buffer` takes the capacity back here.
+    // Closes the spill: `make_buffer` takes the capacity back here. A token can arrive
+    // while statistics are disabled, through the device-buffer overload of `move()`, so
+    // this does not check `enabled()`. `add_duration_stat` is a no-op when disabled.
     auto ret = make_buffer(nbytes, buffer->stream(), reservation);
     if (tracked && reservation.mem_type_ == MemoryType::DEVICE && token != nullptr) {
         statistics_->add_duration_stat(
