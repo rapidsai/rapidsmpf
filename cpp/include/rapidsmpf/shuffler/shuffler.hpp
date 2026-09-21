@@ -19,6 +19,7 @@
 #include <rapidsmpf/communicator/metadata_payload_exchange/tag.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/progress_thread.hpp>
@@ -27,6 +28,7 @@
 #include <rapidsmpf/shuffler/postbox.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils/misc.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 /**
  * @namespace rapidsmpf::shuffler
@@ -122,10 +124,13 @@ class Shuffler {
         FinishedCallback&& finished_callback,
         PartitionOwner partition_owner = round_robin,
         std::unique_ptr<communicator::MetadataPayloadExchange> mpe = nullptr,
-        std::vector<MemoryType> spillable_memory_types =
-            to_vector(SPILL_TARGET_MEMORY_TYPES),
-        std::vector<MemoryType> reservation_memory_types =
+        std::vector<MemoryType> spillable_memory_types = from_env_var(
+            "RAPIDSMPF_SHUFFLER_SPILLABLE_MEM_TYPES", to_vector(SPILL_TARGET_MEMORY_TYPES)
+        ),  // TODO: this is a temporary backdoor for testing disk spilling.
+        std::vector<MemoryType> reservation_memory_types = from_env_var(
+            "RAPIDSMPF_SHUFFLER_RESERVATION_MEM_TYPES",
             to_vector(ADDRESSABLE_MEMORY_TYPES)
+        )  // TODO: this is a temporary backdoor for testing disk spilling.
     );
 
     /**
@@ -160,10 +165,13 @@ class Shuffler {
         BufferResource* br,
         PartitionOwner partition_owner = round_robin,
         std::unique_ptr<communicator::MetadataPayloadExchange> mpe = nullptr,
-        std::vector<MemoryType> spillable_memory_types =
-            to_vector(SPILL_TARGET_MEMORY_TYPES),
-        std::vector<MemoryType> reservation_memory_types =
+        std::vector<MemoryType> spillable_memory_types = from_env_var(
+            "RAPIDSMPF_SHUFFLER_SPILLABLE_MEM_TYPES", to_vector(SPILL_TARGET_MEMORY_TYPES)
+        ),  // TODO: this is a temporary backdoor for testing disk spilling.
+        std::vector<MemoryType> reservation_memory_types = from_env_var(
+            "RAPIDSMPF_SHUFFLER_RESERVATION_MEM_TYPES",
             to_vector(ADDRESSABLE_MEMORY_TYPES)
+        )  // TODO: this is a temporary backdoor for testing disk spilling.
     )
         : Shuffler(
               comm,
