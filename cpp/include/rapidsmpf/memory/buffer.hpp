@@ -421,6 +421,7 @@ class Buffer {
 
   private:
     MemoryType const mem_type_;
+    mutable std::shared_ptr<SpillTrackToken> spill_track_token_;
     std::variant<DeviceBufferT, HostBufferT, DiskBufferT> storage_;
     cuda::stream_ref stream_{cudaStreamLegacy};
     CudaEvent latest_write_event_;

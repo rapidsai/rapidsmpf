@@ -520,10 +520,17 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @param data Unique pointer to the device or pinned host buffer.
      * @param stream CUDA stream associated with the new Buffer. Use or synchronize with
      * this stream when operating on the Buffer.
+     * @param spill_token The spill token the new Buffer adopts, for a caller that
+     * spilled the data. Must be null for device memory.
      * @return Unique pointer to the resulting Buffer.
+     *
+     * @throws std::invalid_argument If @p spill_token is set and @p data is not
+     * host-accessible.
      */
     std::unique_ptr<Buffer> move(
-        std::unique_ptr<rmm::device_buffer> data, cuda::stream_ref stream
+        std::unique_ptr<rmm::device_buffer> data,
+        cuda::stream_ref stream,
+        std::shared_ptr<SpillTrackToken> spill_token = nullptr
     );
 
     /**
