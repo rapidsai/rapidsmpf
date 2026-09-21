@@ -197,6 +197,7 @@ class Communicator {
     class Future {
       public:
         Future() = default;
+        /// @brief Destructor.
         virtual ~Future() noexcept = default;
         Future(Future&&) = default;  ///< Movable.
         /**
