@@ -23,6 +23,9 @@ class BufferResource;
  *
  * Uses KvikIO with CompatMode::AUTO (GDS when available, POSIX/compat otherwise).
  *
+ * Each resource atomically creates and exclusively owns its directory. The directory
+ * is removed when the resource is destroyed.
+ *
  * `BufferResource` owns a `std::shared_ptr<DiskResource>` when a spill
  * directory is configured; `DiskBuffer`s hold additional copies so the
  * resource outlives those buffers.
@@ -117,7 +120,7 @@ class DiskResource : public BackRefMixin<BufferResource> {
     [[nodiscard]] bool operator==(DiskResource const& other) const noexcept = default;
 
   private:
-    explicit DiskResource(std::filesystem::path dir) : dir_{std::move(dir)} {}
+    explicit DiskResource(std::filesystem::path dir_prefix);
 
     friend class BufferResource;
 

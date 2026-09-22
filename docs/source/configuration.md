@@ -138,9 +138,9 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
   - **Environment Variable**: `RAPIDSMPF_DISK_SPILL_DIR`
   - **Default**: `false`
   - **Description**: Directory used for disk spill files. When set to a path,
-    RapidsMPF creates a per-process subdirectory named after the PID under this
-    directory and enables disk I/O. Disabled values (`false`, `none`, `off`, …)
-    leave disk spilling disabled. A whitespace-only value is invalid.
+    RapidsMPF creates an exclusively owned subdirectory and enables disk I/O.
+    Disabled values (`false`, `none`, `off`, …) leave disk spilling disabled. A
+    whitespace-only value is invalid.
 
 - **`unbounded_file_read_cache`**
   - **Environment Variable**: `RAPIDSMPF_UNBOUNDED_FILE_READ_CACHE`

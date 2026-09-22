@@ -25,6 +25,30 @@
 
 namespace rapidsmpf {
 
+DiskResource::DiskResource(std::filesystem::path dir_prefix) {
+    auto const parent = dir_prefix.parent_path();
+    if (!parent.empty()) {
+        std::error_code ec;
+        std::filesystem::create_directories(parent, ec);
+        RAPIDSMPF_EXPECTS(
+            !ec,
+            "failed to create directory " + parent.string() + ": " + ec.message(),
+            std::runtime_error
+        );
+    }
+
+    auto path_template = dir_prefix.string() + "-XXXXXX";
+    auto const* path = ::mkdtemp(path_template.data());
+    auto const create_error = errno;
+    RAPIDSMPF_EXPECTS(
+        path != nullptr,
+        "failed to create a unique directory from " + path_template + ": "
+            + std::string{std::strerror(create_error)},
+        std::runtime_error
+    );
+    dir_ = path;
+}
+
 DiskResource::~DiskResource() noexcept {
     std::error_code ec;
     std::filesystem::remove(dir_, ec);
@@ -35,14 +59,6 @@ DiskResource::~DiskResource() noexcept {
 }
 
 std::filesystem::path DiskResource::create_unique_path() const {
-    std::error_code ec;
-    std::filesystem::create_directories(dir_, ec);
-    RAPIDSMPF_EXPECTS(
-        !ec,
-        "failed to create directory " + dir_.string() + ": " + ec.message(),
-        std::runtime_error
-    );
-
     auto path_template = (dir_ / "XXXXXX").string();
     auto const fd = ::mkstemp(path_template.data());
     auto const open_error = errno;

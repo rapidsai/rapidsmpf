@@ -244,13 +244,6 @@ class Buffer {
     }
 
     /**
-     * @brief Record a write on the buffer's associated CUDA stream.
-     *
-     * Updates the event returned by `latest_write_event()`.
-     */
-    void record_write_event();
-
-    /**
      * @brief Rebind the buffer to a new CUDA stream.
      *
      * Changes the buffer's associated stream to @p new_stream and ensures proper
@@ -416,6 +409,9 @@ class Buffer {
      */
     [[nodiscard]] DiskBufferT release_disk_buffer();
 
+    /// @brief Record a write on the buffer's associated CUDA stream.
+    void record_write_event();
+
   public:
     std::size_t const size;  ///< The size of the buffer in bytes.
 
@@ -431,10 +427,8 @@ class Buffer {
 /**
  * @brief Copy data between buffers.
  *
- * @note Copies between in-memory buffers are stream-ordered on @p dst's stream with
- * automatic cross-stream ordering between @p src and @p dst. Copies involving disk
- * storage are synchronous and block until the transfer completes; neither @p src nor
- * @p dst is consumed.
+ * @note The copy is stream-ordered on @p dst's stream, correct cross-stream ordering
+ * between @p src's stream and @p dst's stream is provided automatically.
  *
  * Copies @p size bytes from @p src, starting at @p src_offset, into @p dst at
  * @p dst_offset.

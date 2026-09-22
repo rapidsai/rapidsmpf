@@ -264,7 +264,7 @@ TEST(DiskResource, DestructorRemovesDirectory) {
     }
 
     TempDir disk_dir;
-    auto const resource_dir = disk_dir.path() / std::to_string(::getpid());
+    std::filesystem::path resource_dir;
     {
         auto br = BufferResource::create(
             rmm::mr::get_current_device_resource_ref(),
@@ -275,9 +275,41 @@ TEST(DiskResource, DestructorRemovesDirectory) {
             Statistics::disabled(),
             disk_dir.path()
         );
-        EXPECT_EQ(br->disk_resource()->directory(), resource_dir);
+        resource_dir = br->disk_resource()->directory();
+        EXPECT_EQ(resource_dir.parent_path(), disk_dir.path());
     }
     EXPECT_FALSE(std::filesystem::exists(resource_dir));
+}
+
+TEST(DiskResource, ResourcesOwnDistinctDirectories) {
+    if (GlobalEnvironment->type() != TestEnvironmentType::SINGLE) {
+        GTEST_SKIP() << "Disk I/O tests run only in the single-process environment";
+    }
+
+    TempDir disk_dir;
+    auto make_resource = [&] {
+        return BufferResource::create(
+            rmm::mr::get_current_device_resource_ref(),
+            PinnedMemoryDisabled,
+            {},
+            std::nullopt,
+            std::make_shared<StreamPool>(1),
+            Statistics::disabled(),
+            disk_dir.path()
+        );
+    };
+    auto first = make_resource();
+    auto second = make_resource();
+    auto const first_dir = first->disk_resource()->directory();
+    auto const second_dir = second->disk_resource()->directory();
+
+    EXPECT_NE(first_dir, second_dir);
+    EXPECT_EQ(first_dir.parent_path(), second_dir.parent_path());
+    EXPECT_EQ(first_dir.parent_path(), disk_dir.path());
+
+    first.reset();
+    EXPECT_FALSE(std::filesystem::exists(first_dir));
+    EXPECT_TRUE(std::filesystem::is_directory(second_dir));
 }
 
 TEST_F(DiskResourceTest, DiskBufferDestructorRemovesFile) {
@@ -341,9 +373,7 @@ TEST(DiskBufferConfiguredDirectory, UsesBufferResourceDirectory) {
         disk_dir.path()
     );
 
-    EXPECT_EQ(
-        br->disk_resource()->directory(), disk_dir.path() / std::to_string(::getpid())
-    );
+    EXPECT_EQ(br->disk_resource()->directory().parent_path(), disk_dir.path());
 }
 
 TEST(DiskBufferFromOptions, UsesConfiguredDirectory) {
@@ -358,9 +388,7 @@ TEST(DiskBufferFromOptions, UsesConfiguredDirectory) {
     auto br = BufferResource::from_options(
         rmm::mr::get_current_device_resource_ref(), std::move(options)
     );
-    EXPECT_EQ(
-        br->disk_resource()->directory(), disk_dir.path() / std::to_string(::getpid())
-    );
+    EXPECT_EQ(br->disk_resource()->directory().parent_path(), disk_dir.path());
 }
 
 TEST(DiskBufferFromOptions, UnsetOptionHasNoDiskResource) {

@@ -170,8 +170,8 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * explicit CUDA stream.
      * @param statistics Statistics instance used for runtime metrics.
      * @param spill_directory Directory for disk files. When set, a
-     * `DiskResource` is created and a per-process subdirectory named after the
-     * PID is used under this path. `std::nullopt` disables disk I/O.
+     * `DiskResource` is created with an exclusively owned subdirectory under this
+     * path. `std::nullopt` disables disk I/O.
      * @return A newly constructed `BufferResource` owned by `std::shared_ptr`.
      * @throws std::runtime_error if `pinned_pool_properties` has a value but pinned
      * host memory is not supported on this system.
