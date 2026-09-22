@@ -747,21 +747,6 @@ void Statistics::record_copy(
     );
 }
 
-void Statistics::record_copy(
-    MemoryType src, MemoryType dst, std::size_t nbytes, Duration duration
-) {
-    auto const& names = copy_names(src, dst);
-
-    add_stat(names.nbytes, static_cast<double>(nbytes));
-    add_stat(names.time, duration.count());
-    add_stat(names.stream_delay, 0);
-    add_report_entry(
-        names.base,
-        {names.nbytes, names.time, names.stream_delay},
-        Formatter::MemoryThroughput
-    );
-}
-
 void Statistics::record_alloc(
     MemoryType mem_type, std::size_t nbytes, StreamOrderedTiming&& timing
 ) {
