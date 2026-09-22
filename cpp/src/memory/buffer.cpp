@@ -251,8 +251,8 @@ void buffer_copy(
         });
     }
     statistics->record_copy(src.mem_type(), dst.mem_type(), size, std::move(timing));
-    // after the dst.write_access(), its last_write_event is recorded on dst.stream(). So,
-    // we need the src.stream() to wait for that event.
+    // Every branch above records dst's latest-write event on dst.stream(). Make
+    // src.stream() wait for it, so src is not reused before the copy completes.
     dst.latest_write_event().stream_wait(src.stream());
 }
 
