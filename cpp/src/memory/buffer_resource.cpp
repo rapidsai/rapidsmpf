@@ -193,6 +193,21 @@ std::int64_t BufferResource::memory_available_for_reservation(MemoryType mem_typ
            );
 }
 
+std::array<std::int64_t, MEMORY_TYPES.size()>
+BufferResource::memory_available_for_reservation() const {
+    std::array<std::int64_t, MEMORY_TYPES.size()> available{};
+    for (auto const mem_type : MEMORY_TYPES) {
+        available[static_cast<std::size_t>(mem_type)] = memory_available(mem_type);
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (auto const mem_type : MEMORY_TYPES) {
+        auto const index = static_cast<std::size_t>(mem_type);
+        available[index] -= safe_cast<std::int64_t>(memory_reserved_[index]);
+    }
+    return available;
+}
+
 std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     MemoryType mem_type, std::size_t size, AllowOverbooking allow_overbooking
 ) {
@@ -248,6 +263,10 @@ MemoryReservation BufferResource::reserve_device_memory_and_spill(
 }
 
 std::size_t BufferResource::release(MemoryReservation& reservation, std::size_t size) {
+    if (size == 0) {
+        return reservation.size_;
+    }
+
     std::lock_guard const lock(mutex_);
     RAPIDSMPF_EXPECTS(
         size <= reservation.size_,

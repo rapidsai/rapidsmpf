@@ -363,6 +363,18 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     ) const;
 
     /**
+     * @brief Returns the memory available to new reservations for every memory type.
+     *
+     * Availability is sampled for every memory type before the reservation mutex is
+     * acquired. The outstanding reservation counters are then read together under one
+     * lock and subtracted from those samples. Values may be negative.
+     *
+     * @return Available bytes indexed by the corresponding `MemoryType` value.
+     */
+    [[nodiscard]] std::array<std::int64_t, MEMORY_TYPES.size()>
+    memory_available_for_reservation() const;
+
+    /**
      * @brief Reserve an amount of the specified memory type.
      *
      * Creates a new reservation of the specified size and type to inform about upcoming

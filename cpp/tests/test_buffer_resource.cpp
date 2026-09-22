@@ -69,6 +69,22 @@ std::int64_t reserved_bytes(BufferResource const& br, MemoryType mem_type) {
     return br.memory_available(mem_type) - br.memory_available_for_reservation(mem_type);
 }
 
+TEST(BufferResource, MemoryAvailableForReservationSnapshot) {
+    auto br = BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        PinnedMemoryDisabled,
+        {{MemoryType::DEVICE, 10_KiB}, {MemoryType::HOST, 20_KiB}}
+    );
+    auto device = br->reserve_or_fail(3_KiB, MemoryType::DEVICE);
+    auto host = br->reserve_or_fail(4_KiB, MemoryType::HOST);
+
+    auto const available = br->memory_available_for_reservation();
+    EXPECT_EQ(available[static_cast<std::size_t>(MemoryType::DEVICE)], 7_KiB);
+    EXPECT_EQ(available[static_cast<std::size_t>(MemoryType::PINNED_HOST)], 0);
+    EXPECT_EQ(available[static_cast<std::size_t>(MemoryType::HOST)], 16_KiB);
+    EXPECT_EQ(available[static_cast<std::size_t>(MemoryType::DISK)], 0);
+}
+
 TEST(BufferResource, ReservationOverbooking) {
     // Create a buffer resource that always reports 10 KiB of available device memory.
     auto br = BufferResource::create(
