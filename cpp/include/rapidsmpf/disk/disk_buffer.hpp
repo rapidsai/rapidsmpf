@@ -16,6 +16,8 @@
 
 namespace rapidsmpf {
 
+class Buffer;
+
 /**
  * @brief File-backed handle to a byte buffer.
  *
@@ -60,6 +62,38 @@ class DiskBuffer {
      * @return Backing file size in bytes.
      */
     [[nodiscard]] std::size_t file_size() const;
+
+    /**
+     * @brief Read bytes from this disk buffer into an addressable buffer.
+     *
+     * @param dst Destination buffer.
+     * @param size Number of bytes to read.
+     * @param dst_offset Byte offset within @p dst.
+     * @param src_offset Byte offset within this disk buffer's backing file.
+     */
+    void read(
+        Buffer& dst,
+        std::size_t size,
+        std::ptrdiff_t dst_offset = 0,
+        std::ptrdiff_t src_offset = 0
+    ) const;
+
+    /**
+     * @brief Write bytes from an addressable buffer into this disk buffer.
+     *
+     * The source buffer's work must be ordered before this disk buffer's stream.
+     *
+     * @param src Source buffer.
+     * @param size Number of bytes to write.
+     * @param dst_offset Byte offset within this disk buffer's backing file.
+     * @param src_offset Byte offset within @p src.
+     */
+    void write(
+        Buffer const& src,
+        std::size_t size,
+        std::ptrdiff_t dst_offset = 0,
+        std::ptrdiff_t src_offset = 0
+    );
 
     /**
      * @brief Copy the backing file contents into a host `std::vector`.

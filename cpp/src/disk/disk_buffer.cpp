@@ -9,7 +9,9 @@
 #include <utility>
 
 #include <rapidsmpf/disk/disk_buffer.hpp>
+#include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/utils/misc.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 namespace rapidsmpf {
 
@@ -29,6 +31,47 @@ DiskBuffer::DiskBuffer(DiskBuffer&& other) noexcept
 
 std::size_t DiskBuffer::file_size() const {
     return safe_cast<std::size_t>(std::filesystem::file_size(path_));
+}
+
+void DiskBuffer::read(
+    Buffer& dst, std::size_t size, std::ptrdiff_t dst_offset, std::ptrdiff_t src_offset
+) const {
+    auto const backing_file_size = file_size();
+    auto const offset = static_cast<std::size_t>(src_offset);
+    RAPIDSMPF_EXPECTS(
+        offset <= backing_file_size && size <= backing_file_size - offset,
+        "src_offset + size can't be greater than the backing file size",
+        std::invalid_argument
+    );
+
+    dst.write_access([&](std::byte* dst_data, cuda::stream_ref stream) {
+        auto const transferred = disk_->read(
+            path_, dst_data + dst_offset, size, dst.mem_type(), stream, src_offset
+        );
+        RAPIDSMPF_EXPECTS(
+            transferred == size,
+            "disk read transferred " + format_nbytes(transferred) + " of "
+                + format_nbytes(size),
+            std::runtime_error
+        );
+    });
+}
+
+void DiskBuffer::write(
+    Buffer const& src,
+    std::size_t size,
+    std::ptrdiff_t dst_offset,
+    std::ptrdiff_t src_offset
+) {
+    auto const transferred = disk_->write(
+        path_, src.data() + src_offset, size, src.mem_type(), stream_, dst_offset
+    );
+    RAPIDSMPF_EXPECTS(
+        transferred == size,
+        "disk write transferred " + format_nbytes(transferred) + " of "
+            + format_nbytes(size),
+        std::runtime_error
+    );
 }
 
 std::vector<std::uint8_t> DiskBuffer::copy_to_uint8_vector() const {
