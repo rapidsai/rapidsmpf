@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 """The AllGather interface for RapidsMPF."""
 
@@ -139,6 +139,12 @@ cdef class AllGather:
         Returns
         -------
         A list containing packed data from all participating ranks.
+
+        Notes
+        -----
+        Returned buffers retain their current storage tier and may be disk-resident.
+        Use ``rapidsmpf.memory.spill.unspill_partitions`` when device-resident output
+        is required.
 
         Raises
         ------
