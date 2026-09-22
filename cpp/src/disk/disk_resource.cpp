@@ -69,7 +69,7 @@ std::size_t DiskResource::write(
     void const* data,
     std::size_t size,
     [[maybe_unused]] MemoryType mem_type,
-    [[maybe_unused]] cuda::stream_ref stream,
+    cuda::stream_ref stream,
     std::ptrdiff_t file_offset
 ) const {
     kvikio::FileHandle file{
@@ -78,6 +78,7 @@ std::size_t DiskResource::write(
         kvikio::FileHandle::m644,
         kvikio::CompatMode::AUTO
     };
+    stream.sync();
     return file
         .pwrite(
             data,
@@ -95,12 +96,13 @@ std::size_t DiskResource::read(
     void* data,
     std::size_t size,
     [[maybe_unused]] MemoryType mem_type,
-    [[maybe_unused]] cuda::stream_ref stream,
+    cuda::stream_ref stream,
     std::ptrdiff_t file_offset
 ) const {
     kvikio::FileHandle file{
         path.string(), "r", kvikio::FileHandle::m644, kvikio::CompatMode::AUTO
     };
+    stream.sync();
     return file
         .pread(
             data,

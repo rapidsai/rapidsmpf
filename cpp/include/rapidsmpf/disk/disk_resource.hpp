@@ -23,11 +23,6 @@ class BufferResource;
  *
  * Uses KvikIO with CompatMode::AUTO (GDS when available, POSIX/compat otherwise).
  *
- * Callers must synchronize any CUDA stream that produced or consumes a device
- * pointer before calling write() or read(). KvikIO is not asked to synchronize
- * the default stream (`sync_default_stream=false`).
- *
- * Disk I/O is intentionally outside the MemoryType / BufferResource taxonomy.
  * `BufferResource` owns a `std::shared_ptr<DiskResource>` when a spill
  * directory is configured; `DiskBuffer`s hold additional copies so the
  * resource outlives those buffers.

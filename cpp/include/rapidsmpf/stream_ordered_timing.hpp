@@ -34,6 +34,7 @@ namespace rapidsmpf {
  */
 class StreamOrderedTiming {
   public:
+    StreamOrderedTiming() = default;
     /**
      * @brief Constructs a StreamOrderedTiming and marks the start position in the stream.
      *
@@ -92,7 +93,7 @@ class StreamOrderedTiming {
   private:
     std::uintptr_t uid_{0};
     cuda::stream_ref stream_{cudaStreamLegacy};
-    std::shared_ptr<Statistics> statistics_;
+    std::shared_ptr<Statistics> statistics_{};
 };
 
 }  // namespace rapidsmpf

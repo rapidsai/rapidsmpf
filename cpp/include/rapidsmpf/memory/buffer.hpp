@@ -202,7 +202,7 @@ class Buffer {
      * @throws std::logic_error If the buffer is already locked.
      * @throws std::logic_error If `is_latest_write_done() != true`.
      *
-     * @see write_access(), is_locked(), unlock(), ExclusiveDataAccess
+     * @see write_access(), is_locked(), unlock()
      */
     std::byte* exclusive_data_access();
 
@@ -426,49 +426,6 @@ class Buffer {
     cuda::stream_ref stream_{cudaStreamLegacy};
     CudaEvent latest_write_event_;
     std::atomic<bool> lock_;
-};
-
-/**
- * @brief RAII exclusive access to a `Buffer`'s memory.
- *
- * @see Buffer::exclusive_data_access(), Buffer::unlock()
- */
-class ExclusiveDataAccess {
-  public:
-    /**
-     * @brief Lock @p buffer and expose its storage pointer.
-     *
-     * @param buffer Buffer to lock.
-     *
-     * @throws std::logic_error If the buffer is already locked.
-     * @throws std::logic_error If `buffer.is_latest_write_done() != true`.
-     */
-    explicit ExclusiveDataAccess(Buffer& buffer)
-        : buffer_{buffer}, data_{buffer.exclusive_data_access()} {}
-
-    ExclusiveDataAccess(ExclusiveDataAccess const&) = delete;
-    ExclusiveDataAccess& operator=(ExclusiveDataAccess const&) = delete;
-    ExclusiveDataAccess(ExclusiveDataAccess&&) = delete;
-    ExclusiveDataAccess& operator=(ExclusiveDataAccess&&) = delete;
-
-    /// @brief Unlock the buffer upon destruction.
-    ~ExclusiveDataAccess() {
-        buffer_.unlock();
-    }
-
-    /**
-     * @brief Pointer to the locked buffer's storage.
-     *
-     * @param offset Offset into the buffer's storage.
-     * @return Pointer valid for the lifetime of this object.
-     */
-    [[nodiscard]] constexpr std::byte* data(std::ptrdiff_t offset = 0) const noexcept {
-        return data_ + offset;
-    }
-
-  private:
-    Buffer& buffer_;
-    std::byte* data_;
 };
 
 /**
