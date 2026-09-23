@@ -12,6 +12,10 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <rmm/mr/per_device_resource.hpp>
+
+#include <rapidsmpf/statistics.hpp>
+#include <rapidsmpf/streaming/chunks/packed_data.hpp>
 #include <rapidsmpf/streaming/core/spillable_messages.hpp>
 
 #include "base_streaming_fixture.hpp"
@@ -291,4 +295,73 @@ TEST_F(StreamingSpillableMessages, Copy) {
     auto original = msgs.extract(mid);
     EXPECT_EQ(original.sequence_number(), 1);
     EXPECT_EQ(original.get<int>(), 42);
+}
+
+TEST_F(StreamingSpillableMessages, SpillMovesRatherThanCopies) {
+    int copies = 0;
+    int moves = 0;
+    Message::Callbacks callbacks{
+        .copy = [&copies](Message const& msg, MemoryReservation&) -> Message {
+            ++copies;
+            return Message{
+                msg.sequence_number(),
+                std::make_unique<int>(msg.get<int>()),
+                msg.content_description(),
+                msg.callbacks()
+            };
+        },
+        .move = [&moves](Message&& msg, MemoryReservation& reservation) -> Message {
+            ++moves;
+            auto callbacks = msg.callbacks();
+            ContentDescription cd{
+                {{reservation.mem_type(), sizeof(int)}},
+                ContentDescription::Spillable::YES
+            };
+            auto payload = std::make_unique<int>(msg.release<int>());
+            return Message{msg.sequence_number(), std::move(payload), cd, callbacks};
+        }
+    };
+    ContentDescription cd{
+        {{MemoryType::DEVICE, sizeof(int)}}, ContentDescription::Spillable::YES
+    };
+
+    SpillableMessages msgs;
+    auto mid = msgs.insert(Message{1, std::make_unique<int>(2), cd, callbacks});
+    EXPECT_EQ(msgs.spill(mid, br.get()), sizeof(int));
+    EXPECT_EQ(moves, 1);
+    EXPECT_EQ(copies, 0);
+    EXPECT_EQ(msgs.extract(mid).get<int>(), 2);
+}
+
+TEST_F(StreamingSpillableMessages, SpillingPackedDataIsTracked) {
+    // `PackedData` moves its buffer through `BufferResource::move()`, which opens a spill
+    // token, so bringing the data back to device records how long it was away.
+    auto stats = Statistics::create();
+    auto tracked_br = BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        PinnedMemoryDisabled,
+        {},
+        std::nullopt,
+        std::make_shared<StreamPool>(1),
+        stats
+    );
+    constexpr std::size_t size = 1024;
+    auto [res, _] = tracked_br->reserve(MemoryType::DEVICE, size, AllowOverbooking::YES);
+    auto packed = std::make_unique<PackedData>(
+        std::make_unique<std::vector<std::uint8_t>>(1),
+        tracked_br->make_buffer(size, stream, res)
+    );
+
+    SpillableMessages msgs;
+    auto mid = msgs.insert(to_message(0, std::move(packed)));
+    EXPECT_EQ(msgs.spill(mid, tracked_br.get()), size);
+    EXPECT_FALSE(stats->has_stat("buffer-spilled-time"));  // Still away.
+
+    auto spilled = msgs.extract(mid).release<PackedData>();
+    EXPECT_EQ(spilled.data->mem_type(), MemoryType::HOST);
+    auto [back, __] =
+        tracked_br->reserve(MemoryType::DEVICE, size, AllowOverbooking::YES);
+    std::ignore = tracked_br->move(std::move(spilled.data), back);
+    ASSERT_TRUE(stats->has_stat("buffer-spilled-time"));
+    EXPECT_EQ(stats->get_stat("buffer-spilled-time").count(), 1);
 }
