@@ -139,3 +139,94 @@ TEST_F(StreamingMessage, CopyWithCallbacks) {
         EXPECT_EQ(m1.sequence_number(), m2.sequence_number());
     }
 }
+
+namespace {
+
+/// @brief Callbacks that count their invocations and rebuild an `int` message.
+Message::Callbacks counting_callbacks(int& copies, int& moves) {
+    return {
+        .copy = [&copies](Message const& msg, MemoryReservation&) -> Message {
+            ++copies;
+            return Message{
+                msg.sequence_number(),
+                std::make_unique<int>(msg.get<int>()),
+                msg.content_description(),
+                msg.callbacks()
+            };
+        },
+        .move = [&moves](Message&& msg, MemoryReservation&) -> Message {
+            ++moves;
+            auto callbacks = msg.callbacks();
+            auto cd = msg.content_description();
+            auto payload = std::make_unique<int>(msg.release<int>());
+            return Message{msg.sequence_number(), std::move(payload), cd, callbacks};
+        }
+    };
+}
+
+}  // namespace
+
+TEST_F(StreamingMessage, CopyAndMoveUseTheirOwnCallbacks) {
+    int copies = 0;
+    int moves = 0;
+    Message m{
+        7,
+        std::make_unique<int>(42),
+        ContentDescription{},
+        counting_callbacks(copies, moves)
+    };
+    auto res = br->reserve_or_fail(0, MemoryType::HOST);
+
+    auto copied = m.copy(res);
+    EXPECT_EQ(copies, 1);
+    EXPECT_EQ(moves, 0);
+    EXPECT_EQ(copied.get<int>(), 42);
+
+    auto moved = m.move(res);
+    EXPECT_EQ(copies, 1);
+    EXPECT_EQ(moves, 1);
+    EXPECT_TRUE(m.empty());
+    EXPECT_EQ(moved.get<int>(), 42);
+}
+
+TEST_F(StreamingMessage, MoveFallsBackToCopy) {
+    int copies = 0;
+    int moves = 0;
+    Message m{
+        7,
+        std::make_unique<int>(42),
+        ContentDescription{},
+        counting_callbacks(copies, moves).copy
+    };
+    auto res = br->reserve_or_fail(0, MemoryType::HOST);
+
+    auto moved = m.move(res);
+    EXPECT_EQ(copies, 1);
+    EXPECT_EQ(moves, 0);
+    EXPECT_TRUE(m.empty());  // Reset even though the copy left it intact.
+    EXPECT_EQ(moved.get<int>(), 42);
+}
+
+TEST_F(StreamingMessage, AThrowingMoveStillResets) {
+    // The callback throws before touching the payload, and the message is reset anyway.
+    Message m{
+        0,
+        std::make_unique<int>(42),
+        ContentDescription{},
+        Message::Callbacks{
+            .copy = nullptr, .move = [](Message&&, MemoryReservation&) -> Message {
+                throw std::runtime_error("move failed");
+            }
+        }
+    };
+    auto res = br->reserve_or_fail(0, MemoryType::HOST);
+    EXPECT_THROW(std::ignore = m.move(res), std::runtime_error);
+    EXPECT_TRUE(m.empty());
+}
+
+TEST_F(StreamingMessage, MoveWithoutCallbacks) {
+    Message m{0, std::make_unique<int>(42), ContentDescription{}};
+    auto res = br->reserve_or_fail(0, MemoryType::HOST);
+    EXPECT_THROW(std::ignore = m.move(res), std::invalid_argument);
+    EXPECT_FALSE(m.empty());  // Untouched when neither callback exists.
+}

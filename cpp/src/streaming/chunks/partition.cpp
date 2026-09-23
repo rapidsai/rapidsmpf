@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -31,15 +31,30 @@ Message to_message(
         sequence_number,
         std::move(chunk),
         cd,
-        [](Message const& msg, MemoryReservation& reservation) -> Message {
-            auto const& self = msg.get<PartitionMapChunk>();
-            std::unordered_map<shuffler::PartID, PackedData> pd;
-            for (auto const& [pid, packed_data] : self.data) {
-                pd.emplace(pid, packed_data.copy(reservation));
+        Message::Callbacks{
+            .copy = [](Message const& msg, MemoryReservation& reservation) -> Message {
+                auto const& self = msg.get<PartitionMapChunk>();
+                std::unordered_map<shuffler::PartID, PackedData> pd;
+                for (auto const& [pid, packed_data] : self.data) {
+                    pd.emplace(pid, packed_data.copy(reservation));
+                }
+                auto chunk = std::make_unique<PartitionMapChunk>(std::move(pd));
+                auto cd = get_content_description(*chunk);
+                return Message{
+                    msg.sequence_number(), std::move(chunk), cd, msg.callbacks()
+                };
+            },
+            .move = [](Message&& msg, MemoryReservation& reservation) -> Message {
+                auto callbacks = msg.callbacks();
+                auto chunk =
+                    std::make_unique<PartitionMapChunk>(msg.release<PartitionMapChunk>());
+                for (auto& [_, packed_data] : chunk->data) {
+                    packed_data.data =
+                        reservation.br()->move(std::move(packed_data.data), reservation);
+                }
+                auto cd = get_content_description(*chunk);
+                return Message{msg.sequence_number(), std::move(chunk), cd, callbacks};
             }
-            auto chunk = std::make_unique<PartitionMapChunk>(std::move(pd));
-            auto cd = get_content_description(*chunk);
-            return Message{msg.sequence_number(), std::move(chunk), cd, msg.copy_cb()};
         }
     };
 }
@@ -52,15 +67,31 @@ Message to_message(
         sequence_number,
         std::move(chunk),
         cd,
-        [](Message const& msg, MemoryReservation& reservation) -> Message {
-            auto const& self = msg.get<PartitionVectorChunk>();
-            std::vector<PackedData> pd;
-            for (auto const& packed_data : self.data) {
-                pd.emplace_back(packed_data.copy(reservation));
+        Message::Callbacks{
+            .copy = [](Message const& msg, MemoryReservation& reservation) -> Message {
+                auto const& self = msg.get<PartitionVectorChunk>();
+                std::vector<PackedData> pd;
+                for (auto const& packed_data : self.data) {
+                    pd.emplace_back(packed_data.copy(reservation));
+                }
+                auto chunk = std::make_unique<PartitionVectorChunk>(std::move(pd));
+                auto cd = get_content_description(*chunk);
+                return Message{
+                    msg.sequence_number(), std::move(chunk), cd, msg.callbacks()
+                };
+            },
+            .move = [](Message&& msg, MemoryReservation& reservation) -> Message {
+                auto callbacks = msg.callbacks();
+                auto chunk = std::make_unique<PartitionVectorChunk>(
+                    msg.release<PartitionVectorChunk>()
+                );
+                for (auto& packed_data : chunk->data) {
+                    packed_data.data =
+                        reservation.br()->move(std::move(packed_data.data), reservation);
+                }
+                auto cd = get_content_description(*chunk);
+                return Message{msg.sequence_number(), std::move(chunk), cd, callbacks};
             }
-            auto chunk = std::make_unique<PartitionVectorChunk>(std::move(pd));
-            auto cd = get_content_description(*chunk);
-            return Message{msg.sequence_number(), std::move(chunk), cd, msg.copy_cb()};
         }
     };
 }

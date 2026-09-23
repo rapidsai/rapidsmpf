@@ -19,6 +19,7 @@ import xml.etree.ElementTree as ET
 from enum import IntEnum, IntFlag
 from typing import Any
 
+import breathe
 from packaging.version import Version
 from sphinx.ext.autodoc import ClassDocumenter
 from sphinx.ext.intersphinx import (
@@ -78,6 +79,12 @@ def clean_doxygen_xml(path: str) -> None:
         "rapidsmpf::safe_cast": "To",
     }
 
+    # Breathe 5 renders `constexpr` from the member's attribute and strips it from the
+    # type, but misses a type that is only `constexpr`, which is what Doxygen 1.18 gives
+    # a constexpr constructor, so it renders it twice. Earlier Breathe renders it from
+    # the type alone.
+    strip_constexpr_type = Version(breathe.__version__) >= Version("5")
+
     for filename in glob.glob(os.path.join(path, "*.xml")):
         tree = ET.parse(filename)
         changed = False
@@ -112,6 +119,14 @@ def clean_doxygen_xml(path: str) -> None:
                     section.remove(member)
                     changed = True
                     continue
+
+                if (
+                    strip_constexpr_type
+                    and type_text.strip() == "constexpr"
+                    and member.get("constexpr") == "yes"
+                ):
+                    type_node.clear()
+                    changed = True
 
                 definition = member.find("definition")
                 if type_text.startswith("requires ") and definition is not None:
