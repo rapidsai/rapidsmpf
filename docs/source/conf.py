@@ -68,6 +68,10 @@ breathe_default_project = "librapidsmpf"
 def clean_doxygen_xml(path: str) -> None:
     # Doxygen 1.9.1 misparses concepts and requires clauses in its XML output.
     return_types = {
+        "rapidsmpf::BufferResource::try_reserve": "std::optional<MemoryReservation>",
+        "rapidsmpf::BufferResource::try_reserve_or_spill": (
+            "std::optional<MemoryReservation>"
+        ),
         "rapidsmpf::BufferResource::reserve_or_fail": "MemoryReservation",
         "rapidsmpf::ContentDescription::ContentDescription": "",
         "rapidsmpf::owner_equal": "bool",

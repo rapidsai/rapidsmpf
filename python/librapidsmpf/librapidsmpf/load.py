@@ -1,5 +1,5 @@
 # noqa: D100
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 from __future__ import annotations
@@ -43,10 +43,12 @@ def load_library() -> list:
     try:
         # these libraries must be loaded before librapidsmpf because
         # librapidsmpf references their symbols
+        import libkvikio
         import librmm
         import libucxx
         import rapids_logger
 
+        libkvikio.load_library()
         librmm.load_library()
         rapids_logger.load_library()
         libucxx.load_library()

@@ -13,6 +13,7 @@ cdef extern from "<rapidsmpf/memory/buffer.hpp>" namespace "rapidsmpf" nogil:
         DEVICE
         PINNED_HOST
         HOST
+        DISK
 
     cdef cppclass cpp_Buffer "rapidsmpf::Buffer":
         size_t size

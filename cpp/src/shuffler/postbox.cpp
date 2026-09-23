@@ -33,6 +33,38 @@ std::vector<Chunk> ChunksToSend::extract_ready() {
     return result;
 }
 
+std::vector<Chunk> ChunksToSend::extract_and_restore(
+    BufferResource* br, std::span<MemoryType const> memory_types
+) {
+    std::lock_guard lock(mutex_);
+    std::vector<Chunk> result;
+    for (auto&& chunk : chunks_) {
+        if (!chunk->is_ready()) {
+            break;
+        }
+        auto const restore = chunk->is_on_disk();
+        if (restore) {
+            auto reservation = br->try_reserve_or_spill(chunk->data_size(), memory_types);
+            RAPIDSMPF_EXPECTS(
+                reservation.has_value(),
+                "failed to reserve addressable memory for an outgoing disk-backed chunk",
+                std::runtime_error
+            );
+            chunk->set_data_buffer(br->move(chunk->release_data_buffer(), *reservation));
+        }
+        auto c = std::move(chunk);
+        result.emplace_back(std::move(*c));
+        if (restore) {
+            // break after the first disk-backed chunk is restored to addressable memory
+            // because restoring is slow and introduce memory pressure for addressable
+            // memory.
+            break;
+        }
+    }
+    std::erase(chunks_, nullptr);
+    return result;
+}
+
 bool ChunksToSend::empty() const {
     std::lock_guard lock(mutex_);
     return chunks_.empty();
@@ -70,27 +102,38 @@ bool ReceivedChunks::empty() const {
     return pigeonhole_.empty();
 }
 
-std::size_t ReceivedChunks::spill(BufferResource* br, std::size_t amount) {
+std::size_t ReceivedChunks::spill(
+    BufferResource* br,
+    std::size_t amount,
+    std::span<MemoryType const> spillable_memory_types
+) {
     RAPIDSMPF_NVTX_FUNC_RANGE(amount);
     std::lock_guard lock(mutex_);
     // TODO: use a clever strategy to decided which chunks to spill.
     std::size_t total_spilled{0};
-    for (auto& [_, chunks] : pigeonhole_) {
-        for (auto& chunk : chunks) {
-            auto const size = chunk.data_size();
-            if (size == 0 || !chunk.is_data_buffer_set()
-                || chunk.data_memory_type() != MemoryType::DEVICE)
-            {
-                continue;
+    if (amount > 0) {
+        for (auto& [_, chunks] : pigeonhole_) {
+            for (auto& chunk : chunks) {
+                if (chunk.data_size() == 0 || !chunk.is_data_buffer_set()
+                    || chunk.data_memory_type() != MemoryType::DEVICE)
+                {
+                    continue;
+                }
+                auto const size = chunk.data_size();
+                auto reservation = br->try_reserve(size, spillable_memory_types);
+                if (!reservation.has_value()) {
+                    continue;
+                }
+                chunk.set_data_buffer(
+                    br->move(chunk.release_data_buffer(), *reservation)
+                );
+                if ((total_spilled += size) >= amount) {
+                    break;
+                }
             }
-            auto reservation = br->reserve_or_fail(size, SPILL_TARGET_MEMORY_TYPES);
-            chunk.set_data_buffer(br->move(chunk.release_data_buffer(), reservation));
-            if ((total_spilled += size) >= amount) {
+            if (total_spilled >= amount) {
                 break;
             }
-        }
-        if (total_spilled >= amount) {
-            break;
         }
     }
     RAPIDSMPF_NVTX_MARKER("ReceivedChunks::spill::total_spilled", total_spilled);

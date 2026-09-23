@@ -37,6 +37,7 @@ export SITE_PACKAGES
 ./ci/build_wheel.sh "${package_name}" "${package_dir}"
 
 python -m auditwheel repair \
+    --exclude libkvikio.so \
     --exclude libnvidia-ml.so.1 \
     --exclude librapids_logger.so \
     --exclude librmm.so \
