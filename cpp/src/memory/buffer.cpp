@@ -203,12 +203,7 @@ void buffer_copy(
     if (dst_is_disk) {
         auto const& disk_dst = *dst.get_storage<Buffer::DiskBufferT>();
         auto const transferred = disk_dst.disk_resource()->write(
-            disk_dst.path(),
-            src.data() + src_offset,
-            size,
-            src.mem_type(),
-            dst.stream(),
-            dst_offset
+            disk_dst.path(), src.data() + src_offset, size, dst.stream(), dst_offset
         );
         RAPIDSMPF_EXPECTS(
             transferred == size,
@@ -229,12 +224,7 @@ void buffer_copy(
 
         dst.write_access([&](std::byte* dst_data, cuda::stream_ref stream) {
             auto const transferred = disk_src.disk_resource()->read(
-                disk_src.path(),
-                dst_data + dst_offset,
-                size,
-                dst.mem_type(),
-                stream,
-                src_offset
+                disk_src.path(), dst_data + dst_offset, size, stream, src_offset
             );
             RAPIDSMPF_EXPECTS(
                 transferred == size,

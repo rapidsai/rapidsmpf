@@ -5,14 +5,12 @@
 
 
 #include <cstdint>
-#include <filesystem>
 #include <limits>
 #include <span>
 #include <sstream>
 #include <vector>
 
 #include <gtest/gtest.h>
-#include <unistd.h>
 
 #include <cuda/stream>
 
@@ -929,15 +927,7 @@ TEST(RmmResourceAdaptor, EqualityAcrossCopiesAndAccessPaths) {
 // RmmResourceAdaptor and used by the memory recorder.
 namespace {
 
-std::filesystem::path disk_test_dir() {
-    auto const base = std::filesystem::temp_directory_path()
-                      / ("rapidsmpf-br-disk-" + std::to_string(::getpid()));
-    std::error_code ec;
-    std::filesystem::create_directories(base, ec);
-    return base;
-}
-
-std::shared_ptr<BufferResource> make_br_with_disk() {
+std::shared_ptr<BufferResource> make_br_with_disk(TempDir const& disk_dir) {
     return BufferResource::create(
         rmm::mr::get_current_device_resource_ref(),
         PinnedMemoryDisabled,
@@ -945,7 +935,7 @@ std::shared_ptr<BufferResource> make_br_with_disk() {
         std::nullopt,
         std::make_shared<StreamPool>(4),
         Statistics::disabled(),
-        disk_test_dir()
+        disk_dir.path()
     );
 }
 
@@ -971,7 +961,8 @@ TEST(BufferResourceDisk, ReserveDiskWithoutResourceThrows) {
 }
 
 TEST(BufferResourceDisk, ReserveDiskIsUnlimited) {
-    auto br = make_br_with_disk();
+    TempDir disk_dir;
+    auto br = make_br_with_disk(disk_dir);
     EXPECT_EQ(
         br->memory_available(MemoryType::DISK), std::numeric_limits<std::int64_t>::max()
     );
@@ -989,7 +980,8 @@ TEST(BufferResourceDisk, ReserveDiskIsUnlimited) {
 }
 
 TEST(BufferResourceDisk, MoveThroughDiskReservation) {
-    auto br = make_br_with_disk();
+    TempDir disk_dir;
+    auto br = make_br_with_disk(disk_dir);
     auto stream = cuda::stream_ref{cudaStreamLegacy};
     auto host_buf = br->make_buffer(stream, br->reserve_or_fail(256, MemoryType::HOST));
     auto const expected = fill_pattern(*host_buf, 256);
@@ -1010,7 +1002,8 @@ TEST(BufferResourceDisk, MoveThroughDiskReservation) {
 }
 
 TEST(BufferResourceDisk, BufferCopyRejectsDiskToDisk) {
-    auto br = make_br_with_disk();
+    TempDir disk_dir;
+    auto br = make_br_with_disk(disk_dir);
     auto stream = cuda::stream_ref{cudaStreamLegacy};
     auto disk_a = br->make_buffer(stream, br->reserve_or_fail(64, MemoryType::DISK));
     auto disk_b = br->make_buffer(stream, br->reserve_or_fail(64, MemoryType::DISK));
@@ -1057,10 +1050,10 @@ class BufferResourceDiskCopyTest : public ::testing::TestWithParam<MemoryType> {
             rmm::mr::get_current_device_resource_ref(),
             std::move(pinned_pool_properties),
             {},
-            std::chrono::milliseconds{1},
+            std::nullopt,
             std::make_shared<StreamPool>(16),
             Statistics::disabled(),
-            disk_test_dir()
+            disk_dir_.path()
         );
     }
 
@@ -1084,6 +1077,7 @@ class BufferResourceDiskCopyTest : public ::testing::TestWithParam<MemoryType> {
     }
 
     cuda::stream_ref stream_{cudaStreamLegacy};
+    TempDir disk_dir_;
     std::shared_ptr<BufferResource> br_;
 };
 

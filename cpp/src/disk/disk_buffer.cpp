@@ -35,8 +35,7 @@ std::vector<std::uint8_t> DiskBuffer::copy_to_uint8_vector() const {
     auto const size = file_size();
     std::vector<std::uint8_t> ret(size);
     if (size > 0) {
-        auto const transferred =
-            disk_->read(path_, ret.data(), size, MemoryType::HOST, stream_);
+        auto const transferred = disk_->read(path_, ret.data(), size, stream_);
         RAPIDSMPF_EXPECTS(
             transferred == size,
             "failed to read the complete DiskBuffer backing file",

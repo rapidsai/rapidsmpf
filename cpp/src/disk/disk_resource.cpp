@@ -84,7 +84,6 @@ std::size_t DiskResource::write(
     std::filesystem::path const& path,
     void const* data,
     std::size_t size,
-    [[maybe_unused]] MemoryType mem_type,
     cuda::stream_ref stream,
     std::ptrdiff_t file_offset
 ) const {
@@ -111,7 +110,6 @@ std::size_t DiskResource::read(
     std::filesystem::path const& path,
     void* data,
     std::size_t size,
-    [[maybe_unused]] MemoryType mem_type,
     cuda::stream_ref stream,
     std::ptrdiff_t file_offset
 ) const {

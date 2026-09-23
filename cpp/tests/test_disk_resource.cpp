@@ -25,7 +25,6 @@
 #include <rapidsmpf/disk/disk_buffer.hpp>
 #include <rapidsmpf/disk/disk_resource.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
-#include <rapidsmpf/memory/memory_type.hpp>
 
 #include "environment.hpp"
 #include "utils.hpp"
@@ -103,14 +102,12 @@ TEST_F(DiskResourceTest, RoundTrip) {
     auto const pattern = make_pattern(64 * 1024);
 
     EXPECT_EQ(
-        disk_->write(path, pattern.data(), pattern.size(), MemoryType::HOST, stream_),
-        pattern.size()
+        disk_->write(path, pattern.data(), pattern.size(), stream_), pattern.size()
     );
 
     std::vector<std::byte> destination(pattern.size());
     EXPECT_EQ(
-        disk_->read(path, destination.data(), pattern.size(), MemoryType::HOST, stream_),
-        pattern.size()
+        disk_->read(path, destination.data(), pattern.size(), stream_), pattern.size()
     );
 
     EXPECT_EQ(destination, pattern);
@@ -128,12 +125,7 @@ TEST_F(DiskResourceTest, UnalignedOffsetRoundTrip) {
 
     EXPECT_EQ(
         disk_->write(
-            path,
-            source.data() + ptr_offset,
-            pattern.size(),
-            MemoryType::HOST,
-            stream_,
-            file_offset
+            path, source.data() + ptr_offset, pattern.size(), stream_, file_offset
         ),
         pattern.size()
     );
@@ -144,12 +136,7 @@ TEST_F(DiskResourceTest, UnalignedOffsetRoundTrip) {
     std::vector<std::byte> destination(pattern.size() + ptr_offset);
     EXPECT_EQ(
         disk_->read(
-            path,
-            destination.data() + ptr_offset,
-            pattern.size(),
-            MemoryType::HOST,
-            stream_,
-            file_offset
+            path, destination.data() + ptr_offset, pattern.size(), stream_, file_offset
         ),
         pattern.size()
     );
@@ -171,14 +158,9 @@ TEST_F(DiskResourceTest, SequentialOffsetWritesPreserveExistingBytes) {
     auto const second = make_pattern(4 * 1024);
     auto const second_offset = std::ptrdiff_t{12 * 1024};
 
+    EXPECT_EQ(disk_->write(path, first.data(), first.size(), stream_), first.size());
     EXPECT_EQ(
-        disk_->write(path, first.data(), first.size(), MemoryType::HOST, stream_),
-        first.size()
-    );
-    EXPECT_EQ(
-        disk_->write(
-            path, second.data(), second.size(), MemoryType::HOST, stream_, second_offset
-        ),
+        disk_->write(path, second.data(), second.size(), stream_, second_offset),
         second.size()
     );
 
@@ -193,8 +175,7 @@ TEST_F(DiskResourceTest, FlushDoesNotThrow) {
     auto const path = test_path("flush");
     auto const pattern = make_pattern(4096);
     EXPECT_EQ(
-        disk_->write(path, pattern.data(), pattern.size(), MemoryType::HOST, stream_),
-        pattern.size()
+        disk_->write(path, pattern.data(), pattern.size(), stream_), pattern.size()
     );
     EXPECT_NO_THROW(disk_->flush(path));
     ASSERT_TRUE(std::filesystem::remove(path));
@@ -339,9 +320,7 @@ TEST_F(DiskResourceTest, DiskBufferReportsFileSize) {
     EXPECT_TRUE(disk_buffer.copy_to_uint8_vector().empty());
 
     EXPECT_EQ(
-        disk_->write(
-            disk_buffer.path(), pattern.data(), pattern.size(), MemoryType::HOST, stream_
-        ),
+        disk_->write(disk_buffer.path(), pattern.data(), pattern.size(), stream_),
         pattern.size()
     );
 
