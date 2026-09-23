@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cstdlib>
 #include <sstream>
 
 #include <gmock/gmock.h>
@@ -341,6 +342,13 @@ TEST_F(UtilsTest, ParseMemoryTypeFromStream) {
         EXPECT_FALSE(ss.fail());
         EXPECT_EQ(v, MemoryType::HOST);
     }
+    {
+        std::stringstream ss("disk");
+        MemoryType v{};
+        ss >> v;
+        EXPECT_FALSE(ss.fail());
+        EXPECT_EQ(v, MemoryType::DISK);
+    }
 }
 
 TEST_F(UtilsTest, ParseMemoryTypeRejectsInvalidToken) {
@@ -365,6 +373,7 @@ TEST_F(UtilsTest, ParseStringMemoryType) {
     EXPECT_EQ(parse_string<MemoryType>("pinned"), MemoryType::PINNED_HOST);
     EXPECT_EQ(parse_string<MemoryType>("pinned-host"), MemoryType::PINNED_HOST);
     EXPECT_EQ(parse_string<MemoryType>("HOST"), MemoryType::HOST);
+    EXPECT_EQ(parse_string<MemoryType>("DISK"), MemoryType::DISK);
     EXPECT_THROW(parse_string<MemoryType>("gpu"), std::invalid_argument);
     EXPECT_THROW(parse_string<MemoryType>(""), std::invalid_argument);
     EXPECT_THROW(parse_string<MemoryType>("   "), std::invalid_argument);
@@ -418,4 +427,24 @@ TEST_F(UtilsTest, ParseStringListMemoryTypes) {
         },
         std::invalid_argument
     );
+}
+
+TEST_F(UtilsTest, FromEnvVar) {
+    using ::testing::ElementsAre;
+
+    auto const defaults = std::vector{1, 2};
+
+    unsetenv("RAPIDSMPF_TEST_VALUES");
+    EXPECT_EQ(from_env_var("RAPIDSMPF_TEST_VALUES", defaults), defaults);
+
+    setenv("RAPIDSMPF_TEST_VALUES", "3, 4", 1);
+    EXPECT_THAT(from_env_var("RAPIDSMPF_TEST_VALUES", defaults), ElementsAre(3, 4));
+
+    setenv("RAPIDSMPF_TEST_VALUES", "", 1);
+    EXPECT_THAT(from_env_var("RAPIDSMPF_TEST_VALUES", defaults), ElementsAre());
+
+    setenv("RAPIDSMPF_TEST_VALUES", "3, invalid", 1);
+    EXPECT_THROW(from_env_var("RAPIDSMPF_TEST_VALUES", defaults), std::invalid_argument);
+
+    unsetenv("RAPIDSMPF_TEST_VALUES");
 }

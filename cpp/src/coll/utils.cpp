@@ -6,6 +6,9 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <functional>
+#include <iterator>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <vector>
@@ -126,7 +129,9 @@ std::unique_ptr<std::vector<std::uint8_t>> Chunk::serialize() const {
 }
 
 std::unique_ptr<Chunk> Chunk::deserialize(
-    std::vector<std::uint8_t>& data, BufferResource* br
+    std::vector<std::uint8_t>& data,
+    BufferResource* br,
+    std::span<MemoryType const> memory_types
 ) {
     ChunkID id;
     std::uint64_t data_size;
@@ -143,13 +148,17 @@ std::unique_ptr<Chunk> Chunk::deserialize(
         data.data() + sizeof(ChunkID) + sizeof(data_size),
         metadata->size()
     );
+    auto reservation = br->try_reserve_or_spill(data_size, memory_types);
+    RAPIDSMPF_EXPECTS(
+        reservation.has_value(),
+        "failed to reserve addressable memory for an incoming allgather chunk",
+        std::runtime_error
+    );
     return std::unique_ptr<Chunk>(new Chunk(
         id,
         Chunk::INVALID_RANK,
         std::move(metadata),
-        br->make_buffer(
-            br->stream_pool()->get_stream(), br->reserve_or_fail(data_size, MEMORY_TYPES)
-        )
+        br->make_buffer(br->stream_pool()->get_stream(), std::move(*reservation))
     ));
 }
 
@@ -193,6 +202,103 @@ std::vector<std::unique_ptr<Chunk>> PostBox::extract_ready() {
     return result;
 }
 
+std::vector<std::unique_ptr<Chunk>> PostBox::extract_and_restore(
+    BufferResource* br, std::span<MemoryType const> memory_types
+) {
+    std::vector<std::unique_ptr<Chunk>> result;
+    std::vector<std::unique_ptr<Chunk>> disk_chunks;
+    std::size_t total_disk_size{0};
+    {
+        std::lock_guard lock(mutex_);
+        for (auto&& chunk : chunks_) {
+            if (!chunk->is_ready()) {
+                continue;
+            }
+            if (chunk->memory_type() == MemoryType::DISK) {
+                auto const size = safe_cast<std::size_t>(chunk->data_size());
+                total_disk_size =
+                    size > std::numeric_limits<std::size_t>::max() - total_disk_size
+                        ? std::numeric_limits<std::size_t>::max()
+                        : total_disk_size + size;
+                disk_chunks.emplace_back(std::move(chunk));
+            } else {
+                result.emplace_back(std::move(chunk));
+            }
+        }
+        std::erase(chunks_, nullptr);
+    }
+
+    if (disk_chunks.empty()) {
+        return result;
+    }
+
+    std::ranges::sort(disk_chunks, std::ranges::less{}, [](auto const& chunk) {
+        return chunk->data_size();
+    });
+
+    // The availability values are advisory. The subsequent reservation is the
+    // authority because another thread may reserve memory after this snapshot.
+    auto const available = br->memory_available_for_reservation();
+    std::ptrdiff_t restore_count{0};
+    auto const smallest_size = safe_cast<std::size_t>(disk_chunks.front()->data_size());
+    auto const memory_type = std::ranges::find_if(memory_types, [&](auto const mem_type) {
+        auto const value = available[static_cast<std::size_t>(mem_type)];
+        return value >= 0 && safe_cast<std::size_t>(value) >= smallest_size;
+    });
+
+    // Reserve the full batch in the first tier that can make progress, then restore the
+    // smallest disk chunks that fit after releasing any overbooking.
+    if (memory_type != memory_types.end()) {
+        auto const reservation_size = std::min(
+            total_disk_size,
+            static_cast<std::size_t>(std::numeric_limits<std::int64_t>::max())
+        );
+        auto [reservation, overbooking] =
+            br->reserve(*memory_type, reservation_size, AllowOverbooking::YES);
+
+        // Keep only the portion of the full-batch reservation that is actually
+        // available.
+        br->release(reservation, std::min(overbooking, reservation.size()));
+
+        for (auto& chunk : disk_chunks) {
+            if (reservation.size() < safe_cast<std::size_t>(chunk->data_size())) {
+                break;
+            }
+            chunk->attach_data_buffer(
+                br->move(chunk->release_data_buffer(), reservation)
+            );
+            result.emplace_back(std::move(chunk));
+            ++restore_count;
+        }
+    }
+
+    // No tier could fit the smallest chunk, or the bulk reservation lost a race and
+    // was trimmed below its size. Ask the spill manager to make enough space for one
+    // chunk so progress is still guaranteed whenever any configured tier can satisfy it.
+    if (restore_count == 0) {
+        auto reservation =
+            br->try_reserve_or_spill(disk_chunks.front()->data_size(), memory_types);
+        if (!reservation.has_value()) {
+            insert(std::move(disk_chunks));
+            RAPIDSMPF_FAIL(
+                "failed to reserve addressable memory for an outgoing disk-backed "
+                "allgather chunk",
+                std::runtime_error
+            );
+        }
+        auto& chunk = disk_chunks.front();
+        chunk->attach_data_buffer(br->move(chunk->release_data_buffer(), *reservation));
+        result.emplace_back(std::move(chunk));
+        restore_count = 1;
+    }
+    // erase restored chunk indices
+    disk_chunks.erase(disk_chunks.begin(), std::next(disk_chunks.begin(), restore_count));
+    if (!disk_chunks.empty()) {
+        insert(std::move(disk_chunks));
+    }
+    return result;
+}
+
 std::vector<std::unique_ptr<Chunk>> PostBox::extract() {
     std::lock_guard lock(mutex_);
     return std::exchange(chunks_, {});
@@ -208,8 +314,15 @@ bool PostBox::empty() const noexcept {
     return chunks_.empty();
 }
 
-std::size_t PostBox::spill(BufferResource* br, std::size_t amount) {
+std::size_t PostBox::spill(
+    BufferResource* br,
+    std::size_t amount,
+    std::span<MemoryType const> spillable_memory_types
+) {
     std::lock_guard lock(mutex_);
+    if (amount == 0 || spillable_memory_types.empty()) {
+        return 0;
+    }
     std::vector<Chunk*> spillable_chunks;
     std::size_t max_spillable{0};
     std::size_t total_spilled{0};
@@ -220,9 +333,11 @@ std::size_t PostBox::spill(BufferResource* br, std::size_t amount) {
         }
     }
     auto spill_chunk = [&](Chunk* chunk) -> std::size_t {
-        auto reservation =
-            br->reserve_or_fail(chunk->data_size(), SPILL_TARGET_MEMORY_TYPES);
-        chunk->attach_data_buffer(br->move(chunk->release_data_buffer(), reservation));
+        auto reservation = br->try_reserve(chunk->data_size(), spillable_memory_types);
+        if (!reservation.has_value()) {
+            return 0;
+        }
+        chunk->attach_data_buffer(br->move(chunk->release_data_buffer(), *reservation));
         return chunk->data_size();
     };
     if (max_spillable < amount) {
@@ -244,12 +359,20 @@ std::size_t PostBox::spill(BufferResource* br, std::size_t amount) {
                 return chunk->data_size();
             }
         );
-        auto chunk = pos == spillable_chunks.end() ? spillable_chunks.back() : *pos;
+
+        Chunk* chunk;
+        if (pos == spillable_chunks.end()) {
+            // No single chunk can satisfy remaining amount, so spill largest chunk.
+            chunk = spillable_chunks.back();
+            spillable_chunks.pop_back();
+        } else {
+            chunk = *pos;
+            spillable_chunks.erase(pos);
+        }
         total_spilled += spill_chunk(chunk);
         if (total_spilled >= amount) {
             break;
         }
-        spillable_chunks.pop_back();
     }
     return total_spilled;
 }

@@ -554,6 +554,20 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
     );
 
     /**
+     * @brief Record byte count and absolute wall-clock duration for a memory copy.
+     *
+     * Use this overload for blocking copies that are not CUDA stream ordered.
+     *
+     * @param src Source memory type.
+     * @param dst Destination memory type.
+     * @param nbytes Number of bytes copied.
+     * @param duration Absolute wall-clock duration of the copy.
+     */
+    void record_copy(
+        MemoryType src, MemoryType dst, std::size_t nbytes, Duration duration
+    );
+
+    /**
      * @brief Record size and wall-clock duration for a buffer allocation.
      *
      * Records three statistics entries for `"alloc-{memtype}"`:
