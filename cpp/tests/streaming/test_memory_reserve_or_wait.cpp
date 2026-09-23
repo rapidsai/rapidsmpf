@@ -63,6 +63,17 @@ class StreamingMemoryReserveOrWait
         return {.br = std::move(br_with_stats), .stats = std::move(stats)};
     }
 
+    // Buffer resource with no periodic spill thread. The admission loop is then the
+    // only thing that could spill, which is what the contract forbids.
+    std::shared_ptr<BufferResource> make_br_without_periodic_spill(std::int64_t limit) {
+        return BufferResource::create(
+            mr_cuda,
+            rapidsmpf::PinnedMemoryDisabled,
+            {{rapidsmpf::MemoryType::DEVICE, limit}},
+            /* periodic_spill_check = */ std::nullopt
+        );
+    }
+
     // Actor that reserves `size` bytes and expects a reservation of `expected` bytes.
     static Actor waiter(
         MemoryReserveOrWait& mrow,
@@ -349,23 +360,29 @@ class SpillRecorder {
     std::vector<std::size_t> amounts_;
 };
 
-TEST_P(StreamingMemoryReserveOrWait, DoesNotSpillBeforeProgressTimeout) {
+TEST_P(StreamingMemoryReserveOrWait, AdmissionLoopNeverSpills) {
     if (is_running_under_valgrind()) {
         GTEST_SKIP() << "Test runs very slow in valgrind";
     }
 
+    // No periodic spill thread, so the admission loop is the only candidate spiller.
+    auto br_no_periodic = make_br_without_periodic_spill(/* limit = */ 0);
     MemoryReserveOrWait mrow{
         // Keep the timeout far away so the test exercises ordinary admission polling.
         config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
         MemoryType::DEVICE,
         ctx->executor(),
-        ctx->br()
+        br_no_periodic
     };
 
-    // An outstanding reservation consumes all available memory. Before the fix, the
-    // ordinary admission loop calls this spill function to unblock the waiter.
-    SpillRecorder spills{br.get(), /* available = */ 10, /* spillable = */ 10};
-    auto [outstanding, _] = br->reserve(MemoryType::DEVICE, 10, AllowOverbooking::NO);
+    // An outstanding reservation consumes all available memory. Spilling would unblock
+    // the waiter, but the admission loop must not do it: that would stall the shared
+    // executor, which is what #23892 and #1164 were about.
+    SpillRecorder spills{
+        br_no_periodic.get(), /* available = */ 10, /* spillable = */ 10
+    };
+    auto [outstanding, _] =
+        br_no_periodic->reserve(MemoryType::DEVICE, 10, AllowOverbooking::NO);
     ASSERT_EQ(outstanding.size(), 10);
 
     std::vector<Actor> actors;
@@ -396,19 +413,21 @@ TEST_P(StreamingMemoryReserveOrWait, ProgressTimeoutReturnsWithoutSpilling) {
         GTEST_SKIP() << "Test runs very slow in valgrind";
     }
 
+    // No periodic spill thread, so the timeout path is the only candidate spiller.
+    auto br_no_periodic = make_br_without_periodic_spill(/* limit = */ 0);
     MemoryReserveOrWait mrow{
         // Short timeout, the waiter can only make progress via the timeout path.
         config::Options({{"memory_reserve_timeout", config::OptionValue("100ms")}}),
         MemoryType::DEVICE,
         ctx->executor(),
-        ctx->br()
+        br_no_periodic
     };
 
     // A timeout must preserve its bounded-progress contract by handing back a
     // zero-size reservation. It must not evict queued device data merely to turn
     // that timeout into an immediate full reservation.
-    SpillRecorder spills{br.get(), /* available = */ 0, /* spillable = */ 10};
-    ASSERT_EQ(get_mem_avail(), 0);
+    SpillRecorder spills{br_no_periodic.get(), /* available = */ 0, /* spillable = */ 10};
+    ASSERT_EQ(br_no_periodic->memory_available(MemoryType::DEVICE), 0);
 
     // The waiter completes via the timeout instead of hanging on its queue.
     std::vector<Actor> actors;
@@ -416,6 +435,33 @@ TEST_P(StreamingMemoryReserveOrWait, ProgressTimeoutReturnsWithoutSpilling) {
     run_actor_network(std::move(actors));
 
     EXPECT_TRUE(spills.amounts().empty());
+}
+
+TEST_P(StreamingMemoryReserveOrWait, PeriodicThreadSpillsForWaitingRequest) {
+    if (is_running_under_valgrind()) {
+        GTEST_SKIP() << "Test runs very slow in valgrind";
+    }
+
+    // The fixture's buffer resource runs the periodic spill thread, which is allowed to
+    // spill on a waiter's behalf because it is not the executor. The admission loop
+    // still never spills, see `AdmissionLoopNeverSpills`.
+    MemoryReserveOrWait mrow{
+        // So long that completing at all proves the timeout path was not what freed it.
+        config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
+        MemoryType::DEVICE,
+        ctx->executor(),
+        ctx->br()
+    };
+
+    // No memory available, but enough is spillable to satisfy the request.
+    SpillRecorder spills{br.get(), /* available = */ 0, /* spillable = */ 10};
+
+    std::vector<Actor> actors;
+    actors.push_back(waiter(mrow, 10, 0, 10));  // a full reservation, not a timeout
+    run_actor_network(std::move(actors));
+
+    EXPECT_FALSE(spills.amounts().empty())
+        << "the periodic thread should have spilled for the waiting request";
 }
 
 TEST_P(StreamingMemoryReserveOrWait, NoSpillWhenMemoryIsAvailable) {
