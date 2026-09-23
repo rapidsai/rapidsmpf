@@ -69,7 +69,7 @@ std::size_t SpillableMessages::spill(MessageId mid, BufferResource* br) const {
     }
 
     // Ensure the item still contains something to spill.
-    auto const& msg = item->message.value();
+    auto& msg = item->message.value();
     auto const old_cd = msg.content_description();
     if (!old_cd.spillable() || old_cd.content_size(MemoryType::DEVICE) == 0) {
         return 0;
@@ -77,7 +77,7 @@ std::size_t SpillableMessages::spill(MessageId mid, BufferResource* br) const {
 
     // Spill item in-place.
     auto res = br->reserve_or_fail(msg.copy_cost(), SPILL_TARGET_MEMORY_TYPES);
-    item->message = msg.copy(res);
+    item->message = msg.move(res);
     auto const new_cd = item->message.value().content_description();
     item_lock.unlock();
 
