@@ -107,33 +107,33 @@ std::size_t ReceivedChunks::spill(
     std::size_t amount,
     std::span<MemoryType const> spillable_memory_types
 ) {
+    if (amount == 0) {
+        return 0;
+    }
+
     RAPIDSMPF_NVTX_FUNC_RANGE(amount);
     std::lock_guard lock(mutex_);
     // TODO: use a clever strategy to decided which chunks to spill.
     std::size_t total_spilled{0};
-    if (amount > 0) {
-        for (auto& [_, chunks] : pigeonhole_) {
-            for (auto& chunk : chunks) {
-                if (chunk.data_size() == 0 || !chunk.is_data_buffer_set()
-                    || chunk.data_memory_type() != MemoryType::DEVICE)
-                {
-                    continue;
-                }
-                auto const size = chunk.data_size();
-                auto reservation = br->try_reserve(size, spillable_memory_types);
-                if (!reservation.has_value()) {
-                    continue;
-                }
-                chunk.set_data_buffer(
-                    br->move(chunk.release_data_buffer(), *reservation)
-                );
-                if ((total_spilled += size) >= amount) {
-                    break;
-                }
+    for (auto& [_, chunks] : pigeonhole_) {
+        for (auto& chunk : chunks) {
+            if (chunk.data_size() == 0 || !chunk.is_data_buffer_set()
+                || chunk.data_memory_type() != MemoryType::DEVICE)
+            {
+                continue;
             }
-            if (total_spilled >= amount) {
+            auto const size = chunk.data_size();
+            auto reservation = br->try_reserve(size, spillable_memory_types);
+            if (!reservation.has_value()) {
+                continue;
+            }
+            chunk.set_data_buffer(br->move(chunk.release_data_buffer(), *reservation));
+            if ((total_spilled += size) >= amount) {
                 break;
             }
+        }
+        if (total_spilled >= amount) {
+            break;
         }
     }
     RAPIDSMPF_NVTX_MARKER("ReceivedChunks::spill::total_spilled", total_spilled);

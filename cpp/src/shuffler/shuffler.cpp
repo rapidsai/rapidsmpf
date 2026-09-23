@@ -247,7 +247,9 @@ Shuffler::Shuffler(
                         auto data = br_->make_buffer(
                             br_->stream_pool()->get_stream(), std::move(*reservation)
                         );
-                        if (contains(SPILL_TARGET_MEMORY_TYPES, data->mem_type())) {
+                        if (data->mem_type() == MemoryType::PINNED_HOST
+                            || data->mem_type() == MemoryType::HOST)
+                        {
                             br_->statistics()->add_bytes_stat(
                                 "recv-into-host-memory", size
                             );
@@ -380,13 +382,9 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
             && packed_data.data->mem_type() == MemoryType::DEVICE)
         {
             auto chunk = create_chunk(pid, std::move(packed_data));
-            if (auto reservation =
-                    br_->try_reserve(chunk.data_size(), spillable_memory_types_))
-            {
-                chunk.set_data_buffer(
-                    br_->move(chunk.release_data_buffer(), *reservation)
-                );
-            }
+            auto reservation =
+                br_->reserve_or_fail(chunk.data_size(), spillable_memory_types_);
+            chunk.set_data_buffer(br_->move(chunk.release_data_buffer(), reservation));
             insert(std::move(chunk));
         } else {
             insert(create_chunk(pid, std::move(packed_data)));
