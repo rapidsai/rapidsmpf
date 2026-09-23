@@ -24,10 +24,6 @@ class BufferResource;
  *
  * Each resource atomically creates and exclusively owns its directory. The directory
  * is removed when the resource is destroyed.
- *
- * `BufferResource` owns a `std::shared_ptr<DiskResource>` when a spill
- * directory is configured; `DiskBuffer`s hold additional copies so the
- * resource outlives those buffers.
  */
 class DiskResource : public BackRefMixin<BufferResource> {
   public:

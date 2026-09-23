@@ -266,7 +266,8 @@ std::unique_ptr<Buffer> BufferResource::make_buffer(
     std::size_t size, cuda::stream_ref stream, MemoryReservation& reservation
 ) {
     auto const mem_type = reservation.mem_type_;
-    // disk buffer creation is not stream ordered, so we disable statistics for it
+    // A disk buffer is created with mkstemp, which never touches the stream, so a
+    // stream-ordered timing would measure stream backlog rather than the creation.
     StreamOrderedTiming timing{
         stream, mem_type == MemoryType::DISK ? Statistics::disabled() : statistics_
     };

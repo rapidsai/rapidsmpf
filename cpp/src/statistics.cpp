@@ -751,7 +751,10 @@ void Statistics::record_alloc(
     MemoryType mem_type, std::size_t nbytes, StreamOrderedTiming&& timing
 ) {
     if (mem_type == MemoryType::DISK) {
-        return;  // disk allocation are not stream ordered
+        // Creating a disk buffer is a host-side mkstemp, so there is no stream-ordered
+        // duration to pair with the byte count. Skip the whole record rather than
+        // registering a MemoryThroughput entry with no time.
+        return;
     }
 
     auto const& names = alloc_names(mem_type);
