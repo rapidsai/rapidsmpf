@@ -14,6 +14,9 @@ This table gives an overview of the different statistics collected.
 | `reserve-{memtype}-wait-timeout` | Waiting requests that ran out `memory_reserve_timeout`, over the requests that had to wait. A miss means memory was released in time. |
 | `reserve-{memtype}-wait-satisfied-time` | Time requests spent waiting before a reservation release satisfied them. |
 | `reserve-{memtype}-wait-timeout-time` | Time requests spent waiting before the progress timeout fired. |
+| `reserve-{memtype}-wait-spill-extended` | Waiting requests that reached `memory_reserve_timeout` with a spill in flight and so extended their deadline, over all requests that reached the timeout. A miss means nothing was spilling and the timeout stood. |
+| `reserve-{memtype}-wait-spill-rescued` | Extended requests that were admitted during the extension, over all extended requests. The memory may come from the spill or from a reservation released meanwhile. A miss means the request extended its deadline and timed out anyway. |
+| `reserve-{memtype}-wait-spill-extension-time` | Time requests spent waiting beyond `memory_reserve_timeout` for a spill to land. |
 | `reserve-{memtype}-waiting-requests` | Requests waiting concurrently. Recorded each time a request starts waiting, not sampled over time, so the maximum is exact while the mean is the queue depth seen when a request starts waiting. |
 | `reserve-{memtype}-request-bytes` | Bytes requested from `reserve_or_wait()`. |
 | `reserve-{memtype}-overbook-bytes` | Bytes by which `reserve_or_wait_or_overbook()` exceeded the memory limit after the timeout, counting only what each request added rather than the total outstanding deficit. |
