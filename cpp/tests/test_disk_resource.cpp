@@ -357,25 +357,6 @@ TEST_F(DiskResourceTest, DiskBufferReportsFileSize) {
     );
 }
 
-TEST(DiskBufferConfiguredDirectory, UsesBufferResourceDirectory) {
-    if (GlobalEnvironment->type() != TestEnvironmentType::SINGLE) {
-        GTEST_SKIP() << "Disk I/O tests run only in the single-process environment";
-    }
-
-    TempDir disk_dir;
-    auto br = BufferResource::create(
-        rmm::mr::get_current_device_resource_ref(),
-        PinnedMemoryDisabled,
-        {},
-        std::chrono::milliseconds{1},
-        std::make_shared<StreamPool>(16),
-        Statistics::disabled(),
-        disk_dir.path()
-    );
-
-    EXPECT_EQ(br->disk_resource()->directory().parent_path(), disk_dir.path());
-}
-
 TEST(DiskBufferFromOptions, UsesConfiguredDirectory) {
     if (GlobalEnvironment->type() != TestEnvironmentType::SINGLE) {
         GTEST_SKIP() << "Disk I/O tests run only in the single-process environment";
