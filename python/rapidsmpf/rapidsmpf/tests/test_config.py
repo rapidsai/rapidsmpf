@@ -493,6 +493,7 @@ def test_buffer_resource_from_options_creates_instance_with_explicit_options() -
             "statistics": "True",
             "pinned_memory": "False",
             "spill_device_limit": "1GiB",
+            "spill_host_limit": "2GiB",
             "periodic_spill_check": "5ms",
             "num_streams": "8",
         }
@@ -505,6 +506,7 @@ def test_buffer_resource_from_options_creates_instance_with_explicit_options() -
     assert br.stream_pool.get_pool_size() == 8
     mem_avail = br.memory_available(MemoryType.DEVICE)
     assert mem_avail == 1024**3
+    assert br.memory_available(MemoryType.HOST) == 2 * 1024**3
 
 
 def test_buffer_resource_from_options_uses_default_when_options_empty() -> None:
@@ -544,6 +546,32 @@ def test_buffer_resource_from_options_enables_pinned_memory_when_supported() -> 
     opts = Options({"pinned_memory": "True"})
     br = BufferResource.from_options(rmm.mr.CudaMemoryResource(), opts)
     assert br.pinned_mr is not None
+
+
+def test_buffer_resource_from_options_wires_pinned_limit() -> None:
+    if not is_pinned_memory_resources_supported():
+        pytest.skip("Pinned memory not supported on this system")
+
+    opts = Options({"pinned_memory": "True", "pinned_max_pool_size": "1MiB"})
+    br = BufferResource.from_options(rmm.mr.CudaMemoryResource(), opts)
+    assert br.memory_available(MemoryType.PINNED_HOST) == 1024**2
+
+
+def test_buffer_resource_from_options_keeps_host_limit_independent() -> None:
+    if not is_pinned_memory_resources_supported():
+        pytest.skip("Pinned memory not supported on this system")
+
+    opts = Options(
+        {
+            "pinned_memory": "True",
+            "pinned_max_pool_size": "1MiB",
+            "spill_host_limit": "4MiB",
+        }
+    )
+    br = BufferResource.from_options(rmm.mr.CudaMemoryResource(), opts)
+
+    assert br.memory_available(MemoryType.PINNED_HOST) == 1024**2
+    assert br.memory_available(MemoryType.HOST) == 4 * 1024**2
 
 
 def test_context_from_options_creates_instance_with_explicit_options() -> None:

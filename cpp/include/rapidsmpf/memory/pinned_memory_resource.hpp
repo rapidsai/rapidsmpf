@@ -77,7 +77,8 @@ struct PinnedPoolProperties {
     /// `BM_PinnedFirstAlloc_InitialPoolSize` benchmark.)
     std::size_t initial_pool_size = 0;
 
-    /// @brief Maximum size of the pool. `std::nullopt` means no limit.
+    /// @brief Maximum size of the pool. Must be greater than zero when set;
+    /// `std::nullopt` means no limit.
     std::optional<std::size_t> max_pool_size = std::nullopt;
 
     /// @brief NUMA node from which pinned memory should be allocated. Defaults to
