@@ -1,0 +1,136 @@
+/**
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+#pragma once
+
+#include <cstddef>
+#include <filesystem>
+#include <optional>
+
+#include <cuda/stream>
+
+#include <rapidsmpf/config.hpp>
+#include <rapidsmpf/memory/back_ref_mixin.hpp>
+
+namespace rapidsmpf {
+
+class BufferResource;
+
+/**
+ * @brief Disk I/O for host or device byte buffers.
+ *
+ * Uses KvikIO with CompatMode::AUTO (GDS when available, POSIX/compat otherwise).
+ *
+ * Each resource atomically creates and exclusively owns its directory. The directory
+ * is removed when the resource is destroyed.
+ */
+class DiskResource : public BackRefMixin<BufferResource> {
+  public:
+    ~DiskResource() noexcept;
+
+    DiskResource(DiskResource const&) = delete;
+    DiskResource& operator=(DiskResource const&) = delete;
+    DiskResource(DiskResource&&) = delete;
+    DiskResource& operator=(DiskResource&&) = delete;
+
+    /**
+     * @brief Directory used for file creation.
+     *
+     * @return Configured directory path.
+     */
+    [[nodiscard]] std::filesystem::path const& directory() const noexcept {
+        return dir_;
+    }
+
+    /**
+     * @brief Reserve a unique file path under `directory()`.
+     *
+     * Atomically creates an empty file using `mkstemp`.
+     *
+     * @return Path to the reserved empty file.
+     */
+    [[nodiscard]] std::filesystem::path create_unique_path() const;
+
+    /**
+     * @brief Write bytes to a file and block until the transfer completes.
+     *
+     * @param path File path.
+     * @param data Host or device pointer to the source bytes.
+     * @param size Number of bytes to write.
+     * @param stream CUDA stream associated with @p data.
+     * @param file_offset Byte offset within the file. Existing bytes outside
+     *        the written range are preserved when the file already exists.
+     *        A missing file is created.
+     * @return Number of bytes transferred. The caller must check this against
+     *         @p size.
+     */
+    [[nodiscard]] std::size_t write(
+        std::filesystem::path const& path,
+        void const* data,
+        std::size_t size,
+        cuda::stream_ref stream,
+        std::ptrdiff_t file_offset = 0
+    ) const;
+
+    /**
+     * @brief Read bytes from a file and block until the transfer completes.
+     *
+     * @param path File path.
+     * @param data Host or device pointer to the destination buffer. Must remain
+     *        valid until this call returns.
+     * @param size Number of bytes to read.
+     * @param stream CUDA stream associated with @p data.
+     * @param file_offset Byte offset within the file.
+     * @return Number of bytes transferred. The caller must check this against
+     *         @p size.
+     */
+    [[nodiscard]] std::size_t read(
+        std::filesystem::path const& path,
+        void* data,
+        std::size_t size,
+        cuda::stream_ref stream,
+        std::ptrdiff_t file_offset = 0
+    ) const;
+
+    /**
+     * @brief Durably synchronize file data to storage.
+     *
+     * Not used on the default spill path; exposed for benchmark durability cases.
+     *
+     * @param path File path.
+     */
+    void flush(std::filesystem::path const& path) const;
+
+    /**
+     * @brief Compare two disk resources.
+     *
+     * @param other Resource to compare with.
+     * @return `true` if both have the same directory and back-reference state.
+     */
+    [[nodiscard]] bool operator==(DiskResource const& other) const noexcept = default;
+
+  private:
+    explicit DiskResource(std::filesystem::path dir_prefix);
+
+    friend class BufferResource;
+
+    std::filesystem::path dir_;
+};
+
+/**
+ * @brief Spill directory from options.
+ *
+ * Disabled values (`false`, `none`, …) yield `std::nullopt`. An empty
+ * string is treated as unset and uses the default (`false`). A
+ * whitespace-only value is rejected.
+ *
+ * @param options Configuration options.
+ * @return Configured directory, if disk spilling is enabled.
+ * @throws std::invalid_argument if the option is whitespace-only.
+ */
+[[nodiscard]] std::optional<std::filesystem::path> spill_dir_from_options(
+    config::Options options
+);
+
+}  // namespace rapidsmpf

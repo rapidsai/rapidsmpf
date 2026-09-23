@@ -4,14 +4,20 @@
  */
 
 #include <limits>
+#include <optional>
 #include <stdexcept>
+#include <string>
 #include <utility>
+
+#include <unistd.h>
 
 #include <cuda/memory_resource>
 #include <cuda/stream>
 
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
+#include <rapidsmpf/disk/disk_buffer.hpp>
+#include <rapidsmpf/disk/disk_resource.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/host_buffer.hpp>
@@ -28,11 +34,13 @@ BufferResource::BufferResource(
     std::unordered_map<MemoryType, std::int64_t> memory_limits,
     std::optional<Duration> periodic_spill_check,
     std::shared_ptr<StreamPool> stream_pool,
-    std::shared_ptr<Statistics> statistics
+    std::shared_ptr<Statistics> statistics,
+    std::shared_ptr<DiskResource> disk_resource
 )
     : owning_mr_{std::move(device_mr)},
       pinned_mr_{std::move(pinned_mr)},
       host_mr_{},
+      disk_resource_{std::move(disk_resource)},
       stream_pool_{std::move(stream_pool)},
       spill_manager_{this, periodic_spill_check},
       statistics_{std::move(statistics)} {
@@ -55,7 +63,8 @@ std::shared_ptr<BufferResource> BufferResource::create(
     std::unordered_map<MemoryType, std::int64_t> memory_limits,
     std::optional<Duration> periodic_spill_check,
     std::shared_ptr<StreamPool> stream_pool,
-    std::shared_ptr<Statistics> statistics
+    std::shared_ptr<Statistics> statistics,
+    std::optional<std::filesystem::path> spill_directory
 ) {
     std::optional<PinnedMemoryResource> pinned_mr;
     if (pinned_pool_properties.has_value()) {
@@ -71,13 +80,18 @@ std::shared_ptr<BufferResource> BufferResource::create(
         pinned_mr = PinnedMemoryResource{*pinned_pool_properties};
     }
 
+    std::shared_ptr<DiskResource> disk_res;
+    if (spill_directory.has_value()) {
+        disk_res.reset(new DiskResource{*spill_directory / std::to_string(::getpid())});
+    }
     std::shared_ptr<BufferResource> br{new BufferResource{
         std::move(device_mr),
         std::move(pinned_mr),
         std::move(memory_limits),
         periodic_spill_check,
         std::move(stream_pool),
-        std::move(statistics)
+        std::move(statistics),
+        std::move(disk_res)
     }};
 
     // Install the back-reference on the owned resources *after* construction so
@@ -89,6 +103,9 @@ std::shared_ptr<BufferResource> BufferResource::create(
     auto const weak = br->weak_from_this();
     br->owning_mr_.set_backref(weak);
     br->host_mr_.set_backref(weak);
+    if (br->disk_resource_ != nullptr) {
+        br->disk_resource_->set_backref(weak);
+    }
     if (br->pinned_mr_.has_value()) {
         br->pinned_mr_->set_backref(weak);
     }
@@ -109,7 +126,8 @@ std::shared_ptr<BufferResource> BufferResource::from_options(
         std::move(memory_limits),
         periodic_spill_check_from_options(options),
         stream_pool_from_options(options),
-        std::move(statistics)
+        std::move(statistics),
+        spill_dir_from_options(options)
     );
 }
 
@@ -128,6 +146,8 @@ std::int64_t BufferResource::memory_available(MemoryType mem_type) const noexcep
         }
     case MemoryType::HOST:
         return limit;
+    case MemoryType::DISK:
+        return disk_resource_ != nullptr ? limit : 0;
     }
     return std::numeric_limits<std::int64_t>::max();
 }
@@ -176,6 +196,11 @@ std::int64_t BufferResource::memory_available_for_reservation(MemoryType mem_typ
 std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     MemoryType mem_type, std::size_t size, AllowOverbooking allow_overbooking
 ) {
+    RAPIDSMPF_EXPECTS(
+        mem_type != MemoryType::DISK || disk_resource_ != nullptr,
+        "disk memory was requested but no disk resource is available",
+        std::invalid_argument
+    );
     RAPIDSMPF_EXPECTS(
         mem_type != MemoryType::PINNED_HOST || pinned_mr_.has_value(),
         "pinned memory resource is not available",
@@ -241,7 +266,11 @@ std::unique_ptr<Buffer> BufferResource::make_buffer(
     std::size_t size, cuda::stream_ref stream, MemoryReservation& reservation
 ) {
     auto const mem_type = reservation.mem_type_;
-    StreamOrderedTiming timing{stream, statistics_};
+    // A disk buffer is created with mkstemp, which never touches the stream, so a
+    // stream-ordered timing would measure stream backlog rather than the creation.
+    StreamOrderedTiming timing{
+        stream, mem_type == MemoryType::DISK ? Statistics::disabled() : statistics_
+    };
     std::unique_ptr<Buffer> ret;
     switch (mem_type) {
     case MemoryType::HOST:
@@ -263,6 +292,11 @@ std::unique_ptr<Buffer> BufferResource::make_buffer(
             std::make_unique<rmm::device_buffer>(size, stream, device_mr()),
             MemoryType::DEVICE
         ));
+        break;
+    case MemoryType::DISK:
+        ret = std::unique_ptr<Buffer>(
+            new Buffer(std::make_unique<DiskBuffer>(disk_resource_, size, stream), stream)
+        );
         break;
     default:
         RAPIDSMPF_FAIL("MemoryType: unknown");
