@@ -316,7 +316,8 @@ class Message {
     [[nodiscard]] Message move(MemoryReservation& reservation) {
         Message ret;
         if (callbacks_.move) {
-            // The callback consumes `*this` so we make a copy.
+            // A callback may move from or reassign `msg` as a whole, which takes this
+            // callback with it, so invoke a copy that outlives such changes.
             auto cb = callbacks_.move;
             try {
                 ret = cb(std::move(*this), reservation);
