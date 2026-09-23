@@ -303,10 +303,8 @@ class Message {
     /**
      * @brief Move this message into the memory of a reservation, leaving it empty.
      *
-     * Invokes the registered `move` callback, which consumes this message, so its
-     * memory is released rather than duplicated. Falls back to the `copy` callback when
-     * no `move` callback is registered. Either way this message is reset afterwards, like
-     * `release()`.
+     * Invokes the registered `move` callback, or the `copy` callback when none is
+     * registered. Either way this message is reset afterwards, like `release()`.
      *
      * If the `move` callback throws, this message is still reset, so its payload is lost.
      *
