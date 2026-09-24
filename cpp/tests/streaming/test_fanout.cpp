@@ -35,17 +35,17 @@ std::vector<Message> make_int_inputs(int n) {
     std::vector<Message> inputs;
     inputs.reserve(n);
 
-    Message::CopyCallback copy_cb = [](Message const& msg, MemoryReservation&) {
+    Message::Callbacks callbacks{.copy = [](Message const& msg, MemoryReservation&) {
         return Message{
             msg.sequence_number(),
             std::make_unique<int>(msg.get<int>()),
             ContentDescription{},
-            msg.copy_cb()
+            msg.callbacks()
         };
-    };
+    }};
 
     for (int i = 0; i < n; ++i) {
-        inputs.emplace_back(i, std::make_unique<int>(i), ContentDescription{}, copy_cb);
+        inputs.emplace_back(i, std::make_unique<int>(i), ContentDescription{}, callbacks);
     }
     return inputs;
 }
@@ -58,7 +58,7 @@ std::vector<Message> make_buffer_inputs(int n, rapidsmpf::BufferResource& br) {
     std::vector<Message> inputs;
     inputs.reserve(n);
 
-    Message::CopyCallback copy_cb = [&](Message const& msg, MemoryReservation& res) {
+    Message::Callbacks callbacks{.copy = [&](Message const& msg, MemoryReservation& res) {
         auto stream = br.stream_pool()->get_stream();
         auto const cd = msg.content_description();
         auto buf_cpy = br.make_buffer(cd.content_size(), stream, res);
@@ -70,9 +70,9 @@ std::vector<Message> make_buffer_inputs(int n, rapidsmpf::BufferResource& br) {
             br.statistics(), *buf_cpy, msg.get<Buffer>(), cd.content_size()
         );
         return Message{
-            msg.sequence_number(), std::move(buf_cpy), std::move(new_cd), msg.copy_cb()
+            msg.sequence_number(), std::move(buf_cpy), std::move(new_cd), msg.callbacks()
         };
-    };
+    }};
     for (int i = 0; i < n; ++i) {
         std::vector<int> values(1024, 0);
         std::iota(values.begin(), values.end(), i);
@@ -91,7 +91,7 @@ std::vector<Message> make_buffer_inputs(int n, rapidsmpf::BufferResource& br) {
             std::ranges::single_view{std::pair{MemoryType::DEVICE, 1024 * sizeof(int)}},
             ContentDescription::Spillable::YES
         };
-        inputs.emplace_back(i, std::move(buffer), cd, copy_cb);
+        inputs.emplace_back(i, std::move(buffer), cd, callbacks);
     }
     return inputs;
 }
