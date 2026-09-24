@@ -50,21 +50,35 @@ Message create_int_msg(
     ContentDescription::Spillable spillable
 ) {
     auto cd = ContentDescription{{{mem_type, sizeof(int)}}, spillable};
+    // We never copy or move to device memory, we just pretend.
+    auto relocated_cd = [](Message const& msg, MemoryReservation const& reservation) {
+        return ContentDescription{
+            {{reservation.mem_type(), sizeof(int)}},
+            msg.content_description().spillable() ? ContentDescription::Spillable::YES
+                                                  : ContentDescription::Spillable::NO
+        };
+    };
     return {
         sequence_number,
         std::make_unique<int>(payload),
         cd,
-        [](Message const& msg, MemoryReservation& reservation) -> Message {
-            auto const& self = msg.get<int>();
-            // We never copy to device memory, we just pretend.
-            auto cd = ContentDescription{
-                {{reservation.mem_type(), sizeof(int)}},
-                msg.content_description().spillable() ? ContentDescription::Spillable::YES
-                                                      : ContentDescription::Spillable::NO
-            };
-            return Message{
-                msg.sequence_number(), std::make_unique<int>(self), cd, msg.copy_cb()
-            };
+        Message::Callbacks{
+            .copy = [relocated_cd](Message const& msg, MemoryReservation& reservation)
+                -> Message {
+                return Message{
+                    msg.sequence_number(),
+                    std::make_unique<int>(msg.get<int>()),
+                    relocated_cd(msg, reservation),
+                    msg.callbacks()
+                };
+            },
+            .move =
+                [relocated_cd](Message&& msg, MemoryReservation& reservation) -> Message {
+                auto cd = relocated_cd(msg, reservation);
+                auto callbacks = msg.callbacks();
+                auto payload = std::make_unique<int>(msg.release<int>());
+                return Message{msg.sequence_number(), std::move(payload), cd, callbacks};
+            }
         }
     };
 }
