@@ -242,7 +242,25 @@ Shuffler::Shuffler(
                         auto reservation =
                             br_->try_reserve_or_spill(size, reservation_memory_types_);
                         if (!reservation.has_value()) {
-                            return nullptr;
+                            // Spilling could not make room: the shuffler has nothing
+                            // device-resident left and the budget is held by other users
+                            // of the buffer resource (e.g. a streaming pipeline waiting
+                            // for this shuffle to advance). Failing here live-locks, so
+                            // overbook on the preferred memory type instead, as
+                            // rapidsmpf's streaming reservations do; the periodic spill
+                            // brings usage back under the limit afterwards.
+                            auto [overbooked, amount] = br_->reserve(
+                                reservation_memory_types_.front(),
+                                size,
+                                AllowOverbooking::YES
+                            );
+                            if (overbooked.size() < size) {
+                                return nullptr;
+                            }
+                            br_->statistics()->add_bytes_stat(
+                                "recv-overbooked-bytes", amount
+                            );
+                            reservation = std::move(overbooked);
                         }
                         auto data = br_->make_buffer(
                             br_->stream_pool()->get_stream(), std::move(*reservation)

@@ -164,9 +164,19 @@ class ReceivedChunks {
 
   private:
     // TODO: more fine-grained locking e.g. by locking each partition individually.
+    /// Whether a chunk holds device-resident data (the only kind spill() can move).
+    static bool has_device_data(Chunk const& chunk) {
+        return chunk.data_size() > 0 && chunk.is_data_buffer_set()
+               && chunk.data_memory_type() == MemoryType::DEVICE;
+    }
+
     mutable std::mutex mutex_;
     std::unordered_map<PartID, std::vector<Chunk>>
         pigeonhole_;  ///< Storage for chunks, stratified by partition ID.
+    /// Number of stored chunks with device-resident data. Lets spill() return
+    /// immediately instead of scanning every stored chunk (potentially hundreds of
+    /// thousands, all already spilled) on each of the progress loop's attempts.
+    std::size_t num_device_chunks_{0};
 };
 
 /**

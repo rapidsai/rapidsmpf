@@ -89,6 +89,9 @@ std::string ChunksToSend::str() const {
 void ReceivedChunks::insert(Chunk&& chunk) {
     auto key = chunk.part_id();
     std::lock_guard const lock(mutex_);
+    if (has_device_data(chunk)) {
+        ++num_device_chunks_;
+    }
     pigeonhole_[key].emplace_back(std::move(chunk));
 }
 
@@ -99,7 +102,13 @@ bool ReceivedChunks::is_empty(PartID pid) const {
 
 std::vector<Chunk> ReceivedChunks::extract(PartID pid) {
     std::lock_guard const lock(mutex_);
-    return extract_value(pigeonhole_, pid);
+    auto chunks = extract_value(pigeonhole_, pid);
+    for (auto const& chunk : chunks) {
+        if (has_device_data(chunk)) {
+            --num_device_chunks_;
+        }
+    }
+    return chunks;
 }
 
 bool ReceivedChunks::empty() const {
@@ -118,13 +127,14 @@ std::size_t ReceivedChunks::spill(
 
     RAPIDSMPF_NVTX_FUNC_RANGE(amount);
     std::lock_guard lock(mutex_);
+    if (num_device_chunks_ == 0) {
+        return 0;
+    }
     // TODO: use a clever strategy to decided which chunks to spill.
     std::size_t total_spilled{0};
     for (auto& [_, chunks] : pigeonhole_) {
         for (auto& chunk : chunks) {
-            if (chunk.data_size() == 0 || !chunk.is_data_buffer_set()
-                || chunk.data_memory_type() != MemoryType::DEVICE)
-            {
+            if (!has_device_data(chunk)) {
                 continue;
             }
             auto const size = chunk.data_size();
@@ -133,6 +143,7 @@ std::size_t ReceivedChunks::spill(
                 continue;
             }
             chunk.set_data_buffer(br->move(chunk.release_data_buffer(), *reservation));
+            --num_device_chunks_;
             if ((total_spilled += size) >= amount) {
                 break;
             }
