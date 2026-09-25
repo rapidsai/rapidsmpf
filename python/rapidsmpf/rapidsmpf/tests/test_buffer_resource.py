@@ -310,3 +310,35 @@ def test_reservation_split_releases_on_scope_exit(mem_type: MemoryType) -> None:
     assert child.size == 0
     assert res.size == KiB(40)
     assert br.memory_available_for_reservation(mem_type) == available + KiB(60)
+
+
+def test_from_options_forwards_disk_spill_dir(tmp_path) -> None:
+    """`disk_spill_dir` must reach the C++ BufferResource from Python.
+
+    Regression test: `BufferResource.from_options` used to call
+    `cpp_BufferResource.create` without the `spill_directory` argument, so
+    `RAPIDSMPF_DISK_SPILL_DIR` / `disk_spill_dir` silently never created a
+    `DiskResource` when the resource was built from Python.
+    """
+    from rapidsmpf.config import Options
+    from rapidsmpf.memory.buffer_resource import spill_dir_from_options
+
+    spill_root = tmp_path / "spill"
+    options = Options({"disk_spill_dir": str(spill_root)})
+    assert spill_dir_from_options(options) == str(spill_root)
+    assert spill_dir_from_options(Options({})) is None
+
+    mr = rmm.mr.CudaMemoryResource()
+    br = BufferResource.from_options(mr, options, Statistics(enable=False))
+    # DiskResource creates `<disk_spill_dir>/<pid>-XXXXXX` in its constructor.
+    assert spill_root.is_dir(), "from_options did not construct a DiskResource"
+    assert any(spill_root.iterdir())
+    del br
+
+
+def test_constructor_accepts_spill_directory(tmp_path) -> None:
+    spill_root = tmp_path / "spill"
+    mr = rmm.mr.CudaMemoryResource()
+    br = BufferResource(mr, spill_directory=str(spill_root))
+    assert spill_root.is_dir()
+    del br

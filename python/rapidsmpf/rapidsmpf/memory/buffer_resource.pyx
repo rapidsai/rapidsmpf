@@ -8,6 +8,7 @@ from libcpp cimport bool as bool_t
 from libcpp.memory cimport make_shared, shared_ptr, unique_ptr
 from libcpp.optional cimport optional
 from libcpp.pair cimport pair
+from libcpp.string cimport string
 from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
@@ -48,6 +49,7 @@ cdef extern from *:
 
 from rapidsmpf._detail.cuda_stream_ref cimport stream_ref
 from rapidsmpf._detail.exception_handling cimport ex_handler
+from rapidsmpf.memory.buffer_resource cimport path
 from rapidsmpf.memory.memory_reservation cimport MemoryReservation
 from rapidsmpf.memory.pinned_memory_resource cimport (
     PinnedMemoryResource, cpp_PinnedMemoryResource, cpp_PinnedPoolProperties,
@@ -180,6 +182,7 @@ cdef class BufferResource:
         periodic_spill_check = 1e-3,
         CudaStreamPool stream_pool = None,
         statistics = None,
+        spill_directory = None,
     ):
         cdef unordered_map[MemoryType, int64_t] _mem_limits
         if memory_limits is not None:
@@ -229,6 +232,9 @@ cdef class BufferResource:
             if pinned_pool_properties.numa_id is not None:
                 _props.numa_id = <int>pinned_pool_properties.numa_id
             cpp_pinned_pool = _props
+        cdef optional[path] cpp_spill_dir
+        if spill_directory is not None:
+            cpp_spill_dir = path(<string>(spill_directory.encode()))
         with nogil:
             # TODO: Replace this RMM pool with a cuda-python stream pool once a suitable
             # one is available with all the necessary CCCL interop.
@@ -239,6 +245,7 @@ cdef class BufferResource:
                 period,
                 make_shared[cpp_StreamPool](stream_pool.c_obj),
                 stats_handle,
+                cpp_spill_dir,
             )
         self.spill_manager = SpillManager._create(self)
 
@@ -290,6 +297,7 @@ cdef class BufferResource:
             periodic_spill_check=periodic_spill_check_from_options(options),
             stream_pool=stream_pool_from_options(options),
             statistics=statistics,
+            spill_directory=spill_dir_from_options(options),
         )
 
     def __dealloc__(self):
@@ -626,6 +634,12 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
             cpp_Options options
         ) except +ex_handler
 
+cdef extern from "<rapidsmpf/disk/disk_resource.hpp>" nogil:
+    cdef optional[path] cpp_spill_dir_from_options \
+        "rapidsmpf::spill_dir_from_options"(
+            cpp_Options options
+        ) except +ex_handler
+
 
 def device_limit_from_options(Options options not None):
     """
@@ -670,6 +684,28 @@ def periodic_spill_check_from_options(Options options not None):
     if not ret.has_value():
         return None
     return ret.value().count()
+
+
+def spill_dir_from_options(Options options not None):
+    """
+    Get the ``disk_spill_dir`` parameter from configuration options.
+
+    Parameters
+    ----------
+    options
+        Configuration options.
+
+    Returns
+    -------
+    str or None
+        The disk spill directory path, or ``None`` if disk spilling is disabled.
+    """
+    cdef optional[path] ret
+    with nogil:
+        ret = cpp_spill_dir_from_options(options._handle)
+    if not ret.has_value():
+        return None
+    return ret.value().string().decode()
 
 
 def stream_pool_from_options(Options options not None):
