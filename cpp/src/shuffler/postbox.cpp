@@ -55,15 +55,16 @@ std::vector<Chunk> ChunksToSend::extract_and_restore(
                 break;
             }
             chunk->set_data_buffer(br->move(chunk->release_data_buffer(), *reservation));
+            // The restore is an asynchronous disk->memory copy: the new buffer is not
+            // ready (is_latest_write_done() == false) yet, and UCXX::send() requires a
+            // ready buffer. Keep the chunk queued; the next progress iteration's
+            // is_ready() check returns it once the copy has completed. Restoring is
+            // also slow and adds addressable-memory pressure, so restore at most one
+            // chunk per call.
+            break;
         }
         auto c = std::move(chunk);
         result.emplace_back(std::move(*c));
-        if (restore) {
-            // break after the first disk-backed chunk is restored to addressable memory
-            // because restoring is slow and introduce memory pressure for addressable
-            // memory.
-            break;
-        }
     }
     std::erase(chunks_, nullptr);
     return result;

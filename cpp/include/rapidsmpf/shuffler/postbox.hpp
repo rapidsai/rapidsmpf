@@ -41,8 +41,10 @@ class ChunksToSend {
     /**
      * @brief Extract ready chunks and restore disk-backed data to addressable memory.
      *
-     * Extracts ready chunks in order through the first disk-backed chunk, restores that
-     * chunk, and leaves all subsequent chunks queued. If no addressable memory can be
+     * Extracts ready chunks in order up to the first disk-backed chunk, starts restoring
+     * that chunk to addressable memory, and leaves it and all subsequent chunks queued;
+     * the restored chunk is returned by a later call once its copy has completed and
+     * it reports ready. If no addressable memory can be
      * reserved for the restore, the disk-backed chunk and everything after it stay
      * queued and only the chunks before it are returned; callers are expected to
      * retry on a later progress iteration.
