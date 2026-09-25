@@ -45,11 +45,15 @@ std::vector<Chunk> ChunksToSend::extract_and_restore(
         auto const restore = chunk->is_on_disk();
         if (restore) {
             auto reservation = br->try_reserve_or_spill(chunk->data_size(), memory_types);
-            RAPIDSMPF_EXPECTS(
-                reservation.has_value(),
-                "failed to reserve addressable memory for an outgoing disk-backed chunk",
-                std::runtime_error
-            );
+            if (!reservation.has_value()) {
+                // No addressable memory for the restore right now (e.g. the device is
+                // at its limit with nothing left to spill because other users of the
+                // buffer resource hold it). Leave this and all later chunks queued
+                // and send what is ready; the progress loop retries on its next
+                // iteration once memory has been released. Aborting here (the
+                // previous behaviour) killed the process under transient pressure.
+                break;
+            }
             chunk->set_data_buffer(br->move(chunk->release_data_buffer(), *reservation));
         }
         auto c = std::move(chunk);
