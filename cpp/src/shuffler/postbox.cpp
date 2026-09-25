@@ -46,13 +46,20 @@ std::vector<Chunk> ChunksToSend::extract_and_restore(
         if (restore) {
             auto reservation = br->try_reserve_or_spill(chunk->data_size(), memory_types);
             if (!reservation.has_value()) {
-                // No addressable memory for the restore right now (e.g. the device is
-                // at its limit with nothing left to spill because other users of the
-                // buffer resource hold it). Leave this and all later chunks queued
-                // and send what is ready; the progress loop retries on its next
-                // iteration once memory has been released. Aborting here (the
-                // previous behaviour) killed the process under transient pressure.
-                break;
+                // Spilling could not make room: the shuffler has nothing device-resident
+                // left and the budget is held by other users of the buffer resource,
+                // which may themselves be waiting for this shuffle to deliver data.
+                // Backing off here deadlocks (observed: every rank waiting on chunks
+                // whose senders could not restore them). Overbook on the preferred
+                // memory type instead -- bounded, since at most one chunk is restored
+                // per call -- and let the periodic spill bring usage back down.
+                auto [overbooked, amount] =
+                    br->reserve(memory_types.front(), chunk->data_size(), AllowOverbooking::YES);
+                if (overbooked.size() < chunk->data_size()) {
+                    break;
+                }
+                br->statistics()->add_bytes_stat("send-restore-overbooked-bytes", amount);
+                reservation = std::move(overbooked);
             }
             chunk->set_data_buffer(br->move(chunk->release_data_buffer(), *reservation));
             // The restore is an asynchronous disk->memory copy: the new buffer is not
