@@ -4,16 +4,45 @@
  */
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstddef>
 #include <cstdint>
 #include <mutex>
 #include <unordered_map>
+#include <vector>
 
+#include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/pausable_thread_loop.hpp>
 #include <rapidsmpf/statistics.hpp>
 
 namespace rapidsmpf {
+
+/**
+ * @brief The collective responsible for a completed receive transfer.
+ */
+enum class CollectiveKind : std::uint8_t {
+    ALLGATHER,
+    SPARSE_ALLTOALL,
+    SHUFFLER,
+    ALLREDUCE,
+};
+
+/**
+ * @brief A completed, data-bearing collective receive.
+ */
+struct TransferEvent {
+    std::int32_t op_id{};  ///< Collective operation identifier.
+    CollectiveKind collective_kind{};  ///< Collective implementation.
+    std::int32_t source_rank{};  ///< Immediate wire source.
+    std::int32_t destination_rank{};  ///< Rank that completed the receive.
+    std::uint64_t message_id{};  ///< Stable chunk identifier or receive sequence.
+    std::uint64_t metadata_bytes{};  ///< Logical application metadata bytes.
+    std::uint64_t payload_bytes{};  ///< Payload bytes.
+    MemoryType destination_memory_type{};  ///< Memory tier of the received payload.
+    std::int64_t completion_timestamp_ns{};  ///< Steady-clock completion timestamp.
+};
 
 /**
  * @brief A progress thread that can execute arbitrary functions.
@@ -183,6 +212,49 @@ class ProgressThread {
      */
     std::shared_ptr<Statistics> statistics() const noexcept;
 
+    /**
+     * @brief Enable bounded recording of completed collective receives.
+     *
+     * Enabling starts a new recording interval: queued events and the dropped-event
+     * counter are reset.
+     *
+     * @param capacity Maximum number of queued records.
+     */
+    void enable_transfer_events(std::size_t capacity = 65536);
+
+    /**
+     * @brief Disable recording while preserving queued events for draining.
+     */
+    void disable_transfer_events();
+
+    /**
+     * @brief Move all queued receive records out of the recorder.
+     *
+     * @return The records queued since the previous drain.
+     */
+    [[nodiscard]] std::vector<TransferEvent> drain_transfer_events();
+
+    /**
+     * @brief @return Number of records dropped in the current recording interval.
+     */
+    [[nodiscard]] std::uint64_t dropped_transfer_events() const noexcept;
+
+    /**
+     * @brief Record a completed collective receive when recording is enabled.
+     *
+     * Self-transfers and records with no metadata or payload are ignored.
+     */
+    void record_transfer_event(
+        std::int32_t op_id,
+        CollectiveKind collective_kind,
+        std::int32_t source_rank,
+        std::int32_t destination_rank,
+        std::uint64_t message_id,
+        std::uint64_t metadata_bytes,
+        std::uint64_t payload_bytes,
+        MemoryType destination_memory_type
+    );
+
   private:
     /**
      * @brief The event loop progressing each of the functions.
@@ -198,6 +270,13 @@ class ProgressThread {
     std::condition_variable cv_;
     FunctionIndex next_function_id_{0};
     std::unordered_map<FunctionIndex, FunctionState> functions_;
+
+    std::atomic<bool> transfer_events_enabled_{false};
+    std::atomic<std::uint64_t> transfer_events_generation_{0};
+    mutable std::mutex transfer_events_mutex_;
+    std::vector<TransferEvent> transfer_events_;
+    std::size_t transfer_events_capacity_{0};
+    std::atomic<std::uint64_t> dropped_transfer_events_{0};
 
     // Keep `thread_` as the last member so the progress thread cannot run
     // before all other members have been fully initialized.

@@ -279,6 +279,16 @@ ProgressThread::ProgressState AllGather::event_loop() {
         std::ranges::for_each(
             detail::test_some(receive_posted_, receive_futures_, comm_.get()),
             [&](auto&& chunk) {
+                comm_->progress_thread()->record_transfer_event(
+                    op_id_,
+                    CollectiveKind::ALLGATHER,
+                    src,
+                    comm_->rank(),
+                    chunk->id(),
+                    chunk->metadata_size(),
+                    chunk->data_size(),
+                    chunk->memory_type()
+                );
                 if (chunk->origin() == dst) {
                     for_extraction_.insert(std::move(chunk));
                 } else {

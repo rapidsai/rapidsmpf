@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Tests for AllGather functionality."""
 
@@ -11,7 +11,9 @@ import numpy as np
 import pytest
 
 from rapidsmpf.coll import AllGather
+from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource
+from rapidsmpf.progress_thread import CollectiveKind, TransferEvent
 from rapidsmpf.testing import generate_packed_data, validate_packed_data
 
 if TYPE_CHECKING:
@@ -25,6 +27,38 @@ if TYPE_CHECKING:
 def gen_offset(i: int, r: int) -> int:
     """Generate offset value like the C++ test: i * 10 + r."""
     return i * 10 + r
+
+
+def test_receive_transfer_events(
+    comm: Communicator,
+    device_mr: rmm.mr.CudaMemoryResource,
+    stream: Stream,
+) -> None:
+    br = BufferResource(device_mr)
+    progress_thread = comm.progress_thread
+    progress_thread.enable_transfer_events(capacity=1024)
+    try:
+        allgather = AllGather(comm=comm, op_id=71, br=br)
+        allgather.insert(
+            0, generate_packed_data(4, gen_offset(0, comm.rank), stream, br)
+        )
+        allgather.insert_finished()
+        allgather.wait_and_extract()
+        events = progress_thread.drain_transfer_events()
+    finally:
+        progress_thread.disable_transfer_events()
+
+    assert len(events) == comm.nranks - 1
+    assert all(isinstance(event, TransferEvent) for event in events)
+    assert all(event.op_id == 71 for event in events)
+    assert all(event.collective_kind == CollectiveKind.ALLGATHER for event in events)
+    assert all(event.source_rank == (comm.rank - 1) % comm.nranks for event in events)
+    assert all(event.destination_rank == comm.rank for event in events)
+    assert all(event.metadata_bytes > 0 for event in events)
+    assert all(event.payload_bytes > 0 for event in events)
+    assert all(event.destination_memory_type == MemoryType.DEVICE for event in events)
+    assert all(event.completion_timestamp_ns > 0 for event in events)
+    assert progress_thread.drain_transfer_events() == []
 
 
 @pytest.mark.parametrize("n_elements", [0, 1, 10, 100])

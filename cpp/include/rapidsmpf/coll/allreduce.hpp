@@ -204,6 +204,7 @@ class AllReduce {
     Rank non_pow2_remainder_{0};
     Rank stage_mask_{1};
     Rank stage_partner_{-1};
+    std::uint64_t receive_sequence_{0};
 
     ProgressThread::FunctionID function_id_{};  ///< Progress thread function id
 

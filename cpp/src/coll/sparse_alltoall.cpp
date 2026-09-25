@@ -209,6 +209,16 @@ void SparseAlltoall::receive_data_messages() {
             }
             processed++;
             if (chunk->data_size() == 0) {
+                comm_->progress_thread()->record_transfer_event(
+                    op_id_,
+                    CollectiveKind::SPARSE_ALLTOALL,
+                    src,
+                    comm_->rank(),
+                    chunk->id(),
+                    chunk->metadata_size(),
+                    chunk->data_size(),
+                    chunk->memory_type()
+                );
                 state.chunks.push_back(std::move(chunk));
             } else {
                 statistics->add_bytes_stat(
@@ -230,6 +240,16 @@ void SparseAlltoall::complete_data_messages() {
     {
         RAPIDSMPF_EXPECTS(
             !chunk->is_finish(), "SparseAlltoall can only complete non-finish chunks"
+        );
+        comm_->progress_thread()->record_transfer_event(
+            op_id_,
+            CollectiveKind::SPARSE_ALLTOALL,
+            chunk->origin(),
+            comm_->rank(),
+            chunk->id(),
+            chunk->metadata_size(),
+            chunk->data_size(),
+            chunk->memory_type()
         );
         auto& state = source_states_[chunk->origin()];
         state.chunks.push_back(std::move(chunk));

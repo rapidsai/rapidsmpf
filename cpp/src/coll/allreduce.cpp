@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -213,6 +213,16 @@ ProgressThread::ProgressState AllReduce::event_loop() {
                     break;
                 }
                 in_buffer_ = comm_->release_data(std::move(recv_future_));
+                comm_->progress_thread()->record_transfer_event(
+                    op_id_,
+                    CollectiveKind::ALLREDUCE,
+                    rank - 1,
+                    rank,
+                    receive_sequence_++,
+                    0,
+                    in_buffer_->size,
+                    in_buffer_->mem_type()
+                );
                 reduce_operator_(in_buffer_.get(), out_buffer_.get());
                 phase_.store(Phase::StartButterfly, std::memory_order_release);
             }
@@ -253,11 +263,25 @@ ProgressThread::ProgressState AllReduce::event_loop() {
         }
     case Phase::CompleteButterfly:
         {
-            if (!comm_->test(recv_future_) || !comm_->test(send_future_)) {
+            if (recv_future_ && comm_->test(recv_future_)) {
+                in_buffer_ = comm_->release_data(std::move(recv_future_));
+                comm_->progress_thread()->record_transfer_event(
+                    op_id_,
+                    CollectiveKind::ALLREDUCE,
+                    stage_partner_,
+                    rank,
+                    receive_sequence_++,
+                    0,
+                    in_buffer_->size,
+                    in_buffer_->mem_type()
+                );
+            }
+            if (send_future_ && comm_->test(send_future_)) {
+                out_buffer_ = comm_->release_data(std::move(send_future_));
+            }
+            if (recv_future_ || send_future_) {
                 break;
             }
-            in_buffer_ = comm_->release_data(std::move(recv_future_));
-            out_buffer_ = comm_->release_data(std::move(send_future_));
             // Swapped operand order for the case where the operator is non-commutative.
             // This ensures everyone combines in the same order and means that for a given
             // input and given number of ranks, everyone always obtains the same result
@@ -297,6 +321,16 @@ ProgressThread::ProgressState AllReduce::event_loop() {
                     break;
                 }
                 out_buffer_ = comm_->release_data(std::move(recv_future_));
+                comm_->progress_thread()->record_transfer_event(
+                    op_id_,
+                    CollectiveKind::ALLREDUCE,
+                    rank + 1,
+                    rank,
+                    receive_sequence_++,
+                    0,
+                    out_buffer_->size,
+                    out_buffer_->mem_type()
+                );
             } else {
                 if (!comm_->test(send_future_)) {
                     break;

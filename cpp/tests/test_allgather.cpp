@@ -164,6 +164,7 @@ TEST_P(AllGatherTest, basic_allgather) {
 TEST_F(BaseAllGatherTest, payload_statistics) {
     auto const& comm = GlobalEnvironment->comm_;
     ClearedStatistics statistics{comm->progress_thread()->statistics()};
+    comm->progress_thread()->enable_transfer_events();
     constexpr int n_elements = 7;
     constexpr int n_inserts = 3;
 
@@ -177,9 +178,24 @@ TEST_F(BaseAllGatherTest, payload_statistics) {
     auto results =
         allgather.wait_and_extract(AllGather::Ordered::NO, std::chrono::seconds{30});
     EXPECT_EQ(results.size(), static_cast<std::size_t>(n_inserts * comm->nranks()));
+    auto const transfer_events = comm->progress_thread()->drain_transfer_events();
+    comm->progress_thread()->disable_transfer_events();
 
     auto const expected_count =
         static_cast<std::size_t>(n_inserts * (comm->nranks() - 1));
+    EXPECT_EQ(transfer_events.size(), expected_count);
+    for (auto const& event : transfer_events) {
+        EXPECT_EQ(event.op_id, 0);
+        EXPECT_EQ(event.collective_kind, rapidsmpf::CollectiveKind::ALLGATHER);
+        EXPECT_EQ(
+            event.source_rank, (comm->rank() + comm->nranks() - 1) % comm->nranks()
+        );
+        EXPECT_EQ(event.destination_rank, comm->rank());
+        EXPECT_GT(event.metadata_bytes, 0);
+        EXPECT_EQ(event.payload_bytes, n_elements * sizeof(int));
+        EXPECT_EQ(event.destination_memory_type, rapidsmpf::MemoryType::DEVICE);
+        EXPECT_GT(event.completion_timestamp_ns, 0);
+    }
     if (expected_count == 0) {
         EXPECT_THROW(statistics->get_stat("allgather-payload-send"), std::out_of_range);
         EXPECT_THROW(statistics->get_stat("allgather-payload-recv"), std::out_of_range);

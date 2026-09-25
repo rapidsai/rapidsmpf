@@ -132,6 +132,7 @@ class Shuffler::Progress {
             auto completed_messages = shuffler_.mpe_->recv();
 
             for (auto&& message : completed_messages) {
+                auto const source_rank = message->peer_rank();
                 auto chunk = detail::Chunk::deserialize(
                     message->metadata(), shuffler_.br_, false, message->release_data()
                 );
@@ -145,6 +146,18 @@ class Shuffler::Progress {
 
                 if (chunk.data_size() > 0) {
                     stats->add_bytes_stat("shuffle-payload-recv", chunk.data_size());
+                }
+                if (!chunk.is_control_message()) {
+                    shuffler_.comm_->progress_thread()->record_transfer_event(
+                        shuffler_.op_id_,
+                        CollectiveKind::SHUFFLER,
+                        source_rank,
+                        shuffler_.comm_->rank(),
+                        chunk.chunk_id(),
+                        chunk.metadata_size(),
+                        chunk.data_size(),
+                        chunk.data_memory_type()
+                    );
                 }
 
                 shuffler_.insert_into_received(std::move(chunk));
@@ -227,6 +240,7 @@ Shuffler::Shuffler(
       to_send_{},
       received_{safe_cast<std::size_t>(total_num_partitions)},
       comm_{std::move(comm)},
+      op_id_{op_id},
       mpe_{
           mpe ? std::move(mpe)
               : std::make_unique<communicator::TagMetadataPayloadExchange>(

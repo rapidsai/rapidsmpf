@@ -108,6 +108,81 @@ std::shared_ptr<Statistics> ProgressThread::statistics() const noexcept {
     return statistics_;
 }
 
+void ProgressThread::enable_transfer_events(std::size_t capacity) {
+    RAPIDSMPF_EXPECTS(capacity > 0, "transfer event capacity must be positive");
+    transfer_events_enabled_.store(false, std::memory_order_release);
+    transfer_events_generation_.fetch_add(1, std::memory_order_relaxed);
+    std::lock_guard lock(transfer_events_mutex_);
+    transfer_events_.clear();
+    transfer_events_.reserve(capacity);
+    transfer_events_capacity_ = capacity;
+    dropped_transfer_events_.store(0, std::memory_order_relaxed);
+    transfer_events_enabled_.store(true, std::memory_order_release);
+}
+
+void ProgressThread::disable_transfer_events() {
+    transfer_events_enabled_.store(false, std::memory_order_release);
+    transfer_events_generation_.fetch_add(1, std::memory_order_relaxed);
+    std::lock_guard lock(transfer_events_mutex_);
+}
+
+std::vector<TransferEvent> ProgressThread::drain_transfer_events() {
+    std::lock_guard lock(transfer_events_mutex_);
+    std::vector<TransferEvent> result;
+    result.swap(transfer_events_);
+    return result;
+}
+
+std::uint64_t ProgressThread::dropped_transfer_events() const noexcept {
+    return dropped_transfer_events_.load(std::memory_order_relaxed);
+}
+
+void ProgressThread::record_transfer_event(
+    std::int32_t op_id,
+    CollectiveKind collective_kind,
+    std::int32_t source_rank,
+    std::int32_t destination_rank,
+    std::uint64_t message_id,
+    std::uint64_t metadata_bytes,
+    std::uint64_t payload_bytes,
+    MemoryType destination_memory_type
+) {
+    if (!transfer_events_enabled_.load(std::memory_order_acquire)
+        || source_rank == destination_rank || (metadata_bytes == 0 && payload_bytes == 0))
+    {
+        return;
+    }
+    auto const generation = transfer_events_generation_.load(std::memory_order_relaxed);
+
+    auto const timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                               std::chrono::steady_clock::now().time_since_epoch()
+    )
+                               .count();
+    std::lock_guard lock(transfer_events_mutex_);
+    if (!transfer_events_enabled_.load(std::memory_order_relaxed)
+        || generation != transfer_events_generation_.load(std::memory_order_relaxed))
+    {
+        return;
+    }
+    if (transfer_events_.size() >= transfer_events_capacity_) {
+        dropped_transfer_events_.fetch_add(1, std::memory_order_relaxed);
+        return;
+    }
+    transfer_events_.push_back(
+        TransferEvent{
+            .op_id = op_id,
+            .collective_kind = collective_kind,
+            .source_rank = source_rank,
+            .destination_rank = destination_rank,
+            .message_id = message_id,
+            .metadata_bytes = metadata_bytes,
+            .payload_bytes = payload_bytes,
+            .destination_memory_type = destination_memory_type,
+            .completion_timestamp_ns = timestamp,
+        }
+    );
+}
+
 void ProgressThread::event_loop() {
     auto const t0_event_loop = Clock::now();
     {

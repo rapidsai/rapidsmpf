@@ -333,6 +333,7 @@ class Shuffler {
                                        ///< ready to be extracted by the user.
 
     std::shared_ptr<Communicator> comm_;
+    OpID op_id_;
     std::unique_ptr<communicator::MetadataPayloadExchange> mpe_;
     ProgressThread::FunctionID progress_thread_function_id_;
 

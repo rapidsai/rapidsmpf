@@ -143,3 +143,47 @@ TEST(ProgressThreadTests, CanDoCudaWorkOnFirstCallback) {
         std::rethrow_exception(eptr);
     }
 }
+
+TEST(ProgressThreadTests, BoundedTransferEventRecorder) {
+    using namespace rapidsmpf;
+
+    ProgressThread progress_thread;
+    progress_thread.enable_transfer_events(2);
+    progress_thread.record_transfer_event(
+        42, CollectiveKind::ALLGATHER, 1, 2, 7, 11, 13, MemoryType::PINNED_HOST
+    );
+    // Self-transfers and empty control messages are not data-channel events.
+    progress_thread.record_transfer_event(
+        42, CollectiveKind::SHUFFLER, 2, 2, 8, 1, 1, MemoryType::DEVICE
+    );
+    progress_thread.record_transfer_event(
+        42, CollectiveKind::SHUFFLER, 1, 2, 9, 0, 0, MemoryType::DEVICE
+    );
+    progress_thread.record_transfer_event(
+        43, CollectiveKind::SPARSE_ALLTOALL, 3, 2, 10, 17, 19, MemoryType::HOST
+    );
+    progress_thread.record_transfer_event(
+        44, CollectiveKind::ALLREDUCE, 4, 2, 11, 0, 23, MemoryType::DEVICE
+    );
+
+    EXPECT_EQ(progress_thread.dropped_transfer_events(), 1);
+    auto events = progress_thread.drain_transfer_events();
+    ASSERT_EQ(events.size(), 2);
+    EXPECT_EQ(events[0].op_id, 42);
+    EXPECT_EQ(events[0].collective_kind, CollectiveKind::ALLGATHER);
+    EXPECT_EQ(events[0].source_rank, 1);
+    EXPECT_EQ(events[0].destination_rank, 2);
+    EXPECT_EQ(events[0].message_id, 7);
+    EXPECT_EQ(events[0].metadata_bytes, 11);
+    EXPECT_EQ(events[0].payload_bytes, 13);
+    EXPECT_EQ(events[0].destination_memory_type, MemoryType::PINNED_HOST);
+    EXPECT_GT(events[0].completion_timestamp_ns, 0);
+    EXPECT_LE(events[0].completion_timestamp_ns, events[1].completion_timestamp_ns);
+    EXPECT_TRUE(progress_thread.drain_transfer_events().empty());
+
+    progress_thread.disable_transfer_events();
+    progress_thread.record_transfer_event(
+        45, CollectiveKind::ALLREDUCE, 1, 2, 12, 0, 29, MemoryType::DEVICE
+    );
+    EXPECT_TRUE(progress_thread.drain_transfer_events().empty());
+}
