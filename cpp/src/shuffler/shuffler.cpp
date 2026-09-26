@@ -118,8 +118,15 @@ class Shuffler::Progress {
 
         // Submit outgoing chunks to the metadata payload exchange
         {
+            // Restore outgoing chunks into the *preferred* reservation tier only
+            // (device). With `device,host` reservations a restore into host would
+            // make the message travel host->host whenever the receiver also lands
+            // in host memory, and on this fabric that path is TCP (~5.6 GB/s vs
+            // ~700 GB/s device->device over NVLink, measured 2026-09-26). Waiting
+            // for device room is cheaper than sending from host.
             auto ready_chunks = shuffler_.to_send_.extract_and_restore(
-                shuffler_.br_, shuffler_.reservation_memory_types_
+                shuffler_.br_,
+                std::vector<MemoryType>{shuffler_.reservation_memory_types_.front()}
             );
             RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE("submit_outgoing", ready_chunks.size());
 
