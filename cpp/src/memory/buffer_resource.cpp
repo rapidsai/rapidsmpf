@@ -145,7 +145,10 @@ std::int64_t BufferResource::memory_available(MemoryType mem_type) const noexcep
             return limit - pinned_mr_->current_allocated();
         }
     case MemoryType::HOST:
-        return limit;
+        // Host allocations are counted by the (copyable, counter-sharing)
+        // HostMemoryResource, otherwise a finite host limit would never be
+        // depleted and `reserve(HOST)` could never fail over to the disk tier.
+        return limit - host_mr_.current_allocated();
     case MemoryType::DISK:
         return disk_resource_ != nullptr ? limit : 0;
     }

@@ -1472,3 +1472,45 @@ TEST_F(BufferSpillStatistics, NotRecordedWhenEnabledMidInterval) {
         std::ignore = disabled_stats->get_stat("buffer-spilled-time"), std::out_of_range
     );
 }
+
+// Host memory limit accounting.
+
+TEST(BufferResourceHostLimit, HostAllocationsDepleteTheLimit) {
+    // Before HostMemoryResource counted its allocations, memory_available(HOST)
+    // always returned the configured limit, so a finite host limit could never
+    // be exhausted and a {HOST, DISK} spill order never reached the disk tier
+    // (observed as unbounded host-RAM growth in the disk-sort experiments).
+    rmm::mr::cuda_memory_resource mr_cuda;
+    auto br = BufferResource::create(
+        mr_cuda,
+        PinnedMemoryDisabled,
+        {{MemoryType::HOST, 64_KiB}},
+        std::nullopt,
+        std::make_shared<StreamPool>(1),
+        Statistics::disabled()
+    );
+    cuda::stream_ref stream{cudaStreamLegacy};
+
+    EXPECT_EQ(br->memory_available(MemoryType::HOST), 64_KiB);
+
+    auto [res1, ob1] = br->reserve(MemoryType::HOST, 48_KiB, AllowOverbooking::NO);
+    EXPECT_EQ(ob1, 0u);
+    auto buffer = br->make_buffer(48_KiB, stream, res1);
+    ASSERT_NE(buffer, nullptr);
+    EXPECT_EQ(br->memory_available(MemoryType::HOST), 16_KiB);
+
+    // Only 16 KiB of headroom is left: a 32 KiB reservation must fail without
+    // overbooking, which is what makes reserve_or_fail move on to the next tier.
+    auto [res2, ob2] = br->reserve(MemoryType::HOST, 32_KiB, AllowOverbooking::NO);
+    EXPECT_EQ(res2.size(), 0u);
+    EXPECT_EQ(ob2, 16_KiB);
+
+    // Taking a resource ref (which is what HostBuffer holds) leaves the count intact.
+    [[maybe_unused]] rmm::host_async_resource_ref host_mr_ref = br->host_mr();
+    EXPECT_EQ(br->memory_available(MemoryType::HOST), 16_KiB);
+
+    // Freeing the buffer restores the full limit.
+    buffer.reset();
+    stream.sync();
+    EXPECT_EQ(br->memory_available(MemoryType::HOST), 64_KiB);
+}

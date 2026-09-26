@@ -4,9 +4,12 @@
  */
 #pragma once
 
+#include <atomic>
 #include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 
 #include <cuda/stream>
 
@@ -112,6 +115,21 @@ class HostMemoryResource : public BackRefMixin<BufferResource> {
     ) noexcept;
 
     /**
+     * @brief Bytes currently allocated through this resource and all its copies.
+     *
+     * Copies of a `HostMemoryResource` share one counter, so the value reflects
+     * every live host allocation made via the owning `BufferResource`. It is
+     * what `BufferResource::memory_available(MemoryType::HOST)` subtracts from
+     * the host memory limit; without it the host limit is never depleted and a
+     * `host,disk` spill order never reaches the disk tier.
+     *
+     * @return Number of bytes currently allocated.
+     */
+    [[nodiscard]] std::int64_t current_allocated() const noexcept {
+        return allocated_->load(std::memory_order_relaxed);
+    }
+
+    /**
      * @brief Compares this resource to another resource.
      *
      * All instances are stateless and interchangeable, so this always returns
@@ -147,6 +165,11 @@ class HostMemoryResource : public BackRefMixin<BufferResource> {
     HostMemoryResource() = default;
 
     friend class BufferResource;
+
+    /// Live host bytes, shared by every copy of this resource (see `current_allocated`).
+    std::shared_ptr<std::atomic<std::int64_t>> allocated_{
+        std::make_shared<std::atomic<std::int64_t>>(0)
+    };
 };
 
 static_assert(cuda::mr::resource<HostMemoryResource>);
