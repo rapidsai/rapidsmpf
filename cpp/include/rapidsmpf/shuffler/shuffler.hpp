@@ -290,11 +290,12 @@ class Shuffler {
      *
      * Demoters exist when the spillable memory types list HOST directly followed by
      * DISK, the buffer resource has a disk resource, and the HOST tier has a finite
-     * limit. They keep `RAPIDSMPF_SHUFFLER_HOST_DEMOTE_WATERMARK` (default 0.25) of the
-     * host limit free by moving received host-resident chunks to disk on their own
-     * threads (`RAPIDSMPF_SHUFFLER_HOST_DEMOTE_THREADS`, default 4), so the fast
-     * device->host spill always has room and slow disk I/O never runs on the progress
-     * thread.
+     * limit, and `RAPIDSMPF_SHUFFLER_HOST_DEMOTE_THREADS` is set to a positive number
+     * (default 0: disabled). They keep `RAPIDSMPF_SHUFFLER_HOST_DEMOTE_WATERMARK`
+     * (default 0.05) of the host limit free by moving received host-resident chunks to
+     * disk on their own threads, so the fast device->host spill has room and disk I/O
+     * does not run on the progress thread. Disabled by default because every demoted
+     * byte is an extra disk write, and on a single-disk node the disk is the bottleneck.
      *
      * @return The number of demoter threads.
      */

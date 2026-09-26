@@ -419,8 +419,12 @@ void Shuffler::start_host_demoters() {
     if (host_limit <= 0 || host_limit == std::numeric_limits<std::int64_t>::max()) {
         return;  // unbounded host tier: nothing to keep free.
     }
-    auto const nthreads = env_or<long>("RAPIDSMPF_SHUFFLER_HOST_DEMOTE_THREADS", 4);
-    auto const watermark = env_or<double>("RAPIDSMPF_SHUFFLER_HOST_DEMOTE_WATERMARK", 0.25);
+    // Opt-in: on a single-NVMe node the disk, not the write path, is the ceiling
+    // (see rapidsmpf-disk-sort/scripts/bench_disk_spill.cpp), so proactively moving
+    // host chunks to disk only adds bytes to that bottleneck. Measured at 3TB/8 nodes:
+    // watermark 0.25 -> 472 s, 0.05 -> 270 s, no demoters -> 228 s.
+    auto const nthreads = env_or<long>("RAPIDSMPF_SHUFFLER_HOST_DEMOTE_THREADS", 0);
+    auto const watermark = env_or<double>("RAPIDSMPF_SHUFFLER_HOST_DEMOTE_WATERMARK", 0.05);
     if (nthreads <= 0 || watermark <= 0.0) {
         return;
     }
