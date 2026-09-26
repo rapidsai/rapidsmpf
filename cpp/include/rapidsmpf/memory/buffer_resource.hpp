@@ -768,6 +768,21 @@ static_assert(StatisticsProvider<BufferResource>);
 std::int64_t device_limit_from_options(config::Options options);
 
 /**
+ * @brief Parse the `spill_host_limit` parameter from configuration options.
+ *
+ * Reads the `spill_host_limit` option: a byte count (e.g. `"96GiB"`) or a
+ * percentage of total physical host memory (e.g. `"10%"`). When set,
+ * `BufferResource::from_options` caps the `MemoryType::HOST` tier at this
+ * value, so a `{HOST, DISK}` spill order becomes a *bounded* host-RAM tier in
+ * front of disk. Unset (the default) leaves the host tier unlimited, as before.
+ *
+ * @param options Configuration options.
+ *
+ * @return The host memory limit in bytes, or std::nullopt when unset.
+ */
+std::optional<std::int64_t> host_limit_from_options(config::Options options);
+
+/**
  * @brief Get the `periodic_spill_check` parameter from configuration options.
  *
  * @param options Configuration options.

@@ -120,6 +120,9 @@ std::shared_ptr<BufferResource> BufferResource::from_options(
     std::unordered_map<MemoryType, std::int64_t> memory_limits{
         {MemoryType::DEVICE, device_limit_from_options(options)}
     };
+    if (auto const host_limit = host_limit_from_options(options); host_limit.has_value()) {
+        memory_limits.emplace(MemoryType::HOST, *host_limit);
+    }
     return create(
         std::move(mr),
         pinned_pool_properties_from_options(options),
@@ -432,6 +435,28 @@ std::int64_t device_limit_from_options(config::Options options) {
             parse_nbytes_or_percent(s, total_mem), rmm::CUDA_ALLOCATION_ALIGNMENT
         );
     });
+}
+
+std::optional<std::int64_t> host_limit_from_options(config::Options options) {
+    return options.get<std::optional<std::int64_t>>(
+        "spill_host_limit",
+        [](auto const& s) -> std::optional<std::int64_t> {
+            // Options::get hands the factory an empty string when the key is
+            // absent; treat that (and the usual "none"/"off" spellings) as unset.
+            auto const val = parse_optional(s);
+            if (!val.has_value() || trim(*val).empty()) {
+                return std::nullopt;
+            }
+            // Percentages are relative to the total physical host memory.
+            auto const pages = ::sysconf(_SC_PHYS_PAGES);
+            auto const page_size = ::sysconf(_SC_PAGE_SIZE);
+            double const total_host = (pages > 0 && page_size > 0)
+                                          ? static_cast<double>(pages)
+                                                * static_cast<double>(page_size)
+                                          : 0.0;
+            return static_cast<std::int64_t>(parse_nbytes_or_percent(*val, total_host));
+        }
+    );
 }
 
 std::optional<Duration> periodic_spill_check_from_options(config::Options options) {

@@ -342,3 +342,33 @@ def test_constructor_accepts_spill_directory(tmp_path) -> None:
     br = BufferResource(mr, spill_directory=str(spill_root))
     assert spill_root.is_dir()
     del br
+
+
+def test_from_options_applies_spill_host_limit() -> None:
+    """`spill_host_limit` bounds the HOST tier built from options.
+
+    Without it the host tier is unlimited, so a ``host,disk`` spill order can
+    never fall through to disk (see the host-accounting fix in
+    HostMemoryResource); with it, host reservations fail past the cap.
+    """
+    from rapidsmpf.config import Options
+    from rapidsmpf.memory.buffer_resource import host_limit_from_options
+
+    assert host_limit_from_options(Options({})) is None
+    assert host_limit_from_options(Options({"spill_host_limit": "1MiB"})) == 2**20
+    pct = host_limit_from_options(Options({"spill_host_limit": "1%"}))
+    assert pct is not None and pct > 0
+
+    mr = rmm.mr.CudaMemoryResource()
+    unbounded = BufferResource.from_options(mr, Options({}), Statistics(enable=False))
+    assert unbounded.memory_available(MemoryType.HOST) == 2**63 - 1
+
+    br = BufferResource.from_options(
+        mr, Options({"spill_host_limit": "1MiB"}), Statistics(enable=False)
+    )
+    assert br.memory_available(MemoryType.HOST) == 2**20
+    res, overbooked = br.reserve(MemoryType.HOST, 2**20, allow_overbooking=False)
+    assert res.size == 2**20 and overbooked == 0
+    res2, overbooked2 = br.reserve(MemoryType.HOST, 2**20, allow_overbooking=False)
+    assert res2.size == 0 and overbooked2 == 2**20
+    del res, res2, br, unbounded

@@ -290,10 +290,15 @@ cdef class BufferResource:
                 props.value()
             )
 
+        memory_limits = {MemoryType.DEVICE: device_limit_from_options(options)}
+        host_limit = host_limit_from_options(options)
+        if host_limit is not None:
+            memory_limits[MemoryType.HOST] = host_limit
+
         return cls(
             device_mr=mr,
             pinned_pool_properties=pinned_pool_properties,
-            memory_limits={MemoryType.DEVICE: device_limit_from_options(options)},
+            memory_limits=memory_limits,
             periodic_spill_check=periodic_spill_check_from_options(options),
             stream_pool=stream_pool_from_options(options),
             statistics=statistics,
@@ -634,6 +639,11 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
             cpp_Options options
         ) except +ex_handler
 
+    cdef optional[int64_t] cpp_host_limit_from_options \
+        "rapidsmpf::host_limit_from_options"(
+            cpp_Options options
+        ) except +ex_handler
+
 cdef extern from "<rapidsmpf/disk/disk_resource.hpp>" nogil:
     cdef optional[path] cpp_spill_dir_from_options \
         "rapidsmpf::spill_dir_from_options"(
@@ -662,6 +672,33 @@ def device_limit_from_options(Options options not None):
     with nogil:
         ret = cpp_device_limit_from_options(options._handle)
     return ret
+
+
+def host_limit_from_options(Options options not None):
+    """
+    Get the ``spill_host_limit`` parameter from configuration options.
+
+    A byte count (e.g. ``"96GiB"``) or a percentage of total physical host
+    memory (e.g. ``"10%"``). When set, :meth:`BufferResource.from_options` caps
+    the ``HOST`` tier at this value, which turns a ``host,disk`` spill order
+    into a bounded host-RAM tier in front of disk.
+
+    Parameters
+    ----------
+    options
+        Configuration options.
+
+    Returns
+    -------
+    int or None
+        The host memory limit in bytes, or ``None`` when unset (unlimited).
+    """
+    cdef optional[int64_t] ret
+    with nogil:
+        ret = cpp_host_limit_from_options(options._handle)
+    if not ret.has_value():
+        return None
+    return ret.value()
 
 
 def periodic_spill_check_from_options(Options options not None):
