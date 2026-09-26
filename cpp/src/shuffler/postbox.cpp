@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
 #include <sstream>
 
 #include <rmm/cuda_device.hpp>
@@ -140,7 +141,10 @@ bool ReceivedChunks::is_empty(PartID pid) const {
 }
 
 std::vector<Chunk> ReceivedChunks::extract(PartID pid) {
-    std::lock_guard const lock(mutex_);
+    std::unique_lock lock(mutex_);
+    // A demotion may have detached some of this partition's data buffers; wait for
+    // them to be re-attached so callers never see chunks without their data.
+    cv_.wait(lock, [&] { return !in_flight_.contains(pid); });
     auto chunks = extract_value(pigeonhole_, pid);
     for (auto const& chunk : chunks) {
         if (has_device_data(chunk)) {
@@ -193,6 +197,70 @@ std::size_t ReceivedChunks::spill(
     }
     RAPIDSMPF_NVTX_MARKER("ReceivedChunks::spill::total_spilled", total_spilled);
     return total_spilled;
+}
+
+std::size_t ReceivedChunks::demote(
+    BufferResource* br, std::size_t amount, MemoryType from, MemoryType to
+) {
+    RAPIDSMPF_EXPECTS(from != MemoryType::DEVICE, "use spill() for device data");
+    if (amount == 0) {
+        return 0;
+    }
+    RAPIDSMPF_NVTX_FUNC_RANGE(amount);
+    struct Job {
+        PartID pid;
+        ChunkID cid;
+        std::unique_ptr<Buffer> data;
+        std::size_t size;
+    };
+    std::vector<Job> jobs;
+    {
+        std::lock_guard const lock(mutex_);
+        std::size_t picked{0};
+        for (auto& [pid, chunks] : pigeonhole_) {
+            for (auto& chunk : chunks) {
+                if (chunk.data_size() == 0 || !chunk.is_data_buffer_set()
+                    || chunk.data_memory_type() != from || !chunk.is_ready())
+                {
+                    continue;
+                }
+                auto const size = chunk.data_size();
+                jobs.push_back({pid, chunk.chunk_id(), chunk.release_data_buffer(), size});
+                ++in_flight_[pid];
+                if ((picked += size) >= amount) {
+                    break;
+                }
+            }
+            if (picked >= amount) {
+                break;
+            }
+        }
+    }
+    // The (possibly blocking) copies happen without the container lock.
+    std::size_t moved{0};
+    for (auto& job : jobs) {
+        if (auto reservation = br->try_reserve(job.size, to)) {
+            job.data = br->move(std::move(job.data), *reservation);
+            moved += job.size;
+        }
+    }
+    {
+        std::lock_guard const lock(mutex_);
+        for (auto& job : jobs) {
+            auto& chunks = pigeonhole_.at(job.pid);
+            auto it = std::ranges::find_if(chunks, [&](Chunk const& c) {
+                return c.chunk_id() == job.cid;
+            });
+            RAPIDSMPF_EXPECTS(it != chunks.end(), "demoted chunk disappeared");
+            it->set_data_buffer(std::move(job.data));
+            if (--in_flight_.at(job.pid) == 0) {
+                in_flight_.erase(job.pid);
+            }
+        }
+    }
+    cv_.notify_all();
+    RAPIDSMPF_NVTX_MARKER("ReceivedChunks::demote::moved", moved);
+    return moved;
 }
 
 std::string ReceivedChunks::str() const {

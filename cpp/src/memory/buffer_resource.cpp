@@ -158,6 +158,10 @@ std::int64_t BufferResource::memory_available(MemoryType mem_type) const noexcep
     return std::numeric_limits<std::int64_t>::max();
 }
 
+std::int64_t BufferResource::memory_limit(MemoryType mem_type) const noexcept {
+    return memory_limits_[static_cast<std::size_t>(mem_type)].load(std::memory_order_acquire);
+}
+
 void BufferResource::set_memory_limit(MemoryType mem_type, std::int64_t limit) noexcept {
     memory_limits_[static_cast<std::size_t>(mem_type)].store(
         limit, std::memory_order_release

@@ -350,6 +350,15 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     void set_memory_limit(MemoryType mem_type, std::int64_t limit) noexcept;
 
     /**
+     * @brief Get the configured byte limit for a memory type.
+     *
+     * @param mem_type The memory type.
+     * @return The limit in bytes (`std::numeric_limits<std::int64_t>::max()` when
+     * unlimited).
+     */
+    [[nodiscard]] std::int64_t memory_limit(MemoryType mem_type) const noexcept;
+
+    /**
      * @brief Returns the memory available to a new reservation, in bytes.
      *
      * A snapshot of `memory_available(mem_type)` minus the outstanding reservations

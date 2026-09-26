@@ -12,6 +12,7 @@
 #include <mutex>
 #include <optional>
 #include <span>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -285,6 +286,23 @@ class Shuffler {
     [[nodiscard]] std::string str() const;
 
     /**
+     * @brief Number of host->disk demoter threads this shuffler runs (0 if disabled).
+     *
+     * Demoters exist when the spillable memory types list HOST directly followed by
+     * DISK, the buffer resource has a disk resource, and the HOST tier has a finite
+     * limit. They keep `RAPIDSMPF_SHUFFLER_HOST_DEMOTE_WATERMARK` (default 0.25) of the
+     * host limit free by moving received host-resident chunks to disk on their own
+     * threads (`RAPIDSMPF_SHUFFLER_HOST_DEMOTE_THREADS`, default 4), so the fast
+     * device->host spill always has room and slow disk I/O never runs on the progress
+     * thread.
+     *
+     * @return The number of demoter threads.
+     */
+    [[nodiscard]] std::size_t num_host_demoters() const noexcept {
+        return host_demoters_.size();
+    }
+
+    /**
      * @brief Returns the local partition IDs owned by the shuffler.
      *
      * @return A span of partition IDs owned by the shuffler.
@@ -322,6 +340,15 @@ class Shuffler {
 
     /// @brief Get an new unique chunk ID.
     [[nodiscard]] detail::ChunkID get_new_cid();
+
+    /// @brief Start the host->disk demoter threads if the configuration calls for them.
+    void start_host_demoters();
+
+    /// @brief Body of one demoter thread: keep at least @p target_free host bytes free.
+    void host_demoter_loop(std::int64_t target_free);
+
+    /// @brief Stop and join the demoter threads (idempotent).
+    void stop_host_demoters() noexcept;
 
     /**
      * @brief Create a new chunk from metadata and GPU data.
@@ -367,6 +394,9 @@ class Shuffler {
     mutable std::mutex mutex_;
     std::condition_variable cv_;
     FinishedCallback finished_callback_;  ///< Called once when data can be extracted.
+
+    std::atomic<bool> host_demoters_stop_{false};
+    std::vector<std::thread> host_demoters_;  ///< See `num_host_demoters()`.
 
     class Progress;
 };
