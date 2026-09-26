@@ -310,3 +310,65 @@ def test_reservation_split_releases_on_scope_exit(mem_type: MemoryType) -> None:
     assert child.size == 0
     assert res.size == KiB(40)
     assert br.memory_available_for_reservation(mem_type) == available + KiB(60)
+
+
+def test_from_options_forwards_disk_spill_dir(tmp_path) -> None:
+    """`disk_spill_dir` must reach the C++ BufferResource from Python.
+
+    Regression test: `BufferResource.from_options` used to call
+    `cpp_BufferResource.create` without the `spill_directory` argument, so
+    `RAPIDSMPF_DISK_SPILL_DIR` / `disk_spill_dir` silently never created a
+    `DiskResource` when the resource was built from Python.
+    """
+    from rapidsmpf.config import Options
+    from rapidsmpf.memory.buffer_resource import spill_dir_from_options
+
+    spill_root = tmp_path / "spill"
+    options = Options({"disk_spill_dir": str(spill_root)})
+    assert spill_dir_from_options(options) == str(spill_root)
+    assert spill_dir_from_options(Options({})) is None
+
+    mr = rmm.mr.CudaMemoryResource()
+    br = BufferResource.from_options(mr, options, Statistics(enable=False))
+    # DiskResource creates `<disk_spill_dir>/<pid>-XXXXXX` in its constructor.
+    assert spill_root.is_dir(), "from_options did not construct a DiskResource"
+    assert any(spill_root.iterdir())
+    del br
+
+
+def test_constructor_accepts_spill_directory(tmp_path) -> None:
+    spill_root = tmp_path / "spill"
+    mr = rmm.mr.CudaMemoryResource()
+    br = BufferResource(mr, spill_directory=str(spill_root))
+    assert spill_root.is_dir()
+    del br
+
+
+def test_from_options_applies_spill_host_limit() -> None:
+    """`spill_host_limit` bounds the HOST tier built from options.
+
+    Without it the host tier is unlimited, so a ``host,disk`` spill order can
+    never fall through to disk (see the host-accounting fix in
+    HostMemoryResource); with it, host reservations fail past the cap.
+    """
+    from rapidsmpf.config import Options
+    from rapidsmpf.memory.buffer_resource import host_limit_from_options
+
+    assert host_limit_from_options(Options({})) is None
+    assert host_limit_from_options(Options({"spill_host_limit": "1MiB"})) == 2**20
+    pct = host_limit_from_options(Options({"spill_host_limit": "1%"}))
+    assert pct is not None and pct > 0
+
+    mr = rmm.mr.CudaMemoryResource()
+    unbounded = BufferResource.from_options(mr, Options({}), Statistics(enable=False))
+    assert unbounded.memory_available(MemoryType.HOST) == 2**63 - 1
+
+    br = BufferResource.from_options(
+        mr, Options({"spill_host_limit": "1MiB"}), Statistics(enable=False)
+    )
+    assert br.memory_available(MemoryType.HOST) == 2**20
+    res, overbooked = br.reserve(MemoryType.HOST, 2**20, allow_overbooking=False)
+    assert res.size == 2**20 and overbooked == 0
+    res2, overbooked2 = br.reserve(MemoryType.HOST, 2**20, allow_overbooking=False)
+    assert res2.size == 0 and overbooked2 == 2**20
+    del res, res2, br, unbounded

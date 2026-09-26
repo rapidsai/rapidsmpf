@@ -154,25 +154,42 @@ typename MapType::key_type extract_key(
     return std::move(extract_item(map, position).first);
 }
 
+/// @brief Whether @p T defines a `mapped_type`.
+template <typename T>
+concept HasMappedType = requires { typename T::mapped_type; };
+
 /**
- * @brief Converts a map-like associative container to a vector by moving the values and
- * discarding the keys.
+ * @brief Convert a map-like container to a vector by moving its mapped values.
  *
- * @tparam MapType The type of the map-like associative container. Must provide a
- * mapped_type and support range-based for-loops.
- * @param map The map whose values will be moved into the resulting vector. Keys are
- * ignored.
- * @returns A std::vector containing the moved values from the input map.
+ * @tparam MapType The map-like container type.
+ * @param map The map whose values will be moved into the resulting vector.
+ * @returns A vector containing the moved mapped values.
  */
 template <typename MapType>
-auto to_vector(MapType&& map) {
-    using ValueType = typename std::remove_reference_t<MapType>::mapped_type;
+    requires HasMappedType<std::remove_cvref_t<MapType>>
+[[nodiscard]] auto to_vector(MapType&& map) {
+    using ValueType = typename std::remove_cvref_t<MapType>::mapped_type;
     std::vector<ValueType> vec;
     vec.reserve(map.size());
     for (auto&& [key, value] : map) {
         vec.push_back(std::move(value));
     }
     return vec;
+}
+
+/**
+ * @brief Convert a range to a vector.
+ *
+ * @tparam Range The common input range type.
+ * @param range The range to convert.
+ * @returns A vector containing the range's elements.
+ */
+template <std::ranges::input_range Range>
+    requires std::ranges::common_range<Range>
+             && (!HasMappedType<std::remove_cvref_t<Range>>)
+[[nodiscard]] auto to_vector(Range&& range) {
+    using ValueType = std::ranges::range_value_t<Range>;
+    return std::vector<ValueType>(std::ranges::begin(range), std::ranges::end(range));
 }
 
 /**

@@ -14,6 +14,9 @@
 
 #include <cuda/stream>
 
+#include <rmm/cuda_device.hpp>
+#include <rmm/error.hpp>
+
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/communicator/metadata_payload_exchange/core.hpp>
 #include <rapidsmpf/communicator/metadata_payload_exchange/tag.hpp>
@@ -26,6 +29,28 @@
 #include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf::shuffler {
+
+namespace {
+/**
+ * @brief Whether the device can *physically* satisfy an allocation of `size` bytes
+ * while keeping some headroom for other allocators.
+ *
+ * Overbooking a reservation only bypasses the BufferResource budget; the bytes
+ * still have to come from the GPU. With a fast spill tier (host RAM) spills and
+ * restores refill the device faster than the periodic spill drains it, and
+ * unbounded overbooking then drives physical usage to 100% until some other
+ * allocator (here: the cudf-polars pipeline) hits a real CUDA OOM (jobs
+ * 15571/15573/15575). Keep at least `headroom` free.
+ */
+bool device_has_physical_headroom(std::size_t size) {
+    // 16 GiB: the co-located pipeline (parquet decode, nvcomp scratch, sort
+    // temporaries) allocates outside the BufferResource budget and needs real
+    // room; 4 GiB was not enough (job 15582, scan OOM with the host tier full).
+    constexpr std::size_t headroom = std::size_t{16} << 30;
+    auto const [free, total] = rmm::available_device_memory();
+    return free > size + headroom;
+}
+}  // namespace
 
 using namespace detail;
 
@@ -93,7 +118,9 @@ class Shuffler::Progress {
 
         // Submit outgoing chunks to the metadata payload exchange
         {
-            auto ready_chunks = shuffler_.to_send_.extract_ready();
+            auto ready_chunks = shuffler_.to_send_.extract_and_restore(
+                shuffler_.br_, shuffler_.reservation_memory_types_
+            );
             RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE("submit_outgoing", ready_chunks.size());
 
             if (!ready_chunks.empty()) {
@@ -112,7 +139,7 @@ class Shuffler::Progress {
                 };
 
                 for (auto const& chunk : ready_chunks) {
-                    if (chunk.data_size() > 0) {
+                    if (chunk.is_data_buffer_set() && chunk.data_size() > 0) {
                         stats->add_bytes_stat("shuffle-payload-send", chunk.data_size());
                     }
                 }
@@ -172,9 +199,9 @@ class Shuffler::Progress {
         bool const is_done = !shuffler_.active_.load(std::memory_order_acquire)
                              && is_finished && containers_empty;
         // Signal can_extract_ when all chunks have been received and all internal
-        // containers are drained. If we own no partitions we "can-extract" immediately,
-        // but we only wake a waiter once we've drained internal containers so that we can
-        // reuse the op_id for a subsequent shuffle.
+        // containers are drained. If we own no partitions we "can-extract"
+        // immediately, but we only wake a waiter once we've drained internal
+        // containers so that we can reuse the op_id for a subsequent shuffle.
         if (!shuffler_.can_extract_ && is_finished && containers_empty) {
             {
                 std::lock_guard lock(shuffler_.mutex_);
@@ -219,11 +246,15 @@ Shuffler::Shuffler(
     BufferResource* br,
     FinishedCallback&& finished_callback,
     PartitionOwner partition_owner_fn,
-    std::unique_ptr<communicator::MetadataPayloadExchange> mpe
+    std::unique_ptr<communicator::MetadataPayloadExchange> mpe,
+    std::vector<MemoryType> spillable_memory_types,
+    std::vector<MemoryType> reservation_memory_types
 )
     : total_num_partitions{total_num_partitions},
       partition_owner{std::move(partition_owner_fn)},
       br_{br},
+      spillable_memory_types_{std::move(spillable_memory_types)},
+      reservation_memory_types_{std::move(reservation_memory_types)},
       to_send_{},
       received_{safe_cast<std::size_t>(total_num_partitions)},
       comm_{std::move(comm)},
@@ -233,10 +264,65 @@ Shuffler::Shuffler(
                     comm_,
                     op_id,
                     [this](std::size_t size) -> std::unique_ptr<Buffer> {
-                        return br_->make_buffer(
-                            br_->stream_pool()->get_stream(),
-                            br_->reserve_or_fail(size, ADDRESSABLE_MEMORY_TYPES)
-                        );
+                        auto reservation =
+                            br_->try_reserve_or_spill(size, reservation_memory_types_);
+                        if (!reservation.has_value()) {
+                            // Spilling could not make room: the shuffler has nothing
+                            // device-resident left and the budget is held by other users
+                            // of the buffer resource (e.g. a streaming pipeline waiting
+                            // for this shuffle to advance). Failing here live-locks, so
+                            // overbook on the preferred memory type instead, as
+                            // rapidsmpf's streaming reservations do; the periodic spill
+                            // brings usage back under the limit afterwards.
+                            if (reservation_memory_types_.front() == MemoryType::DEVICE
+                                && !device_has_physical_headroom(size))
+                            {
+                                // Budget says no and the GPU really is full: wait for
+                                // the periodic spill rather than overbook into an OOM.
+                                br_->statistics()->add_bytes_stat(
+                                    "recv-overbook-deferred-bytes", size
+                                );
+                                return nullptr;
+                            }
+                            auto [overbooked, amount] = br_->reserve(
+                                reservation_memory_types_.front(),
+                                size,
+                                AllowOverbooking::YES
+                            );
+                            if (overbooked.size() < size) {
+                                return nullptr;
+                            }
+                            br_->statistics()->add_bytes_stat(
+                                "recv-overbooked-bytes", amount
+                            );
+                            reservation = std::move(overbooked);
+                        }
+                        std::unique_ptr<Buffer> data;
+                        try {
+                            data = br_->make_buffer(
+                                br_->stream_pool()->get_stream(), std::move(*reservation)
+                            );
+                        } catch (rmm::out_of_memory const&) {
+                            // The reservation (possibly overbooked, see above) is only
+                            // a promise against the budget; the device can still be
+                            // physically full when spills and restores run faster than
+                            // the periodic spill (seen with a host spill tier: job
+                            // 15571). Letting the exception escape kills the progress
+                            // thread and, with it, every peer's connection. Report
+                            // "no buffer yet" instead: the exchange retries on the next
+                            // progress iteration (bounded by the allocation retry
+                            // limit) while spilling frees device memory.
+                            br_->statistics()->add_bytes_stat("recv-alloc-oom-retry-bytes", size);
+                            return nullptr;
+                        }
+                        if (data->mem_type() == MemoryType::PINNED_HOST
+                            || data->mem_type() == MemoryType::HOST)
+                        {
+                            br_->statistics()->add_bytes_stat(
+                                "recv-into-host-memory", size
+                            );
+                        }
+                        return data;
                     },
                     comm_->progress_thread()->statistics()
                 )
@@ -250,6 +336,29 @@ Shuffler::Shuffler(
     );
     RAPIDSMPF_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be NULL");
     RAPIDSMPF_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be NULL");
+    RAPIDSMPF_EXPECTS(
+        !reservation_memory_types_.empty(),
+        "reservation_memory_types cannot be empty",
+        std::invalid_argument
+    );
+    RAPIDSMPF_EXPECTS(
+        std::ranges::all_of(
+            reservation_memory_types_,
+            [](auto mem_type) { return contains(ADDRESSABLE_MEMORY_TYPES, mem_type); }
+        ),
+        "reservation_memory_types contains a non-addressable memory type",
+        std::invalid_argument
+    );
+    RAPIDSMPF_EXPECTS(
+        std::ranges::all_of(
+            spillable_memory_types_,
+            [](auto mem_type) {
+                return mem_type != MemoryType::DEVICE && contains(MEMORY_TYPES, mem_type);
+            }
+        ),
+        "spillable_memory_types contains an invalid spill destination",
+        std::invalid_argument
+    );
 
     // We need to register the progress function with the progress thread, but
     // that cannot be done in the constructor's initializer list because the
@@ -340,10 +449,9 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
         if (headroom < 0 && packed_data.data
             && packed_data.data->mem_type() == MemoryType::DEVICE)
         {
-            auto reservation =
-                br_->reserve_or_fail(packed_data.data->size, SPILL_TARGET_MEMORY_TYPES);
             auto chunk = create_chunk(pid, std::move(packed_data));
-            // Spill the new chunk before inserting.
+            auto reservation =
+                br_->reserve_or_fail(chunk.data_size(), spillable_memory_types_);
             chunk.set_data_buffer(br_->move(chunk.release_data_buffer(), reservation));
             insert(std::move(chunk));
         } else {
@@ -423,6 +531,9 @@ void Shuffler::wait(std::optional<std::chrono::milliseconds> timeout) {
 
 std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
+    if (spillable_memory_types_.empty()) {
+        return 0;
+    }
     std::size_t spill_need{0};
     if (amount.has_value()) {
         spill_need = amount.value();
@@ -434,7 +545,7 @@ std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
     }
     std::size_t spilled{0};
     if (spill_need > 0) {
-        spilled = received_.spill(br_, spill_need);
+        spilled = received_.spill(br_, spill_need, spillable_memory_types_);
     }
     return spilled;
 }

@@ -451,6 +451,120 @@ TEST_F(BufferResourceReserveOrFailTest, MultipleTypes) {
     EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 10_KiB);
 }
 
+TEST_F(BufferResourceReserveOrFailTest, TryReserve) {
+    auto res = br->try_reserve(5_KiB, MemoryType::DEVICE);
+    ASSERT_TRUE(res.has_value());
+    EXPECT_EQ(res->size(), 5_KiB);
+    EXPECT_EQ(res->mem_type(), MemoryType::DEVICE);
+
+    std::vector<MemoryType> types{MemoryType::DEVICE, MemoryType::HOST};
+    auto res1 = br->try_reserve(10_KiB, types);
+    ASSERT_TRUE(res1.has_value());
+    EXPECT_EQ(res1->size(), 10_KiB);
+    EXPECT_EQ(res1->mem_type(), MemoryType::HOST);
+
+    EXPECT_FALSE(br->try_reserve(100_KiB, MemoryType::DEVICE).has_value());
+}
+
+TEST(BufferResourceTryReserveOrSpill, EmptyReservationUsesFirstMemoryType) {
+    rmm::mr::cuda_memory_resource mr;
+    auto br = BufferResource::create(
+        mr, PinnedMemoryDisabled, {{MemoryType::DEVICE, 0}, {MemoryType::HOST, 0}}
+    );
+    auto [existing_reservation, overbooking] =
+        br->reserve(MemoryType::DEVICE, 1, AllowOverbooking::YES);
+    ASSERT_EQ(overbooking, 1);
+    constexpr std::array mem_types{MemoryType::DEVICE, MemoryType::HOST};
+
+    auto reservation = br->try_reserve_or_spill(0, mem_types);
+
+    ASSERT_TRUE(reservation.has_value());
+    EXPECT_EQ(reservation->size(), 0);
+    EXPECT_EQ(reservation->mem_type(), MemoryType::DEVICE);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), existing_reservation.size());
+}
+
+TEST(BufferResourceTryReserveOrSpill, EmptyMemoryTypesThrows) {
+    rmm::mr::cuda_memory_resource mr;
+    auto br = BufferResource::create(mr);
+    constexpr std::array<MemoryType, 0> mem_types{};
+
+    EXPECT_THROW(
+        std::ignore = br->try_reserve_or_spill(0, mem_types), std::invalid_argument
+    );
+}
+
+TEST(BufferResourceTryReserveOrSpill, RetriesAfterSpilling) {
+    constexpr std::size_t data_size = 16;
+    rmm::mr::cuda_memory_resource mr;
+    auto br = BufferResource::create(
+        mr, PinnedMemoryDisabled, {{MemoryType::DEVICE, 0}, {MemoryType::HOST, 0}}
+    );
+    std::size_t spill_calls = 0;
+    auto const spill_id = br->spill_manager().add_spill_function(
+        [br = br.get(), &spill_calls](std::size_t amount) {
+            ++spill_calls;
+            br->set_memory_limit(MemoryType::DEVICE, safe_cast<std::int64_t>(amount));
+            return amount;
+        },
+        0
+    );
+
+    auto reservation = br->try_reserve_or_spill(data_size, MEMORY_TYPES);
+
+    ASSERT_TRUE(reservation.has_value());
+    EXPECT_EQ(spill_calls, 1);
+    EXPECT_EQ(reservation->size(), data_size);
+    EXPECT_EQ(reservation->mem_type(), MemoryType::DEVICE);
+    br->spill_manager().remove_spill_function(spill_id);
+}
+
+TEST(BufferResourceTryReserveOrSpill, DeduplicatesAndTriesHostBeforeSpilling) {
+    constexpr std::size_t data_size = 16;
+    rmm::mr::cuda_memory_resource mr;
+    auto br = BufferResource::create(
+        mr, PinnedMemoryDisabled, {{MemoryType::DEVICE, 0}, {MemoryType::HOST, data_size}}
+    );
+    std::size_t spill_calls = 0;
+    auto const spill_id = br->spill_manager().add_spill_function(
+        [&spill_calls](std::size_t) {
+            ++spill_calls;
+            return std::size_t{0};
+        },
+        0
+    );
+    constexpr std::array mem_types{
+        MemoryType::HOST, MemoryType::DEVICE, MemoryType::DEVICE
+    };
+
+    auto reservation = br->try_reserve_or_spill(data_size, mem_types);
+
+    ASSERT_TRUE(reservation.has_value());
+    EXPECT_EQ(reservation->mem_type(), MemoryType::HOST);
+    EXPECT_EQ(spill_calls, 0);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 0);
+    br->spill_manager().remove_spill_function(spill_id);
+}
+
+TEST(BufferResourceTryReserveOrSpill, ReturnsNulloptAfterRetryLimit) {
+    rmm::mr::cuda_memory_resource mr;
+    auto br = BufferResource::create(
+        mr, PinnedMemoryDisabled, {{MemoryType::DEVICE, 0}, {MemoryType::HOST, 0}}
+    );
+    std::size_t spill_calls = 0;
+    auto const spill_id = br->spill_manager().add_spill_function(
+        [&spill_calls](std::size_t) {
+            ++spill_calls;
+            return std::size_t{0};
+        },
+        0
+    );
+
+    EXPECT_FALSE(br->try_reserve_or_spill(16, MEMORY_TYPES).has_value());
+    EXPECT_EQ(spill_calls, 8);
+    br->spill_manager().remove_spill_function(spill_id);
+}
+
 class BaseBufferResourceCopyTest : public ::testing::Test {
   protected:
     void SetUp() override {
@@ -1357,4 +1471,46 @@ TEST_F(BufferSpillStatistics, NotRecordedWhenEnabledMidInterval) {
     EXPECT_THROW(
         std::ignore = disabled_stats->get_stat("buffer-spilled-time"), std::out_of_range
     );
+}
+
+// Host memory limit accounting.
+
+TEST(BufferResourceHostLimit, HostAllocationsDepleteTheLimit) {
+    // Before HostMemoryResource counted its allocations, memory_available(HOST)
+    // always returned the configured limit, so a finite host limit could never
+    // be exhausted and a {HOST, DISK} spill order never reached the disk tier
+    // (observed as unbounded host-RAM growth in the disk-sort experiments).
+    rmm::mr::cuda_memory_resource mr_cuda;
+    auto br = BufferResource::create(
+        mr_cuda,
+        PinnedMemoryDisabled,
+        {{MemoryType::HOST, 64_KiB}},
+        std::nullopt,
+        std::make_shared<StreamPool>(1),
+        Statistics::disabled()
+    );
+    cuda::stream_ref stream{cudaStreamLegacy};
+
+    EXPECT_EQ(br->memory_available(MemoryType::HOST), 64_KiB);
+
+    auto [res1, ob1] = br->reserve(MemoryType::HOST, 48_KiB, AllowOverbooking::NO);
+    EXPECT_EQ(ob1, 0u);
+    auto buffer = br->make_buffer(48_KiB, stream, res1);
+    ASSERT_NE(buffer, nullptr);
+    EXPECT_EQ(br->memory_available(MemoryType::HOST), 16_KiB);
+
+    // Only 16 KiB of headroom is left: a 32 KiB reservation must fail without
+    // overbooking, which is what makes reserve_or_fail move on to the next tier.
+    auto [res2, ob2] = br->reserve(MemoryType::HOST, 32_KiB, AllowOverbooking::NO);
+    EXPECT_EQ(res2.size(), 0u);
+    EXPECT_EQ(ob2, 16_KiB);
+
+    // Taking a resource ref (which is what HostBuffer holds) leaves the count intact.
+    [[maybe_unused]] rmm::host_async_resource_ref host_mr_ref = br->host_mr();
+    EXPECT_EQ(br->memory_available(MemoryType::HOST), 16_KiB);
+
+    // Freeing the buffer restores the full limit.
+    buffer.reset();
+    stream.sync();
+    EXPECT_EQ(br->memory_available(MemoryType::HOST), 64_KiB);
 }

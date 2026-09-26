@@ -30,7 +30,9 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      *
      * @param comm The communicator to use for operations.
      * @param op_id The operation ID for tagging messages.
-     * @param allocate_buffer_fn Function to allocate buffers for incoming data.
+     * @param allocate_buffer_fn Function to allocate buffers for incoming data. May
+     * return `nullptr` when allocation is temporarily unavailable; allocation is
+     * retried by subsequent calls to `progress()` up to the allocation retry limit.
      * @param statistics The statistics to use for tracking communication operations.
      */
     TagMetadataPayloadExchange(
@@ -66,6 +68,8 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      * - Setting up data transfers
      * - Handling completed data transfers
      * - Cleaning up completed operations
+     *
+     * @throws std::runtime_error if receive-buffer allocation retries are exhausted.
      */
     void progress() override;
 
@@ -93,15 +97,32 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      * through the public interface.
      */
     struct TagMessage {
+        /// Default number of progress iterations a receive-buffer allocation may
+        /// fail before the exchange gives up. Overridable per exchange, see
+        /// `allocation_retry_limit_`.
+        static constexpr std::int32_t default_allocation_retry_limit{8};
+
         std::unique_ptr<Message> message;
         std::uint64_t message_id{0};
         std::size_t expected_payload_size{0};
+        std::int32_t allocation_retries_remaining{default_allocation_retry_limit};
 
         TagMessage(
-            std::unique_ptr<Message> msg, std::uint64_t id = 0, std::size_t size = 0
+            std::unique_ptr<Message> msg,
+            std::uint64_t id = 0,
+            std::size_t size = 0,
+            std::int32_t retry_limit = default_allocation_retry_limit
         )
-            : message(std::move(msg)), message_id(id), expected_payload_size(size) {}
+            : message(std::move(msg)),
+              message_id(id),
+              expected_payload_size(size),
+              allocation_retries_remaining(retry_limit) {
+            if (expected_payload_size > 0 && message->data() == nullptr) {
+                --allocation_retries_remaining;
+            }
+        }
     };
+
 
     // Core communication infrastructure
     std::shared_ptr<Communicator> comm_;
@@ -109,6 +130,18 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
     Rank const rank_;
     Tag const metadata_tag_;
     Tag const gpu_data_tag_;
+    /**
+     * @brief Progress iterations a receive-buffer allocation may fail before the
+     * exchange throws ("receive buffer allocation retries exhausted").
+     *
+     * Read from the environment variable `RAPIDSMPF_TAG_ALLOCATION_RETRY_LIMIT` at
+     * construction, default `TagMessage::default_allocation_retry_limit`. The default
+     * (a few milliseconds of progress iterations) assumes the allocation callback can
+     * always make room by spilling; when the buffer resource is shared with other
+     * consumers that hold device memory for longer (e.g. a streaming pipeline), the
+     * limit must be far higher so the receive waits for them instead of aborting.
+     */
+    std::int32_t allocation_retry_limit_;
     std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn_;
 
     // Per-peer tracking for op_id reuse (see rapidsai/rapidsmpf#927).
@@ -124,6 +157,8 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
         peer_expected_;  ///< Expected application messages per peer (0 = unknown).
     std::vector<bool>
         peer_terminated_;  ///< Whether we received the termination marker from each peer.
+    std::vector<bool>
+        peer_allocation_deferred_;  ///< Whether payload allocation is deferred per peer.
 
     /// Sentinel message_id value used to identify protocol-level termination markers.
     static constexpr std::uint64_t termination_sentinel_ = UINT64_MAX;
@@ -159,7 +194,7 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      * @return A vector of completed metadata-only messages.
      *
      * @throw std::runtime_error if an in-transit message or future is not found, or
-     * if a data buffer is not available.
+     * receive-buffer allocation retries are exhausted.
      */
     std::vector<std::unique_ptr<Message>> setup_data_receives();
 
