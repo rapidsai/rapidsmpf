@@ -14,6 +14,8 @@
 
 #include <cuda/stream>
 
+#include <rmm/error.hpp>
+
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/communicator/metadata_payload_exchange/core.hpp>
 #include <rapidsmpf/communicator/metadata_payload_exchange/tag.hpp>
@@ -262,9 +264,24 @@ Shuffler::Shuffler(
                             );
                             reservation = std::move(overbooked);
                         }
-                        auto data = br_->make_buffer(
-                            br_->stream_pool()->get_stream(), std::move(*reservation)
-                        );
+                        std::unique_ptr<Buffer> data;
+                        try {
+                            data = br_->make_buffer(
+                                br_->stream_pool()->get_stream(), std::move(*reservation)
+                            );
+                        } catch (rmm::out_of_memory const&) {
+                            // The reservation (possibly overbooked, see above) is only
+                            // a promise against the budget; the device can still be
+                            // physically full when spills and restores run faster than
+                            // the periodic spill (seen with a host spill tier: job
+                            // 15571). Letting the exception escape kills the progress
+                            // thread and, with it, every peer's connection. Report
+                            // "no buffer yet" instead: the exchange retries on the next
+                            // progress iteration (bounded by the allocation retry
+                            // limit) while spilling frees device memory.
+                            br_->statistics()->add_bytes_stat("recv-alloc-oom-retry-bytes", size);
+                            return nullptr;
+                        }
                         if (data->mem_type() == MemoryType::PINNED_HOST
                             || data->mem_type() == MemoryType::HOST)
                         {
