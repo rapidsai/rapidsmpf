@@ -5,6 +5,8 @@
 
 #include <sstream>
 
+#include <rmm/cuda_device.hpp>
+
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/nvtx.hpp>
@@ -13,6 +15,25 @@
 #include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf::shuffler::detail {
+
+namespace {
+/**
+ * @brief Whether the device can *physically* satisfy an allocation of `size` bytes
+ * while keeping some headroom for other allocators.
+ *
+ * Overbooking a reservation only bypasses the BufferResource budget; the bytes
+ * still have to come from the GPU. With a fast spill tier (host RAM) spills and
+ * restores refill the device faster than the periodic spill drains it, and
+ * unbounded overbooking then drives physical usage to 100% until some other
+ * allocator (here: the cudf-polars pipeline) hits a real CUDA OOM (jobs
+ * 15571/15573/15575). Keep at least `headroom` free.
+ */
+bool device_has_physical_headroom(std::size_t size) {
+    constexpr std::size_t headroom = std::size_t{4} << 30;  // 4 GiB
+    auto const [free, total] = rmm::available_device_memory();
+    return free > size + headroom;
+}
+}  // namespace
 
 void ChunksToSend::insert(std::unique_ptr<Chunk> c) {
     std::lock_guard lock(mutex_);
@@ -53,6 +74,14 @@ std::vector<Chunk> ChunksToSend::extract_and_restore(
                 // whose senders could not restore them). Overbook on the preferred
                 // memory type instead -- bounded, since at most one chunk is restored
                 // per call -- and let the periodic spill bring usage back down.
+                if (memory_types.front() == MemoryType::DEVICE
+                    && !device_has_physical_headroom(chunk->data_size()))
+                {
+                    br->statistics()->add_bytes_stat(
+                        "send-restore-overbook-deferred-bytes", chunk->data_size()
+                    );
+                    break;
+                }
                 auto [overbooked, amount] =
                     br->reserve(memory_types.front(), chunk->data_size(), AllowOverbooking::YES);
                 if (overbooked.size() < chunk->data_size()) {
