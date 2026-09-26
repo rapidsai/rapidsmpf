@@ -29,7 +29,10 @@ namespace {
  * 15571/15573/15575). Keep at least `headroom` free.
  */
 bool device_has_physical_headroom(std::size_t size) {
-    constexpr std::size_t headroom = std::size_t{4} << 30;  // 4 GiB
+    // 16 GiB: the co-located pipeline (parquet decode, nvcomp scratch, sort
+    // temporaries) allocates outside the BufferResource budget and needs real
+    // room; 4 GiB was not enough (job 15582, scan OOM with the host tier full).
+    constexpr std::size_t headroom = std::size_t{16} << 30;
     auto const [free, total] = rmm::available_device_memory();
     return free > size + headroom;
 }
