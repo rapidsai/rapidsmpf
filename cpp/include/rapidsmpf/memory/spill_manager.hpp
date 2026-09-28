@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <compare>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -55,6 +56,10 @@ class SpillManager {
         /// What was spilled towards it. May be less than `deficit` if there was too
         /// little spillable data, or more, since data is spilled in whole buffers.
         std::size_t spilled;
+
+        /// @brief Member-wise comparison, `deficit` first.
+        /// @return The ordering of the two results.
+        auto operator<=>(HeadroomResult const&) const = default;
     };
 
     /**

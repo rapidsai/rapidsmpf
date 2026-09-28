@@ -7,6 +7,7 @@
 #include <condition_variable>
 #include <mutex>
 #include <optional>
+#include <ostream>
 #include <thread>
 #include <vector>
 
@@ -25,6 +26,17 @@
 
 
 using namespace rapidsmpf;
+using HeadroomResult = SpillManager::HeadroomResult;
+
+namespace rapidsmpf {
+
+// Found by gtest through argument-dependent lookup, so a failed comparison prints the
+// fields rather than the struct's raw bytes.
+inline void PrintTo(SpillManager::HeadroomResult const& result, std::ostream* os) {
+    *os << "{deficit=" << result.deficit << ", spilled=" << result.spilled << "}";
+}
+
+}  // namespace rapidsmpf
 
 namespace {
 
@@ -90,20 +102,17 @@ TEST(SpillManager, SpillFunction) {
 
     // If the headroom is already there, no spilling should be happening.
     auto const available = br->spill_manager().spill_to_make_headroom(10_KiB);
-    EXPECT_EQ(available.deficit, 0);
-    EXPECT_EQ(available.spilled, 0);
+    EXPECT_EQ(available, (HeadroomResult{.deficit = 0, .spilled = 0}));
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 40_KiB);
 
     // If the headroom isn't there, we should spill to get the headroom.
     auto const short_of = br->spill_manager().spill_to_make_headroom(100_KiB);
-    EXPECT_EQ(short_of.deficit, 60_KiB);
-    EXPECT_EQ(short_of.spilled, 60_KiB);
+    EXPECT_EQ(short_of, (HeadroomResult{.deficit = 60_KiB, .spilled = 60_KiB}));
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 100_KiB);
 
     // A negative headroom is allowed.
     auto const negative = br->spill_manager().spill_to_make_headroom(-100_KiB);
-    EXPECT_EQ(negative.deficit, 0);
-    EXPECT_EQ(negative.spilled, 0);
+    EXPECT_EQ(negative, (HeadroomResult{.deficit = 0, .spilled = 0}));
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 100_KiB);
 }
 
@@ -126,8 +135,7 @@ TEST(SpillManager, HeadroomAccountsForReservations) {
 
     // Without a reservation, a headroom equal to the availability doesn't spill.
     auto const unreserved = br->spill_manager().spill_to_make_headroom(100_KiB);
-    EXPECT_EQ(unreserved.deficit, 0);
-    EXPECT_EQ(unreserved.spilled, 0);
+    EXPECT_EQ(unreserved, (HeadroomResult{.deficit = 0, .spilled = 0}));
 
     // Reserving 40 KiB leaves the availability untouched but 40 KiB less reservable,
     // and the same headroom now spills that amount.
@@ -137,8 +145,7 @@ TEST(SpillManager, HeadroomAccountsForReservations) {
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 100_KiB);
     EXPECT_EQ(br->memory_available_for_reservation(MemoryType::DEVICE), 60_KiB);
     auto const reserved = br->spill_manager().spill_to_make_headroom(100_KiB);
-    EXPECT_EQ(reserved.deficit, 40_KiB);
-    EXPECT_EQ(reserved.spilled, 40_KiB);
+    EXPECT_EQ(reserved, (HeadroomResult{.deficit = 40_KiB, .spilled = 40_KiB}));
     EXPECT_EQ(br->memory_available_for_reservation(MemoryType::DEVICE), 100_KiB);
 }
 
@@ -156,8 +163,7 @@ TEST(SpillManager, HeadroomReportsTheShortfallNotWhatWasSpilled) {
     );
 
     auto const result = br->spill_manager().spill_to_make_headroom(10_KiB);
-    EXPECT_EQ(result.deficit, 10_KiB);
-    EXPECT_EQ(result.spilled, 1_KiB);
+    EXPECT_EQ(result, (HeadroomResult{.deficit = 10_KiB, .spilled = 1_KiB}));
 
     br->spill_manager().remove_spill_function(fid);
 }
