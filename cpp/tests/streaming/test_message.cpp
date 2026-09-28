@@ -94,16 +94,17 @@ TEST_F(StreamingMessage, CopyWithoutCallbacks) {
 }
 
 TEST_F(StreamingMessage, CopyWithCallbacks) {
-    Message::CopyCallback copy_cb = [](Message const& msg,
-                                       MemoryReservation& reservation) -> Message {
-        EXPECT_TRUE(msg.holds<Buffer>());
-        auto const& src = msg.get<Buffer>();
-        auto dst = reservation.br()->make_buffer(src.size, src.stream(), reservation);
-        buffer_copy(reservation.br()->statistics(), *dst, src, src.size);
-        ContentDescription cd{
-            {{dst->mem_type(), dst->size}}, ContentDescription::Spillable::YES
-        };
-        return Message{msg.sequence_number(), std::move(dst), cd, msg.copy_cb()};
+    Message::Callbacks callbacks{
+        .copy = [](Message const& msg, MemoryReservation& reservation) -> Message {
+            EXPECT_TRUE(msg.holds<Buffer>());
+            auto const& src = msg.get<Buffer>();
+            auto dst = reservation.br()->make_buffer(src.size, src.stream(), reservation);
+            buffer_copy(reservation.br()->statistics(), *dst, src, src.size);
+            ContentDescription cd{
+                {{dst->mem_type(), dst->size}}, ContentDescription::Spillable::YES
+            };
+            return Message{msg.sequence_number(), std::move(dst), cd, msg.callbacks()};
+        }
     };
     {
         ContentDescription cd{
@@ -113,7 +114,7 @@ TEST_F(StreamingMessage, CopyWithCallbacks) {
             42,
             br->make_buffer(stream, br->reserve_or_fail(10, MemoryType::HOST)),
             cd,
-            copy_cb
+            callbacks
         };
         EXPECT_EQ(m1.copy_cost(), 10);
         auto res = br->reserve_or_fail(m1.copy_cost(), MemoryType::HOST);
@@ -130,7 +131,7 @@ TEST_F(StreamingMessage, CopyWithCallbacks) {
             42,
             br->make_buffer(stream, br->reserve_or_fail(10, MemoryType::DEVICE)),
             cd,
-            copy_cb
+            callbacks
         };
         EXPECT_EQ(m1.copy_cost(), 10);
         auto res = br->reserve_or_fail(m1.copy_cost(), MemoryType::DEVICE);
@@ -189,24 +190,6 @@ TEST_F(StreamingMessage, CopyAndMoveUseTheirOwnCallbacks) {
     EXPECT_EQ(moved.get<int>(), 42);
 }
 
-TEST_F(StreamingMessage, MoveFallsBackToCopy) {
-    int copies = 0;
-    int moves = 0;
-    Message m{
-        7,
-        std::make_unique<int>(42),
-        ContentDescription{},
-        counting_callbacks(copies, moves).copy
-    };
-    auto res = br->reserve_or_fail(0, MemoryType::HOST);
-
-    auto moved = m.move(res);
-    EXPECT_EQ(copies, 1);
-    EXPECT_EQ(moves, 0);
-    EXPECT_TRUE(m.empty());  // Reset even though the copy left it intact.
-    EXPECT_EQ(moved.get<int>(), 42);
-}
-
 TEST_F(StreamingMessage, AThrowingMoveStillResets) {
     // The callback throws before touching the payload, and the message is reset anyway.
     Message m{
@@ -224,9 +207,17 @@ TEST_F(StreamingMessage, AThrowingMoveStillResets) {
     EXPECT_TRUE(m.empty());
 }
 
-TEST_F(StreamingMessage, MoveWithoutCallbacks) {
-    Message m{0, std::make_unique<int>(42), ContentDescription{}};
+TEST_F(StreamingMessage, MoveWithoutMoveCallback) {
+    int copies = 0;
+    int moves = 0;
+    Message m{
+        0,
+        std::make_unique<int>(42),
+        ContentDescription{},
+        Message::Callbacks{.copy = counting_callbacks(copies, moves).copy}
+    };
     auto res = br->reserve_or_fail(0, MemoryType::HOST);
     EXPECT_THROW(std::ignore = m.move(res), std::invalid_argument);
-    EXPECT_FALSE(m.empty());  // Untouched when neither callback exists.
+    EXPECT_EQ(copies, 0);  // The copy callback is not a fallback.
+    EXPECT_FALSE(m.empty());  // Left untouched.
 }
