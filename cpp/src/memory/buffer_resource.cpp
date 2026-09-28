@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
 #include <limits>
 #include <optional>
 #include <stdexcept>
@@ -229,21 +230,26 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
 MemoryReservation BufferResource::reserve_device_memory_and_spill(
     std::size_t size, AllowOverbooking allow_overbooking
 ) {
-    // reserve device memory with overbooking
-    auto [reservation, ob] = reserve(MemoryType::DEVICE, size, AllowOverbooking::YES);
+    auto [reservation, total_overbooking] =
+        reserve(MemoryType::DEVICE, size, AllowOverbooking::YES);
 
-    // ask the spill manager to make room for overbooking
-    if (ob > 0) {
-        auto spilled = spill_manager_.spill(ob);
+    // `reserve()` reports the total overbooking, other callers' included, so clamp to
+    // `size` for the part this reservation added.
+    if (total_overbooking > 0) {
+        auto const own_overbooking = std::min(size, total_overbooking);
+        // With a headroom of zero, `deficit` is the overbooking still outstanding once
+        // the spill lock is held. All of it is spilled, but this call is judged only on
+        // its own share.
+        auto const [deficit, spilled] = spill_manager_.spill_to_make_headroom();
         RAPIDSMPF_EXPECTS(
-            allow_overbooking == AllowOverbooking::YES || spilled >= ob,
+            allow_overbooking == AllowOverbooking::YES
+                || spilled >= std::min(own_overbooking, deficit),
             "failed to spill enough memory (reserved: " + format_nbytes(size)
-                + ", overbooking: " + format_nbytes(ob)
+                + ", overbooking: " + format_nbytes(own_overbooking)
                 + ", spilled: " + format_nbytes(spilled) + ")",
             rapidsmpf::reservation_error
         );
     }
-
     return std::move(reservation);
 }
 

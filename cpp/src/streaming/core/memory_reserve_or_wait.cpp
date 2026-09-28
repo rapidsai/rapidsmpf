@@ -165,9 +165,8 @@ MemoryReserveOrWait::reserve_or_wait_or_overbook(
     auto ret = co_await reserve_or_wait(size, net_memory_delta);
     if (ret.size() < size) {
         auto overbooked = br_->reserve(mem_type_, size, AllowOverbooking::YES);
-        // `reserve()` returns the total deficit after the reservation, including any
-        // overbooking already outstanding, so clamp to `size` for the amount this
-        // request added.
+        // `reserve()` returns the total overbooking after the reservation, including any
+        // already outstanding, so clamp to `size` for the amount this request added.
         auto const added = std::min(size, overbooked.second);
         if (added > 0) {
             record_stat("overbook-bytes", static_cast<double>(added));

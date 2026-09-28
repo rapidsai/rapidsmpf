@@ -8,6 +8,7 @@
 #include <mutex>
 #include <optional>
 #include <thread>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -24,6 +25,27 @@
 
 
 using namespace rapidsmpf;
+
+namespace {
+
+/// @brief A buffer resource whose device memory sits exactly at its limit.
+///
+/// Any device reservation overbooks, and a spill function simulates freeing memory by
+/// raising the returned limit. No periodic spill thread, so only the test spills.
+std::pair<std::shared_ptr<BufferResource>, std::int64_t> br_at_device_limit() {
+    auto br = BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        PinnedMemoryDisabled,
+        {{MemoryType::DEVICE, 0}},
+        /* periodic_spill_check = */ std::nullopt
+    );
+    auto const limit =
+        safe_cast<std::int64_t>(br->device_mr_adaptor().current_allocated());
+    br->set_memory_limit(MemoryType::DEVICE, limit);
+    return {std::move(br), limit};
+}
+
+}  // namespace
 
 TEST(SpillManager, SpillFunction) {
     // Drive available device memory by adjusting the DEVICE limit at runtime.
@@ -67,15 +89,21 @@ TEST(SpillManager, SpillFunction) {
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 40_KiB);
 
     // If the headroom is already there, no spilling should be happening.
-    EXPECT_EQ(br->spill_manager().spill_to_make_headroom(10_KiB), 0);
+    auto const available = br->spill_manager().spill_to_make_headroom(10_KiB);
+    EXPECT_EQ(available.deficit, 0);
+    EXPECT_EQ(available.spilled, 0);
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 40_KiB);
 
     // If the headroom isn't there, we should spill to get the headroom.
-    EXPECT_EQ(br->spill_manager().spill_to_make_headroom(100_KiB), 60_KiB);
+    auto const short_of = br->spill_manager().spill_to_make_headroom(100_KiB);
+    EXPECT_EQ(short_of.deficit, 60_KiB);
+    EXPECT_EQ(short_of.spilled, 60_KiB);
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 100_KiB);
 
     // A negative headroom is allowed.
-    EXPECT_EQ(br->spill_manager().spill_to_make_headroom(-100_KiB), 0);
+    auto const negative = br->spill_manager().spill_to_make_headroom(-100_KiB);
+    EXPECT_EQ(negative.deficit, 0);
+    EXPECT_EQ(negative.spilled, 0);
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 100_KiB);
 }
 
@@ -97,7 +125,9 @@ TEST(SpillManager, HeadroomAccountsForReservations) {
     br->spill_manager().add_spill_function(func, /* priority = */ 0);
 
     // Without a reservation, a headroom equal to the availability doesn't spill.
-    EXPECT_EQ(br->spill_manager().spill_to_make_headroom(100_KiB), 0);
+    auto const unreserved = br->spill_manager().spill_to_make_headroom(100_KiB);
+    EXPECT_EQ(unreserved.deficit, 0);
+    EXPECT_EQ(unreserved.spilled, 0);
 
     // Reserving 40 KiB leaves the availability untouched but 40 KiB less reservable,
     // and the same headroom now spills that amount.
@@ -106,77 +136,143 @@ TEST(SpillManager, HeadroomAccountsForReservations) {
     EXPECT_EQ(overbooking, 0);
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 100_KiB);
     EXPECT_EQ(br->memory_available_for_reservation(MemoryType::DEVICE), 60_KiB);
-    EXPECT_EQ(br->spill_manager().spill_to_make_headroom(100_KiB), 40_KiB);
+    auto const reserved = br->spill_manager().spill_to_make_headroom(100_KiB);
+    EXPECT_EQ(reserved.deficit, 40_KiB);
+    EXPECT_EQ(reserved.spilled, 40_KiB);
     EXPECT_EQ(br->memory_available_for_reservation(MemoryType::DEVICE), 100_KiB);
 }
 
-TEST(SpillManager, TrySpillToMakeHeadroomWhenIdle) {
-    std::int64_t mem_available = 0;
-    auto br = BufferResource::create(
-        rmm::mr::get_current_device_resource_ref(),
-        PinnedMemoryDisabled,
-        {{MemoryType::DEVICE, mem_available}},
-        std::nullopt  // No periodic spill thread
+TEST(SpillManager, HeadroomReportsTheShortfallNotWhatWasSpilled) {
+    auto [br, limit] = br_at_device_limit();
+
+    // Frees 1 KiB however much it is asked for.
+    auto const fid = br->spill_manager().add_spill_function(
+        [&](std::size_t) -> std::size_t {
+            limit += 1_KiB;
+            br->set_memory_limit(MemoryType::DEVICE, limit);
+            return 1_KiB;
+        },
+        /* priority = */ 0
     );
 
-    // Spill function that increases the available memory perfectly.
-    SpillManager::SpillFunction func =
-        [&br, &mem_available](std::size_t amount) -> std::size_t {
-        mem_available += safe_cast<std::int64_t>(amount);
-        br->set_memory_limit(MemoryType::DEVICE, mem_available);
-        return amount;
-    };
-    br->spill_manager().add_spill_function(func, /* priority = */ 1);
+    auto const result = br->spill_manager().spill_to_make_headroom(10_KiB);
+    EXPECT_EQ(result.deficit, 10_KiB);
+    EXPECT_EQ(result.spilled, 1_KiB);
 
-    // Nothing else holds the spill lock, so this spills like the blocking version.
-    auto const spilled = br->spill_manager().try_spill_to_make_headroom(10_KiB);
-    ASSERT_TRUE(spilled.has_value());
-    EXPECT_EQ(*spilled, 10_KiB);
-    EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 10_KiB);
+    br->spill_manager().remove_spill_function(fid);
 }
 
-TEST(SpillManager, TrySpillToMakeHeadroomSkipsWhileSpilling) {
-    std::int64_t mem_available = 0;
-    auto br = BufferResource::create(
-        rmm::mr::get_current_device_resource_ref(),
-        PinnedMemoryDisabled,
-        {{MemoryType::DEVICE, mem_available}},
-        std::nullopt  // No periodic spill thread
-    );
-
+TEST(SpillManager, ReserveAndSpillCreditsAConcurrentSpill) {
     std::mutex mutex;
     std::condition_variable cv;
-    bool entered_spill{false};
-    bool release_spill{false};
+    bool entered{false};
+    bool released{false};
 
-    // Spill function that blocks until the test releases it, keeping the spill
-    // manager's lock held in the meantime.
-    SpillManager::SpillFunction func = [&](std::size_t amount) -> std::size_t {
-        {
-            std::unique_lock lock(mutex);
-            entered_spill = true;
-            cv.notify_all();
-            cv.wait(lock, [&] { return release_spill; });
-        }
-        mem_available += safe_cast<std::int64_t>(amount);
-        br->set_memory_limit(MemoryType::DEVICE, mem_available);
-        return amount;
-    };
-    br->spill_manager().add_spill_function(func, /* priority = */ 1);
+    auto [br, limit] = br_at_device_limit();
 
-    std::thread thd([&] { br->spill_manager().spill_to_make_headroom(10_KiB); });
+    // Frees 8 KiB whenever it runs, whatever it is asked for, which is what spilling in
+    // whole buffers looks like. The first call blocks so the test can overlap it.
+    std::vector<std::size_t> asks;
+    auto const fid = br->spill_manager().add_spill_function(
+        [&](std::size_t amount) -> std::size_t {
+            {
+                std::unique_lock lock(mutex);
+                asks.push_back(amount);
+                if (!entered) {
+                    entered = true;
+                    cv.notify_all();
+                    cv.wait(lock, [&] { return released; });
+                }
+            }
+            limit += 8_KiB;
+            br->set_memory_limit(MemoryType::DEVICE, limit);
+            return 8_KiB;
+        },
+        /* priority = */ 0
+    );
+
+    // Hold a spill open, so the reservation below has to queue behind it.
+    std::thread spiller{[&] { std::ignore = br->spill_manager().spill(1_KiB); }};
     {
         std::unique_lock lock(mutex);
-        cv.wait(lock, [&] { return entered_spill; });
+        cv.wait(lock, [&] { return entered; });
     }
 
-    // A spill is in progress, so this returns immediately instead of blocking.
-    EXPECT_EQ(br->spill_manager().try_spill_to_make_headroom(10_KiB), std::nullopt);
-
+    // Overbooks by 4 KiB, then waits on the spill lock.
+    std::thread reserver{[&] {
+        std::ignore = br->reserve_device_memory_and_spill(4_KiB, AllowOverbooking::NO);
+    }};
+    // Release only once the reservation has made available memory negative, otherwise
+    // the reserver finds the memory already free and the test exercises nothing.
+    while (br->memory_available_for_reservation(MemoryType::DEVICE) >= 0) {
+        std::this_thread::yield();
+    }
     {
         std::lock_guard lock(mutex);
-        release_spill = true;
+        released = true;
     }
     cv.notify_all();
-    thd.join();
+    spiller.join();
+    reserver.join();
+    br->spill_manager().remove_spill_function(fid);
+
+    // The blocked spill freed 8 KiB against 4 KiB of overbooking, so the reservation
+    // needed nothing further and the spill function ran once, not twice.
+    EXPECT_EQ(asks.size(), 1u);
+    EXPECT_EQ(asks.front(), 1_KiB);
+}
+
+TEST(SpillManager, ReserveAndSpillIgnoresAConcurrentCallersOverbooking) {
+    auto [br, limit] = br_at_device_limit();
+
+    // Frees exactly what it is asked for. Then another caller's overbooked reservation
+    // lands, after this call's spill and before it judges whether the spill was enough.
+    std::optional<MemoryReservation> other;
+    auto const fid = br->spill_manager().add_spill_function(
+        [&](std::size_t amount) -> std::size_t {
+            limit += safe_cast<std::int64_t>(amount);
+            br->set_memory_limit(MemoryType::DEVICE, limit);
+            if (!other.has_value()) {
+                other.emplace(
+                    br->reserve(MemoryType::DEVICE, 8_KiB, AllowOverbooking::YES).first
+                );
+            }
+            return amount;
+        },
+        /* priority = */ 0
+    );
+
+    // This call's own overbooking was covered in full. The other caller's is not its to
+    // answer for, so it must not fail on account of it.
+    EXPECT_NO_THROW(
+        std::ignore = br->reserve_device_memory_and_spill(4_KiB, AllowOverbooking::NO)
+    );
+
+    br->spill_manager().remove_spill_function(fid);
+}
+
+TEST(SpillManager, ReserveAndSpillIgnoresAnEarlierCallersOverbooking) {
+    auto [br, limit] = br_at_device_limit();
+
+    // Only 4 KiB is spillable, enough for one caller's overbooking and not two.
+    std::size_t spillable{4_KiB};
+    auto const fid = br->spill_manager().add_spill_function(
+        [&](std::size_t amount) -> std::size_t {
+            auto const freed = std::min(amount, spillable);
+            spillable -= freed;
+            limit += safe_cast<std::int64_t>(freed);
+            br->set_memory_limit(MemoryType::DEVICE, limit);
+            return freed;
+        },
+        /* priority = */ 0
+    );
+
+    // Another caller has already overbooked by 4 KiB, so `reserve()` reports this call's
+    // overbooking as 8 KiB. Half of that is not this call's to cover.
+    auto earlier = br->reserve(MemoryType::DEVICE, 4_KiB, AllowOverbooking::YES).first;
+    EXPECT_NO_THROW(
+        std::ignore = br->reserve_device_memory_and_spill(4_KiB, AllowOverbooking::NO)
+    );
+
+    br->spill_manager().remove_spill_function(fid);
 }
