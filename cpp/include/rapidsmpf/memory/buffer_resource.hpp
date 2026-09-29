@@ -228,11 +228,11 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     /**
      * @brief Get the device memory resource.
      *
-     * @return `rmm::device_async_resource_ref` to the device memory resource.
+     * @return `rapidsmpf::device_resource_ref` to the device memory resource.
      *
      * @par CCCL's lifetime semantic
      *
-     * The returned `rmm::device_async_resource_ref` is a non-owning
+     * The returned `rapidsmpf::device_resource_ref` is a non-owning
      * `cuda::mr::resource_ref`, so callers must take care to avoid use-after-free issues.
      *
      * When working directly with the returned reference, the caller must ensure that this
@@ -266,7 +266,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * resource_ref points to that adaptor. See `device_mr_adaptor()` for a more
      * convenient way to access the adaptor.
      */
-    [[nodiscard]] rmm::device_async_resource_ref device_mr() noexcept;
+    [[nodiscard]] rapidsmpf::device_resource_ref device_mr() noexcept;
 
     /**
      * @brief Access the concrete device memory resource adaptor.
@@ -295,7 +295,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * `resource_ref` is non-owning. Promote it to a `any_host_resource` to extend the
      * `BufferResource` lifetime.
      */
-    [[nodiscard]] rmm::host_async_resource_ref host_mr() noexcept;
+    [[nodiscard]] rapidsmpf::host_resource_ref host_mr() noexcept;
 
     /**
      * @brief Get the RMM pinned host memory resource.
@@ -308,7 +308,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * `resource_ref` is non-owning. Promote it to a `any_host_device_resource` to extend
      * the `BufferResource` lifetime.
      */
-    [[nodiscard]] rmm::host_device_async_resource_ref pinned_mr();
+    [[nodiscard]] rapidsmpf::host_device_resource_ref pinned_mr();
 
     /**
      * @brief Get the pinned host memory resource if available.

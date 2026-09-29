@@ -17,10 +17,10 @@
 #include <cuda/stream>
 
 #include <rmm/device_buffer.hpp>
-#include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
+#include <rapidsmpf/memory/resource_types.hpp>
 
 namespace rapidsmpf {
 
@@ -41,7 +41,7 @@ class HostBuffer {
      * @param mr Host-accessible memory resource used for allocation. Taken by value
      * so the buffer shares ownership of the resource (e.g. bumps the refcount
      * when constructed from a shared-ownership resource); an implicit
-     * conversion from `rmm::host_async_resource_ref` is also supported.
+     * conversion from `rapidsmpf::host_resource_ref` is also supported.
      */
     HostBuffer(
         std::size_t size,
@@ -159,7 +159,7 @@ class HostBuffer {
     static HostBuffer from_uint8_vector(
         std::vector<std::uint8_t> const& data,
         cuda::stream_ref stream,
-        rmm::host_async_resource_ref mr
+        rapidsmpf::host_resource_ref mr
     );
 
     /**

@@ -17,9 +17,9 @@ RmmResourceAdaptor::RmmResourceAdaptor(
               detail::RmmResourceAdaptorImpl<any_device_resource>>(std::move(primary_mr))
       ) {}
 
-rmm::device_async_resource_ref
+rapidsmpf::device_resource_ref
 RmmResourceAdaptor::get_upstream_resource() const noexcept {
-    return rmm::device_async_resource_ref{
+    return rapidsmpf::device_resource_ref{
         const_cast<any_device_resource&>(get().upstream_resource())
     };
 }

@@ -10,10 +10,9 @@
 
 #include <cuda/memory_resource>
 
-#include <rmm/resource_ref.hpp>
-
 #include <rapidsmpf/detail/rmm_resource_adaptor_impl.hpp>
 #include <rapidsmpf/memory/back_ref_mixin.hpp>
+#include <rapidsmpf/memory/resource_types.hpp>
 #include <rapidsmpf/memory/scoped_memory_record.hpp>
 
 namespace rapidsmpf {
@@ -68,7 +67,7 @@ class RmmResourceAdaptor
      *
      * @return Reference to the RMM memory resource.
      */
-    [[nodiscard]] rmm::device_async_resource_ref get_upstream_resource() const noexcept;
+    [[nodiscard]] rapidsmpf::device_resource_ref get_upstream_resource() const noexcept;
 
     /**
      * @brief Returns a copy of the main memory record.

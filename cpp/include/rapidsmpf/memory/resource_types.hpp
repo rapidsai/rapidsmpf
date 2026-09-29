@@ -19,6 +19,16 @@ using any_host_device_resource =
 /// @brief Owning type-erased host memory resource.
 using any_host_resource = cuda::mr::any_resource<cuda::mr::host_accessible>;
 
+/// @brief Stream-ordered reference to a device-accessible memory resource.
+using device_resource_ref = cuda::mr::resource_ref<cuda::mr::device_accessible>;
+
+/// @brief Stream-ordered reference to a host-accessible memory resource.
+using host_resource_ref = cuda::mr::resource_ref<cuda::mr::host_accessible>;
+
+/// @brief Stream-ordered reference to a host- and device-accessible memory resource.
+using host_device_resource_ref =
+    cuda::mr::resource_ref<cuda::mr::host_accessible, cuda::mr::device_accessible>;
+
 /**
  * @brief Check whether a type-erased memory resource is host-accessible.
  *

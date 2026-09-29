@@ -28,6 +28,8 @@ from rapidsmpf.memory.buffer cimport Buffer, cpp_Buffer
 
 cdef extern from *:
     """
+    #include <rapidsmpf/memory/resource_types.hpp>
+
     // Construct a device_async_resource_ref from an owning any_resource.
     // The free template in RMM only declares overloads for concrete RMM
     // types, this overload covers `cuda::mr::any_resource<device_accessible>`.
@@ -38,7 +40,7 @@ cdef extern from *:
         // `cython_device_async_resource_ref` is declared inline in RMM's
         // `librmm/memory_resource.pxd`.
         return std::optional<cython_device_async_resource_ref>(
-            rmm::device_async_resource_ref(mr)
+            rapidsmpf::device_resource_ref(mr)
         );
     }
     """

@@ -164,19 +164,19 @@ void BufferResource::set_memory_limit(MemoryType mem_type, std::int64_t limit) n
     );
 }
 
-rmm::device_async_resource_ref BufferResource::device_mr() noexcept {
-    return rmm::device_async_resource_ref{owning_mr_};
+rapidsmpf::device_resource_ref BufferResource::device_mr() noexcept {
+    return rapidsmpf::device_resource_ref{owning_mr_};
 }
 
 RmmResourceAdaptor& BufferResource::device_mr_adaptor() noexcept {
     return owning_mr_;
 }
 
-rmm::host_async_resource_ref BufferResource::host_mr() noexcept {
+rapidsmpf::host_resource_ref BufferResource::host_mr() noexcept {
     return host_mr_;
 }
 
-rmm::host_device_async_resource_ref BufferResource::pinned_mr() {
+rapidsmpf::host_device_resource_ref BufferResource::pinned_mr() {
     RAPIDSMPF_EXPECTS(
         pinned_mr_, "no pinned memory resource is available", std::invalid_argument
     );

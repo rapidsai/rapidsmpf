@@ -106,7 +106,7 @@ std::vector<std::uint8_t> HostBuffer::copy_to_uint8_vector() const {
 HostBuffer HostBuffer::from_uint8_vector(
     std::vector<std::uint8_t> const& data,
     cuda::stream_ref stream,
-    rmm::host_async_resource_ref mr
+    rapidsmpf::host_resource_ref mr
 ) {
     HostBuffer ret(data.size(), stream, mr);
     if (!ret.empty()) {
