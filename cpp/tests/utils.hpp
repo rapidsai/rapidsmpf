@@ -24,12 +24,11 @@
 #include <cuda/memory_resource>
 #include <cuda/stream>
 
-#include <rmm/resource_ref.hpp>
-
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
+#include <rapidsmpf/memory/resource_types.hpp>
 
 /**
  * @brief RAII temporary directory created under GTest's temp directory.
@@ -219,7 +218,7 @@ inline void validate_packed_data(
 class DelayedMemoryResource {
   public:
     DelayedMemoryResource(
-        rmm::device_async_resource_ref upstream, std::chrono::milliseconds delay
+        rapidsmpf::device_resource_ref upstream, std::chrono::milliseconds delay
     )
         : upstream_{upstream}, delay_{delay} {}
 

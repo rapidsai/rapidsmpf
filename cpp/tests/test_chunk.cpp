@@ -12,11 +12,11 @@
 #include <cuda/stream>
 
 #include <rmm/mr/per_device_resource.hpp>
-#include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
+#include <rapidsmpf/memory/resource_types.hpp>
 #include <rapidsmpf/shuffler/chunk.hpp>
 
 using namespace rapidsmpf;
