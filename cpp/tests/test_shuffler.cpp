@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
+#include <limits>
 #include <cstring>
 #include <future>
 #include <memory>
@@ -1243,4 +1245,157 @@ TEST(Shuffler, opid_reuse_with_empty_partitions) {
 
     validate_results(shuffle1, 42);
     validate_results(shuffle2, 123);
+}
+
+// Host->disk demotion of received chunks (runs off the progress thread).
+
+namespace {
+
+std::shared_ptr<rapidsmpf::BufferResource> make_host_disk_buffer_resource(
+    TempDir const& temp_dir, std::int64_t device_limit, std::int64_t host_limit
+) {
+    return rapidsmpf::BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        rapidsmpf::PinnedMemoryDisabled,
+        {{rapidsmpf::MemoryType::DEVICE, device_limit},
+         {rapidsmpf::MemoryType::HOST, host_limit}},
+        std::nullopt,
+        std::make_shared<rapidsmpf::StreamPool>(4),
+        rapidsmpf::Statistics::disabled(),
+        temp_dir.path()
+    );
+}
+
+/// Set an environment variable for the duration of a test.
+class ScopedEnv {
+  public:
+    ScopedEnv(char const* name, std::string value) : name_{name} {
+        ::setenv(name, value.c_str(), 1);
+    }
+    ~ScopedEnv() {
+        ::unsetenv(name_);
+    }
+
+  private:
+    char const* name_;
+};
+
+}  // namespace
+
+TEST(ReceivedChunks, DemoteMovesHostChunksToDiskAndExtractWaits) {
+    using namespace rapidsmpf;
+    constexpr std::size_t num_rows = 1000;
+    constexpr std::size_t data_size = num_rows * sizeof(int);
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+    TempDir temp_dir;
+    auto br = make_host_disk_buffer_resource(temp_dir, 1LL << 40, 1LL << 40);
+
+    shuffler::detail::ReceivedChunks received;
+    // Two host-resident chunks for partition 0.
+    for (int i = 0; i < 2; ++i) {
+        auto packed = generate_packed_data(num_rows, i * 1000, stream, *br);
+        auto host_res = br->reserve_or_fail(data_size, MemoryType::HOST);
+        packed.data = br->move(std::move(packed.data), host_res);
+        auto chunk = shuffler::detail::Chunk::from_packed_data(
+            static_cast<shuffler::detail::ChunkID>(i + 1), 0, std::move(packed)
+        );
+        EXPECT_EQ(chunk.data_memory_type(), MemoryType::HOST);
+        received.insert(std::move(chunk));
+    }
+    EXPECT_EQ(br->memory_available(MemoryType::HOST), (1LL << 40) - 2 * data_size);
+
+    // Demote on a separate thread; extract() must block while buffers are detached.
+    // The disk write may finish before extract() runs, so wait until the demotion is
+    // either observably in flight or already complete, then extract.
+    std::size_t moved{0};
+    std::atomic<bool> done{false};
+    std::thread demoter([&] {
+        moved = received.demote(br.get(), 2 * data_size, MemoryType::HOST, MemoryType::DISK);
+        done.store(true, std::memory_order_release);
+    });
+    while (!received.has_in_flight(0) && !done.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+    }
+    auto chunks = received.extract(0);
+    demoter.join();
+    EXPECT_EQ(moved, 2 * data_size);
+    EXPECT_EQ(br->memory_available(MemoryType::HOST), 1LL << 40);  // host bytes freed
+    ASSERT_EQ(chunks.size(), 2);
+    for (auto& chunk : chunks) {
+        ASSERT_TRUE(chunk.is_data_buffer_set());
+        EXPECT_EQ(chunk.data_memory_type(), MemoryType::DISK);
+    }
+    // Round-trip the data back to device and check it.
+    std::vector<PackedData> packed;
+    for (auto& chunk : chunks) {
+        packed.push_back({chunk.release_metadata_buffer(), chunk.release_data_buffer()});
+    }
+    auto unspilled = unspill_partitions(std::move(packed), br.get(), AllowOverbooking::NO);
+    validate_packed_data(std::move(unspilled[0]), num_rows, 0, stream, *br);
+    validate_packed_data(std::move(unspilled[1]), num_rows, 1000, stream, *br);
+    EXPECT_EQ(received.demote(br.get(), 1, MemoryType::HOST, MemoryType::DISK), 0);
+}
+
+TEST(Shuffler, HostDemotersKeepTheHostTierBelowTheWatermark) {
+    using namespace rapidsmpf;
+    constexpr shuffler::PartID total_num_partitions = 1;
+    constexpr std::size_t num_rows = 1000;
+    constexpr std::size_t data_size = num_rows * sizeof(int);
+    // Host limit fits both chunks; watermark 1.0 means "keep everything free", so
+    // anything spilled to host is demoted to disk right away.
+    ScopedEnv threads{"RAPIDSMPF_SHUFFLER_HOST_DEMOTE_THREADS", "2"};
+    ScopedEnv watermark{"RAPIDSMPF_SHUFFLER_HOST_DEMOTE_WATERMARK", "1.0"};
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+    TempDir temp_dir;
+    auto const host_limit = static_cast<std::int64_t>(4 * data_size);
+    auto br = make_host_disk_buffer_resource(
+        temp_dir, static_cast<std::int64_t>(2 * data_size), host_limit
+    );
+    auto comm = GlobalEnvironment->split_comm();
+    EXPECT_EQ(comm->nranks(), 1);
+
+    shuffler::Shuffler shuffler(
+        comm,
+        0,
+        total_num_partitions,
+        br.get(),
+        shuffler::Shuffler::round_robin,
+        nullptr,
+        {MemoryType::HOST, MemoryType::DISK}
+    );
+    EXPECT_EQ(shuffler.num_host_demoters(), 2);
+
+    std::unordered_map<shuffler::PartID, PackedData> input;
+    input.emplace(0, generate_packed_data(num_rows, 0, stream, *br));
+    shuffler.insert(std::move(input));
+    // Spill device -> host (the first spillable tier with room) ...
+    EXPECT_EQ(shuffler.spill(data_size), data_size);
+    // ... and the demoters move it on to disk, freeing the host bytes again.
+    auto const deadline = Clock::now() + std::chrono::seconds{10};
+    while (br->memory_available(MemoryType::HOST) < host_limit && Clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds{5});
+    }
+    EXPECT_EQ(br->memory_available(MemoryType::HOST), host_limit);
+
+    auto extracted = shuffler.extract(0);
+    ASSERT_EQ(extracted.size(), 1);
+    ASSERT_NE(extracted[0].data, nullptr);
+    EXPECT_EQ(extracted[0].data->mem_type(), MemoryType::DISK);
+    auto unspilled = unspill_partitions(std::move(extracted), br.get(), AllowOverbooking::NO);
+    validate_packed_data(std::move(unspilled[0]), num_rows, 0, stream, *br);
+    shuffler.insert_finished();
+}
+
+TEST(Shuffler, NoHostDemotersWithoutBoundedHostTier) {
+    using namespace rapidsmpf;
+    TempDir temp_dir;
+    auto br = make_disk_spill_buffer_resource(temp_dir, 1LL << 40);  // HOST limit 0
+    br->set_memory_limit(MemoryType::HOST, std::numeric_limits<std::int64_t>::max());
+    auto comm = GlobalEnvironment->split_comm();
+    shuffler::Shuffler shuffler(
+        comm, 0, 1, br.get(), shuffler::Shuffler::round_robin, nullptr,
+        {MemoryType::HOST, MemoryType::DISK}
+    );
+    EXPECT_EQ(shuffler.num_host_demoters(), 0);
+    shuffler.insert_finished();
 }

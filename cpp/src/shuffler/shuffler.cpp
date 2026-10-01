@@ -5,6 +5,12 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <cstdlib>
+#include <limits>
+#include <string>
+#include <thread>
+#include <type_traits>
 #include <functional>
 #include <memory>
 #include <ranges>
@@ -13,6 +19,9 @@
 #include <vector>
 
 #include <cuda/stream>
+
+#include <rmm/cuda_device.hpp>
+#include <rmm/error.hpp>
 
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/communicator/metadata_payload_exchange/core.hpp>
@@ -26,6 +35,28 @@
 #include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf::shuffler {
+
+namespace {
+/**
+ * @brief Whether the device can *physically* satisfy an allocation of `size` bytes
+ * while keeping some headroom for other allocators.
+ *
+ * Overbooking a reservation only bypasses the BufferResource budget; the bytes
+ * still have to come from the GPU. With a fast spill tier (host RAM) spills and
+ * restores refill the device faster than the periodic spill drains it, and
+ * unbounded overbooking then drives physical usage to 100% until some other
+ * allocator (here: the cudf-polars pipeline) hits a real CUDA OOM (jobs
+ * 15571/15573/15575). Keep at least `headroom` free.
+ */
+bool device_has_physical_headroom(std::size_t size) {
+    // 16 GiB: the co-located pipeline (parquet decode, nvcomp scratch, sort
+    // temporaries) allocates outside the BufferResource budget and needs real
+    // room; 4 GiB was not enough (job 15582, scan OOM with the host tier full).
+    constexpr std::size_t headroom = std::size_t{16} << 30;
+    auto const [free, total] = rmm::available_device_memory();
+    return free > size + headroom;
+}
+}  // namespace
 
 using namespace detail;
 
@@ -93,8 +124,15 @@ class Shuffler::Progress {
 
         // Submit outgoing chunks to the metadata payload exchange
         {
+            // Restore outgoing chunks into the *preferred* reservation tier only
+            // (device). With `device,host` reservations a restore into host would
+            // make the message travel host->host whenever the receiver also lands
+            // in host memory, and on this fabric that path is TCP (~5.6 GB/s vs
+            // ~700 GB/s device->device over NVLink, measured 2026-09-26). Waiting
+            // for device room is cheaper than sending from host.
             auto ready_chunks = shuffler_.to_send_.extract_and_restore(
-                shuffler_.br_, shuffler_.reservation_memory_types_
+                shuffler_.br_,
+                std::vector<MemoryType>{shuffler_.reservation_memory_types_.front()}
             );
             RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE("submit_outgoing", ready_chunks.size());
 
@@ -242,11 +280,54 @@ Shuffler::Shuffler(
                         auto reservation =
                             br_->try_reserve_or_spill(size, reservation_memory_types_);
                         if (!reservation.has_value()) {
+                            // Spilling could not make room: the shuffler has nothing
+                            // device-resident left and the budget is held by other users
+                            // of the buffer resource (e.g. a streaming pipeline waiting
+                            // for this shuffle to advance). Failing here live-locks, so
+                            // overbook on the preferred memory type instead, as
+                            // rapidsmpf's streaming reservations do; the periodic spill
+                            // brings usage back under the limit afterwards.
+                            if (reservation_memory_types_.front() == MemoryType::DEVICE
+                                && !device_has_physical_headroom(size))
+                            {
+                                // Budget says no and the GPU really is full: wait for
+                                // the periodic spill rather than overbook into an OOM.
+                                br_->statistics()->add_bytes_stat(
+                                    "recv-overbook-deferred-bytes", size
+                                );
+                                return nullptr;
+                            }
+                            auto [overbooked, amount] = br_->reserve(
+                                reservation_memory_types_.front(),
+                                size,
+                                AllowOverbooking::YES
+                            );
+                            if (overbooked.size() < size) {
+                                return nullptr;
+                            }
+                            br_->statistics()->add_bytes_stat(
+                                "recv-overbooked-bytes", amount
+                            );
+                            reservation = std::move(overbooked);
+                        }
+                        std::unique_ptr<Buffer> data;
+                        try {
+                            data = br_->make_buffer(
+                                br_->stream_pool()->get_stream(), std::move(*reservation)
+                            );
+                        } catch (rmm::out_of_memory const&) {
+                            // The reservation (possibly overbooked, see above) is only
+                            // a promise against the budget; the device can still be
+                            // physically full when spills and restores run faster than
+                            // the periodic spill (seen with a host spill tier: job
+                            // 15571). Letting the exception escape kills the progress
+                            // thread and, with it, every peer's connection. Report
+                            // "no buffer yet" instead: the exchange retries on the next
+                            // progress iteration (bounded by the allocation retry
+                            // limit) while spilling frees device memory.
+                            br_->statistics()->add_bytes_stat("recv-alloc-oom-retry-bytes", size);
                             return nullptr;
                         }
-                        auto data = br_->make_buffer(
-                            br_->stream_pool()->get_stream(), std::move(*reservation)
-                        );
                         if (data->mem_type() == MemoryType::PINNED_HOST
                             || data->mem_type() == MemoryType::HOST)
                         {
@@ -307,6 +388,84 @@ Shuffler::Shuffler(
         [this](std::size_t amount) -> std::size_t { return spill(amount); },
         /* priority = */ 0
     );
+
+    start_host_demoters();
+}
+
+namespace {
+template <typename T>
+T env_or(char const* name, T default_value) {
+    auto const* value = std::getenv(name);
+    if (value == nullptr || *value == '\0') {
+        return default_value;
+    }
+    if constexpr (std::is_floating_point_v<T>) {
+        return static_cast<T>(std::stod(value));
+    } else {
+        return static_cast<T>(std::stoll(value));
+    }
+}
+}  // namespace
+
+void Shuffler::start_host_demoters() {
+    auto const host_it = std::ranges::find(spillable_memory_types_, MemoryType::HOST);
+    if (host_it == spillable_memory_types_.end()
+        || std::next(host_it) == spillable_memory_types_.end()
+        || *std::next(host_it) != MemoryType::DISK || br_->disk_resource() == nullptr)
+    {
+        return;
+    }
+    auto const host_limit = br_->memory_limit(MemoryType::HOST);
+    if (host_limit <= 0 || host_limit == std::numeric_limits<std::int64_t>::max()) {
+        return;  // unbounded host tier: nothing to keep free.
+    }
+    // Opt-in: on a single-NVMe node the disk, not the write path, is the ceiling
+    // (see rapidsmpf-disk-sort/scripts/bench_disk_spill.cpp), so proactively moving
+    // host chunks to disk only adds bytes to that bottleneck. Measured at 3TB/8 nodes:
+    // watermark 0.25 -> 472 s, 0.05 -> 270 s, no demoters -> 228 s.
+    auto const nthreads = env_or<long>("RAPIDSMPF_SHUFFLER_HOST_DEMOTE_THREADS", 0);
+    auto const watermark = env_or<double>("RAPIDSMPF_SHUFFLER_HOST_DEMOTE_WATERMARK", 0.05);
+    if (nthreads <= 0 || watermark <= 0.0) {
+        return;
+    }
+    auto const target_free = static_cast<std::int64_t>(
+        static_cast<double>(host_limit) * std::min(watermark, 1.0)
+    );
+    host_demoters_.reserve(static_cast<std::size_t>(nthreads));
+    for (long i = 0; i < nthreads; ++i) {
+        host_demoters_.emplace_back([this, target_free] { host_demoter_loop(target_free); });
+    }
+}
+
+void Shuffler::host_demoter_loop(std::int64_t target_free) {
+    auto const& stats = br_->statistics();
+    // Each thread works on its share of the deficit so several disk writes are in
+    // flight at once without all threads chasing the same bytes.
+    auto const nthreads = static_cast<std::int64_t>(std::max<std::size_t>(1, host_demoters_.size()));
+    while (!host_demoters_stop_.load(std::memory_order_acquire)) {
+        auto const free = br_->memory_available(MemoryType::HOST);
+        if (free < target_free) {
+            auto const deficit = safe_cast<std::size_t>((target_free - free + nthreads - 1) / nthreads);
+            auto const t0 = Clock::now();
+            auto const moved = received_.demote(br_, deficit, MemoryType::HOST, MemoryType::DISK);
+            if (moved > 0) {
+                stats->add_bytes_stat("host-demote-bytes", moved);
+                stats->add_duration_stat("host-demote-time", Clock::now() - t0);
+                continue;  // still under the watermark? go again immediately.
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{1});
+    }
+}
+
+void Shuffler::stop_host_demoters() noexcept {
+    host_demoters_stop_.store(true, std::memory_order_release);
+    for (auto& t : host_demoters_) {
+        if (t.joinable()) {
+            t.join();
+        }
+    }
+    host_demoters_.clear();
 }
 
 std::span<PartID const> Shuffler::local_partitions() const {
@@ -327,6 +486,7 @@ void Shuffler::shutdown() {
         auto& log = comm_->logger();
         log->debug("Shuffler.shutdown() - initiate");
         comm_->progress_thread()->remove_function(progress_thread_function_id_);
+        stop_host_demoters();
         br_->spill_manager().remove_spill_function(spill_function_id_);
         log->debug("Shuffler.shutdown() - done");
     }

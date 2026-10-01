@@ -47,13 +47,17 @@ void* HostMemoryResource::allocate(
 ) {
     void* ret = ::operator new(size, std::align_val_t{alignment});
     enable_hugepage_for_region(ret, size);
+    allocated_->fetch_add(static_cast<std::int64_t>(size), std::memory_order_relaxed);
     return ret;
 }
 
 void HostMemoryResource::deallocate(
-    cuda::stream_ref stream, void* ptr, std::size_t, std::size_t alignment
+    cuda::stream_ref stream, void* ptr, std::size_t size, std::size_t alignment
 ) noexcept {
     stream.sync();
     ::operator delete(ptr, std::align_val_t{alignment});
+    if (ptr != nullptr) {
+        allocated_->fetch_sub(static_cast<std::int64_t>(size), std::memory_order_relaxed);
+    }
 }
 }  // namespace rapidsmpf

@@ -3,7 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
 #include <sstream>
+
+#include <rmm/cuda_device.hpp>
 
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
@@ -13,6 +16,28 @@
 #include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf::shuffler::detail {
+
+namespace {
+/**
+ * @brief Whether the device can *physically* satisfy an allocation of `size` bytes
+ * while keeping some headroom for other allocators.
+ *
+ * Overbooking a reservation only bypasses the BufferResource budget; the bytes
+ * still have to come from the GPU. With a fast spill tier (host RAM) spills and
+ * restores refill the device faster than the periodic spill drains it, and
+ * unbounded overbooking then drives physical usage to 100% until some other
+ * allocator (here: the cudf-polars pipeline) hits a real CUDA OOM (jobs
+ * 15571/15573/15575). Keep at least `headroom` free.
+ */
+bool device_has_physical_headroom(std::size_t size) {
+    // 16 GiB: the co-located pipeline (parquet decode, nvcomp scratch, sort
+    // temporaries) allocates outside the BufferResource budget and needs real
+    // room; 4 GiB was not enough (job 15582, scan OOM with the host tier full).
+    constexpr std::size_t headroom = std::size_t{16} << 30;
+    auto const [free, total] = rmm::available_device_memory();
+    return free > size + headroom;
+}
+}  // namespace
 
 void ChunksToSend::insert(std::unique_ptr<Chunk> c) {
     std::lock_guard lock(mutex_);
@@ -45,21 +70,41 @@ std::vector<Chunk> ChunksToSend::extract_and_restore(
         auto const restore = chunk->is_on_disk();
         if (restore) {
             auto reservation = br->try_reserve_or_spill(chunk->data_size(), memory_types);
-            RAPIDSMPF_EXPECTS(
-                reservation.has_value(),
-                "failed to reserve addressable memory for an outgoing disk-backed chunk",
-                std::runtime_error
-            );
+            if (!reservation.has_value()) {
+                // Spilling could not make room: the shuffler has nothing device-resident
+                // left and the budget is held by other users of the buffer resource,
+                // which may themselves be waiting for this shuffle to deliver data.
+                // Backing off here deadlocks (observed: every rank waiting on chunks
+                // whose senders could not restore them). Overbook on the preferred
+                // memory type instead -- bounded, since at most one chunk is restored
+                // per call -- and let the periodic spill bring usage back down.
+                if (memory_types.front() == MemoryType::DEVICE
+                    && !device_has_physical_headroom(chunk->data_size()))
+                {
+                    br->statistics()->add_bytes_stat(
+                        "send-restore-overbook-deferred-bytes", chunk->data_size()
+                    );
+                    break;
+                }
+                auto [overbooked, amount] =
+                    br->reserve(memory_types.front(), chunk->data_size(), AllowOverbooking::YES);
+                if (overbooked.size() < chunk->data_size()) {
+                    break;
+                }
+                br->statistics()->add_bytes_stat("send-restore-overbooked-bytes", amount);
+                reservation = std::move(overbooked);
+            }
             chunk->set_data_buffer(br->move(chunk->release_data_buffer(), *reservation));
+            // The restore is an asynchronous disk->memory copy: the new buffer is not
+            // ready (is_latest_write_done() == false) yet, and UCXX::send() requires a
+            // ready buffer. Keep the chunk queued; the next progress iteration's
+            // is_ready() check returns it once the copy has completed. Restoring is
+            // also slow and adds addressable-memory pressure, so restore at most one
+            // chunk per call.
+            break;
         }
         auto c = std::move(chunk);
         result.emplace_back(std::move(*c));
-        if (restore) {
-            // break after the first disk-backed chunk is restored to addressable memory
-            // because restoring is slow and introduce memory pressure for addressable
-            // memory.
-            break;
-        }
     }
     std::erase(chunks_, nullptr);
     return result;
@@ -84,6 +129,9 @@ std::string ChunksToSend::str() const {
 void ReceivedChunks::insert(Chunk&& chunk) {
     auto key = chunk.part_id();
     std::lock_guard const lock(mutex_);
+    if (has_device_data(chunk)) {
+        ++num_device_chunks_;
+    }
     pigeonhole_[key].emplace_back(std::move(chunk));
 }
 
@@ -93,8 +141,17 @@ bool ReceivedChunks::is_empty(PartID pid) const {
 }
 
 std::vector<Chunk> ReceivedChunks::extract(PartID pid) {
-    std::lock_guard const lock(mutex_);
-    return extract_value(pigeonhole_, pid);
+    std::unique_lock lock(mutex_);
+    // A demotion may have detached some of this partition's data buffers; wait for
+    // them to be re-attached so callers never see chunks without their data.
+    cv_.wait(lock, [&] { return !in_flight_.contains(pid); });
+    auto chunks = extract_value(pigeonhole_, pid);
+    for (auto const& chunk : chunks) {
+        if (has_device_data(chunk)) {
+            --num_device_chunks_;
+        }
+    }
+    return chunks;
 }
 
 bool ReceivedChunks::empty() const {
@@ -113,13 +170,14 @@ std::size_t ReceivedChunks::spill(
 
     RAPIDSMPF_NVTX_FUNC_RANGE(amount);
     std::lock_guard lock(mutex_);
+    if (num_device_chunks_ == 0) {
+        return 0;
+    }
     // TODO: use a clever strategy to decided which chunks to spill.
     std::size_t total_spilled{0};
     for (auto& [_, chunks] : pigeonhole_) {
         for (auto& chunk : chunks) {
-            if (chunk.data_size() == 0 || !chunk.is_data_buffer_set()
-                || chunk.data_memory_type() != MemoryType::DEVICE)
-            {
+            if (!has_device_data(chunk)) {
                 continue;
             }
             auto const size = chunk.data_size();
@@ -128,6 +186,7 @@ std::size_t ReceivedChunks::spill(
                 continue;
             }
             chunk.set_data_buffer(br->move(chunk.release_data_buffer(), *reservation));
+            --num_device_chunks_;
             if ((total_spilled += size) >= amount) {
                 break;
             }
@@ -138,6 +197,70 @@ std::size_t ReceivedChunks::spill(
     }
     RAPIDSMPF_NVTX_MARKER("ReceivedChunks::spill::total_spilled", total_spilled);
     return total_spilled;
+}
+
+std::size_t ReceivedChunks::demote(
+    BufferResource* br, std::size_t amount, MemoryType from, MemoryType to
+) {
+    RAPIDSMPF_EXPECTS(from != MemoryType::DEVICE, "use spill() for device data");
+    if (amount == 0) {
+        return 0;
+    }
+    RAPIDSMPF_NVTX_FUNC_RANGE(amount);
+    struct Job {
+        PartID pid;
+        ChunkID cid;
+        std::unique_ptr<Buffer> data;
+        std::size_t size;
+    };
+    std::vector<Job> jobs;
+    {
+        std::lock_guard const lock(mutex_);
+        std::size_t picked{0};
+        for (auto& [pid, chunks] : pigeonhole_) {
+            for (auto& chunk : chunks) {
+                if (chunk.data_size() == 0 || !chunk.is_data_buffer_set()
+                    || chunk.data_memory_type() != from || !chunk.is_ready())
+                {
+                    continue;
+                }
+                auto const size = chunk.data_size();
+                jobs.push_back({pid, chunk.chunk_id(), chunk.release_data_buffer(), size});
+                ++in_flight_[pid];
+                if ((picked += size) >= amount) {
+                    break;
+                }
+            }
+            if (picked >= amount) {
+                break;
+            }
+        }
+    }
+    // The (possibly blocking) copies happen without the container lock.
+    std::size_t moved{0};
+    for (auto& job : jobs) {
+        if (auto reservation = br->try_reserve(job.size, to)) {
+            job.data = br->move(std::move(job.data), *reservation);
+            moved += job.size;
+        }
+    }
+    {
+        std::lock_guard const lock(mutex_);
+        for (auto& job : jobs) {
+            auto& chunks = pigeonhole_.at(job.pid);
+            auto it = std::ranges::find_if(chunks, [&](Chunk const& c) {
+                return c.chunk_id() == job.cid;
+            });
+            RAPIDSMPF_EXPECTS(it != chunks.end(), "demoted chunk disappeared");
+            it->set_data_buffer(std::move(job.data));
+            if (--in_flight_.at(job.pid) == 0) {
+                in_flight_.erase(job.pid);
+            }
+        }
+    }
+    cv_.notify_all();
+    RAPIDSMPF_NVTX_MARKER("ReceivedChunks::demote::moved", moved);
+    return moved;
 }
 
 std::string ReceivedChunks::str() const {

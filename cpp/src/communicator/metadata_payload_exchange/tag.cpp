@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cstdlib>
+#include <limits>
 #include <algorithm>
 #include <cstring>
 #include <unordered_set>
@@ -28,6 +30,19 @@ TagMetadataPayloadExchange::TagMetadataPayloadExchange(
       rank_(comm_->rank()),
       metadata_tag_{op_id, 0},
       gpu_data_tag_{op_id, 1},
+      allocation_retry_limit_([] {
+          auto const* value = std::getenv("RAPIDSMPF_TAG_ALLOCATION_RETRY_LIMIT");
+          if (value == nullptr) {
+              return TagMessage::default_allocation_retry_limit;
+          }
+          auto const parsed = std::stoll(value);
+          RAPIDSMPF_EXPECTS(
+              parsed > 0 && parsed <= std::numeric_limits<std::int32_t>::max(),
+              "RAPIDSMPF_TAG_ALLOCATION_RETRY_LIMIT must be a positive int32",
+              std::invalid_argument
+          );
+          return static_cast<std::int32_t>(parsed);
+      }()),
       allocate_buffer_fn_(std::move(allocate_buffer_fn)),
       messages_sent_to_(safe_cast<std::size_t>(nranks_), 0),
       peer_received_(safe_cast<std::size_t>(nranks_), 0),
@@ -258,7 +273,7 @@ void TagMetadataPayloadExchange::receive_metadata() {
 
             log->trace("recv_from ", peer, " (message_id=", message_id, ")");
             incoming_messages_[peer].emplace_back(
-                std::move(message), message_id, payload_size
+                std::move(message), message_id, payload_size, allocation_retry_limit_
             );
         }
     }

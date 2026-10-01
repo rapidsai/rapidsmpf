@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include <condition_variable>
 #include <mutex>
 #include <span>
 #include <string>
@@ -41,8 +42,13 @@ class ChunksToSend {
     /**
      * @brief Extract ready chunks and restore disk-backed data to addressable memory.
      *
-     * Extracts ready chunks in order through the first disk-backed chunk, restores that
-     * chunk, and leaves all subsequent chunks queued.
+     * Extracts ready chunks in order up to the first disk-backed chunk, starts restoring
+     * that chunk to addressable memory, and leaves it and all subsequent chunks queued;
+     * the restored chunk is returned by a later call once its copy has completed and
+     * it reports ready. If no addressable memory can be
+     * reserved for the restore, the disk-backed chunk and everything after it stay
+     * queued and only the chunks before it are returned; callers are expected to
+     * retry on a later progress iteration.
      *
      * @param br The buffer resource used to restore disk-backed data.
      * @param memory_types Addressable memory types to try in preference order.
@@ -157,11 +163,59 @@ class ReceivedChunks {
         std::span<MemoryType const> spillable_memory_types
     );
 
+    /**
+     * @brief Demote received payloads from one non-device tier to another.
+     *
+     * Moves up to @p amount bytes of ready chunks whose data lives in @p from into
+     * @p to (typically HOST -> DISK). Unlike `spill()`, the copies are performed
+     * *without* holding the container mutex: the selected chunks' data buffers are
+     * detached under the lock, moved (which for a disk destination is a blocking
+     * file write), and re-attached under the lock. While a chunk's buffer is detached
+     * its partition is "in flight" and `extract()` of that partition blocks until the
+     * demotion has completed. Intended to be called from dedicated demoter threads so
+     * slow disk I/O never runs on the shuffler's progress thread.
+     *
+     * @param br The buffer resource for memory and disk allocations.
+     * @param amount Requested amount of data to demote in bytes.
+     * @param from Memory type of the chunks to demote (must not be DEVICE).
+     * @param to Destination memory type.
+     * @return Actual amount of data demoted in bytes.
+     */
+    [[nodiscard]] std::size_t demote(
+        BufferResource* br, std::size_t amount, MemoryType from, MemoryType to
+    );
+
+    /**
+     * @brief Whether a demotion of chunks of @p pid is currently in flight.
+     *
+     * @param pid Partition to query.
+     * @return True if `demote()` has detached buffers of this partition and not yet
+     * re-attached them (snapshot; may change immediately afterwards).
+     */
+    [[nodiscard]] bool has_in_flight(PartID pid) const {
+        std::lock_guard const lock(mutex_);
+        return in_flight_.contains(pid);
+    }
+
   private:
     // TODO: more fine-grained locking e.g. by locking each partition individually.
+    /// Whether a chunk holds device-resident data (the only kind spill() can move).
+    static bool has_device_data(Chunk const& chunk) {
+        return chunk.data_size() > 0 && chunk.is_data_buffer_set()
+               && chunk.data_memory_type() == MemoryType::DEVICE;
+    }
+
     mutable std::mutex mutex_;
+    /// Signalled when an in-flight demotion completes (see `demote()`/`extract()`).
+    std::condition_variable cv_;
+    /// Per partition: number of chunks whose data buffer is detached by `demote()`.
+    std::unordered_map<PartID, std::size_t> in_flight_;
     std::unordered_map<PartID, std::vector<Chunk>>
         pigeonhole_;  ///< Storage for chunks, stratified by partition ID.
+    /// Number of stored chunks with device-resident data. Lets spill() return
+    /// immediately instead of scanning every stored chunk (potentially hundreds of
+    /// thousands, all already spilled) on each of the progress loop's attempts.
+    std::size_t num_device_chunks_{0};
 };
 
 /**

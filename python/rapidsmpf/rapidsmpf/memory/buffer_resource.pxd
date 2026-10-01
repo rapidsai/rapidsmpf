@@ -6,6 +6,7 @@ from libc.stdint cimport int64_t
 from libcpp cimport bool as bool_t
 from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.optional cimport optional
+from libcpp.string cimport string
 from libcpp.unordered_map cimport unordered_map
 from rmm.librmm.cuda_stream_pool cimport cuda_stream_pool
 from rmm.librmm.memory_resource cimport (any_resource, device_accessible,
@@ -33,6 +34,12 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
         NO
         YES
 
+cdef extern from "<filesystem>" namespace "std::filesystem" nogil:
+    cdef cppclass path "std::filesystem::path":
+        path() except +
+        path(string) except +
+        string string() except +
+
 cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
     cdef cppclass cpp_StreamPool "rapidsmpf::StreamPool":
         cpp_StreamPool(shared_ptr[cuda_stream_pool])
@@ -46,6 +53,7 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
             optional[cpp_Duration],
             shared_ptr[cpp_StreamPool],
             shared_ptr[cpp_Statistics],
+            optional[path],
         ) except +ex_handler
         int64_t memory_available_for_reservation(
             MemoryType mem_type
