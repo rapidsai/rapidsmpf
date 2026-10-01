@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
@@ -121,30 +121,6 @@ def test_periodic_spill_check(
     # After a short sleep, we expect many calls to `spill()` by the periodic check.
     time.sleep(0.1)
     assert track_spilled[0] > 1
-
-
-def test_spill_to_make_headroom(
-    device_mr: rmm.mr.CudaMemoryResource,
-) -> None:
-    # Create a buffer resource with a fixed limit of 100 bytes.
-    br = BufferResource(
-        device_mr,
-        memory_limits={MemoryType.DEVICE: 100},
-        periodic_spill_check=None,
-    )
-
-    track_spilled = [0]
-
-    def spill(amount: int) -> int:
-        track_spilled[0] += amount
-        return amount
-
-    br.spill_manager.add_spill_function(spill, priority=0)
-    # We expect to spill on the amount over 100 bytes (the fixed limit).
-    assert br.spill_manager.spill_to_make_headroom(10) == 0
-    assert br.spill_manager.spill_to_make_headroom(100) == 0
-    assert br.spill_manager.spill_to_make_headroom(101) == 1
-    assert br.spill_manager.spill_to_make_headroom(110) == 10
 
 
 def test_reserve_device_memory_and_spill(

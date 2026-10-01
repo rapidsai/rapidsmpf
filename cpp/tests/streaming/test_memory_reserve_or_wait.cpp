@@ -700,7 +700,7 @@ TEST_P(StreamingMemoryReserveOrWait, StatisticsRecordOverbooking) {
         auto [second, second_overbooked] =
             co_await mrow.reserve_or_wait_or_overbook(10, 0);
         EXPECT_EQ(second.size(), 10);
-        // `reserve()` reports the total deficit, which now includes the first
+        // `reserve()` reports the total overbooking, which now includes the first
         // reservation as well.
         EXPECT_EQ(second_overbooked, 20);
     }(mrow));
