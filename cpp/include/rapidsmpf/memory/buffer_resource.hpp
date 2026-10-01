@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstddef>
@@ -509,12 +510,18 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         if (!device_reservation.has_value()) {
             return std::nullopt;
         }
+        // `reserve()` reports the total overbooking, other callers' included, so clamp
+        // to `size` for the part this reservation added.
+        auto const own_overbooking = std::min(size, device_overbooking);
         for (std::size_t attempt = 0; attempt < num_spill_retries; ++attempt) {
-            auto const spilled = spill_manager_.spill(device_overbooking);
-            if (spilled >= device_overbooking) {
+            // With a headroom of zero, `deficit` is the overbooking still outstanding
+            // once the spill lock is held, so memory freed by a concurrent spill is not
+            // spilled again. All of it is spilled, but this call is judged only on its
+            // own share.
+            auto const [deficit, spilled] = spill_manager_.spill_to_make_headroom();
+            if (spilled >= std::min(own_overbooking, deficit)) {
                 return device_reservation;
             }
-            device_overbooking -= spilled;
         }
         return std::nullopt;
     }
