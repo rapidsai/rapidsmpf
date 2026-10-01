@@ -4,8 +4,8 @@
 from libc.stddef cimport size_t
 from libcpp cimport bool as bool_t
 from libcpp.optional cimport optional
+from rmm.librmm.cuda_stream_ref cimport stream_ref
 
-from rapidsmpf._detail.cuda_stream_ref cimport stream_ref
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.config cimport cpp_Options
 

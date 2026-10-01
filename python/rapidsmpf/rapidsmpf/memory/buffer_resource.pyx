@@ -46,7 +46,6 @@ cdef extern from *:
         any_resource[device_accessible]&
     ) except +ex_handler
 
-from rapidsmpf._detail.cuda_stream_ref cimport stream_ref
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.memory_reservation cimport MemoryReservation
 from rapidsmpf.memory.pinned_memory_resource cimport (
@@ -598,7 +597,7 @@ cdef class BufferResource:
         with nogil:
             handle = move(
                 deref(self._handle).make_buffer(
-                    size, stream_ref(stream.view().get()), deref(reservation._handle)
+                    size, stream.view(), deref(reservation._handle)
                 )
             )
         return Buffer.from_handle(move(handle), self, stream)
