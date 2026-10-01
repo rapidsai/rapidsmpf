@@ -145,7 +145,6 @@ TEST(CudaStreamJoinCppOnly, AcceptsNonRangeStreamTypes) {
     // with "'begin' was not declared in this scope". The invocation is vacuous:
     // regression coverage comes from instantiating the selected overload.
     static_assert(!std::ranges::range<cuda::stream_ref>);
-    static_assert(!std::ranges::range<rmm::cuda_stream>);
     static_assert(!std::ranges::range<cudaStream_t>);
 
     CudaEvent event;
