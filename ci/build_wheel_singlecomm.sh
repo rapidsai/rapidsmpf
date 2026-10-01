@@ -44,6 +44,7 @@ export SITE_PACKAGES
 ./ci/build_wheel.sh "${package_name}" "${package_dir}"
 
 python -m auditwheel repair \
+    --exclude libkvikio.so \
     --exclude libnvidia-ml.so.1 \
     --exclude librapids_logger.so \
     --exclude librmm.so \
@@ -61,7 +62,7 @@ rapids-dependency-file-generator \
   --output requirements \
   --file-key "py_build_${package_name_py}" \
   --file-key "py_rapids_build_${package_name_py}" \
-  --matrix "cuda=${RAPIDS_CUDA_VERSION%.*};arch=$(arch);py=${RAPIDS_PY_VERSION};cuda_suffixed=true" \
+  --matrix "cuda=${RAPIDS_CUDA_VERSION%.*};arch=$(arch);py=${RAPIDS_PY_VERSION};cuda_suffixed=true;use_cuda_wheels=true" \
 | tee /tmp/requirements-build.txt
 
 echo "librapidsmpf-${RAPIDS_PY_CUDA_SUFFIX} @ file://$(echo "${RAPIDS_WHEEL_BLD_OUTPUT_DIR}"/librapidsmpf_*.whl)" >> "${PIP_CONSTRAINT}"
@@ -83,6 +84,7 @@ export RAPIDS_PY_API
 ./ci/build_wheel.sh "${package_name_py}" "${package_dir_py}" --stable
 
 python -m auditwheel repair \
+    --exclude libkvikio.so \
     --exclude libnvidia-ml.so.1 \
     --exclude librapids_logger.so \
     --exclude librmm.so \
