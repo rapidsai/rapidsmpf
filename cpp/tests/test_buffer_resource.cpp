@@ -469,7 +469,10 @@ TEST_F(BufferResourceReserveOrFailTest, TryReserve) {
 TEST(BufferResourceTryReserveOrSpill, EmptyReservationUsesFirstMemoryType) {
     rmm::mr::cuda_memory_resource mr;
     auto br = BufferResource::create(
-        mr, PinnedMemoryDisabled, {{MemoryType::DEVICE, 0}, {MemoryType::HOST, 0}}
+        mr,
+        PinnedMemoryDisabled,
+        {{MemoryType::DEVICE, 0}, {MemoryType::HOST, 0}},
+        std::nullopt  // disable periodic spill check to avoid racing spill calls
     );
     auto [existing_reservation, overbooking] =
         br->reserve(MemoryType::DEVICE, 1, AllowOverbooking::YES);
@@ -498,7 +501,10 @@ TEST(BufferResourceTryReserveOrSpill, RetriesAfterSpilling) {
     constexpr std::size_t data_size = 16;
     rmm::mr::cuda_memory_resource mr;
     auto br = BufferResource::create(
-        mr, PinnedMemoryDisabled, {{MemoryType::DEVICE, 0}, {MemoryType::HOST, 0}}
+        mr,
+        PinnedMemoryDisabled,
+        {{MemoryType::DEVICE, 0}, {MemoryType::HOST, 0}},
+        std::nullopt  // disable periodic spill check to avoid racing spill calls
     );
     std::size_t spill_calls = 0;
     auto const spill_id = br->spill_manager().add_spill_function(
@@ -523,7 +529,10 @@ TEST(BufferResourceTryReserveOrSpill, DeduplicatesAndTriesHostBeforeSpilling) {
     constexpr std::size_t data_size = 16;
     rmm::mr::cuda_memory_resource mr;
     auto br = BufferResource::create(
-        mr, PinnedMemoryDisabled, {{MemoryType::DEVICE, 0}, {MemoryType::HOST, data_size}}
+        mr,
+        PinnedMemoryDisabled,
+        {{MemoryType::DEVICE, 0}, {MemoryType::HOST, data_size}},
+        std::nullopt  // disable periodic spill check to avoid racing spill calls
     );
     std::size_t spill_calls = 0;
     auto const spill_id = br->spill_manager().add_spill_function(
@@ -549,7 +558,10 @@ TEST(BufferResourceTryReserveOrSpill, DeduplicatesAndTriesHostBeforeSpilling) {
 TEST(BufferResourceTryReserveOrSpill, ReturnsNulloptAfterRetryLimit) {
     rmm::mr::cuda_memory_resource mr;
     auto br = BufferResource::create(
-        mr, PinnedMemoryDisabled, {{MemoryType::DEVICE, 0}, {MemoryType::HOST, 0}}
+        mr,
+        PinnedMemoryDisabled,
+        {{MemoryType::DEVICE, 0}, {MemoryType::HOST, 0}},
+        std::nullopt  // disable periodic spill check to avoid racing spill calls
     );
     std::size_t spill_calls = 0;
     auto const spill_id = br->spill_manager().add_spill_function(
