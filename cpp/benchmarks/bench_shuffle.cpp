@@ -3,9 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
+#include <chrono>
 #include <cstddef>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <optional>
+#include <random>
 #include <unordered_map>
 #include <vector>
 
@@ -13,6 +18,8 @@
 
 #include <cuda/stream>
 
+#include <rmm/cuda_stream.hpp>
+#include <rmm/cuda_stream_pool.hpp>
 #include <rmm/mr/per_device_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
@@ -31,6 +38,7 @@
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
+#include "utils/delay_kernel.hpp"
 #include "utils/misc.hpp"
 #include "utils/rmm_utils.hpp"
 
@@ -83,7 +91,7 @@ class ArgumentParser {
 
         try {
             int option;
-            while ((option = getopt(argc, argv, "hC:r:w:n:p:o:m:si:t:a:")) != -1) {
+            while ((option = getopt(argc, argv, "hC:r:w:n:p:o:m:si:t:a:gd:k:L:")) != -1) {
                 switch (option) {
                 case 'h':
                     {
@@ -110,6 +118,19 @@ class ArgumentParser {
                               "{pinned, host, disk} (default: pinned,host,disk)\n"
                            << "  -a <types> Comma-separated shuffler allocation types "
                               "{device, pinned, host} (default: device,pinned,host)\n"
+                           << "  -g         Generate each batch inside the timed "
+                              "region on its own stream and insert it without "
+                              "synchronizing (default: pre-generate and sync)\n"
+                           << "  -d <us>[:pattern] Delay each batch's stream by up to "
+                              "<us> microseconds before generating it (requires -g). "
+                              "pattern: uniform (all batches <us>), reverse (first "
+                              "batch <us>, last 0), random (seeded, in [0, <us>]) "
+                              "(default: 0:uniform)\n"
+                           << "  -k <num>   Batch b only contains partitions p with "
+                              "p % k == b % k (default: 1, all partitions)\n"
+                           << "  -L <limit> Device memory limit as a multiple of the "
+                              "local input size, or 'unlimited' (default: unlimited, "
+                              "i.e. RAPIDSMPF_SPILL_DEVICE_LIMIT)\n"
                            << "  -h         Display this help message\n";
                         if (rank == 0) {
                             std::cerr << ss.str();
@@ -203,6 +224,39 @@ class ArgumentParser {
                         );
                     }
                     break;
+                case 'g':
+                    async_generation = true;
+                    break;
+                case 'd':
+                    {
+                        std::string const arg{optarg};
+                        auto const colon = arg.find(':');
+                        std::uint64_t delay_us = 0;
+                        parse_integer(delay_us, arg.substr(0, colon).c_str());
+                        delay = std::chrono::microseconds{delay_us};
+                        if (colon != std::string::npos) {
+                            delay_pattern = arg.substr(colon + 1);
+                        }
+                        if (!(delay_pattern == "uniform" || delay_pattern == "reverse"
+                              || delay_pattern == "random"))
+                        {
+                            throw std::invalid_argument(
+                                "-d pattern must be one of {uniform, reverse, random}"
+                            );
+                        }
+                    }
+                    break;
+                case 'k':
+                    parse_integer(partition_stride, optarg, 1);
+                    break;
+                case 'L':
+                    if (std::string{optarg} != "unlimited") {
+                        device_limit_factor = std::stod(optarg);
+                        if (*device_limit_factor <= 0) {
+                            throw std::invalid_argument("-L must be positive");
+                        }
+                    }
+                    break;
                 case '?':
                     if (use_mpi) {
                         RAPIDSMPF_MPI(MPI_Abort(MPI_COMM_WORLD, -1));
@@ -216,6 +270,9 @@ class ArgumentParser {
             }
             if (optind < argc) {
                 RAPIDSMPF_FAIL("unknown option", std::invalid_argument);
+            }
+            if (delay.count() > 0 && !async_generation) {
+                RAPIDSMPF_FAIL("-d requires -g", std::invalid_argument);
             }
         } catch (std::exception const& e) {
             if (rank == 0) {
@@ -270,6 +327,19 @@ class ArgumentParser {
             ss << allocation_types[i];
         }
         ss << " (shuffler allocation types)\n";
+        ss << "  -g " << (async_generation ? "true" : "false")
+           << " (generate batches asynchronously in the timed region)\n";
+        ss << "  -d " << delay.count() << ":" << delay_pattern << " (batch delay)\n";
+        ss << "  -k " << partition_stride << " (partition stride)\n";
+        ss << "  -L ";
+        if (device_limit_factor.has_value()) {
+            ss << *device_limit_factor;
+        } else {
+            ss << "unlimited";
+        }
+        ss << " (device limit factor)\n";
+        ss << "  send order policy: " << shuffler::detail::send_order_policy_from_env()
+           << " (RAPIDSMPF_SHUFFLER_SEND_ORDER_POLICY)\n";
         comm.logger()->print(ss.str());
     }
 
@@ -284,7 +354,43 @@ class ArgumentParser {
     MemoryType input_memory_type{MemoryType::DEVICE};
     std::vector<MemoryType> spill_targets{to_vector(SPILL_TARGET_MEMORY_TYPES)};
     std::vector<MemoryType> allocation_types{to_vector(ADDRESSABLE_MEMORY_TYPES)};
+    bool async_generation{false};
+    std::chrono::microseconds delay{0};
+    std::string delay_pattern{"uniform"};
+    std::uint64_t partition_stride{1};
+    std::optional<double> device_limit_factor{};
 };
+
+/**
+ * @brief Whether insertion batch @p batch contains a chunk for partition @p pid.
+ */
+[[nodiscard]] bool batch_has_partition(
+    ArgumentParser const& args, std::uint64_t batch, PartID pid
+) {
+    return static_cast<std::uint64_t>(pid) % args.partition_stride
+           == batch % args.partition_stride;
+}
+
+/**
+ * @brief The delay to apply to the stream of insertion batch @p batch.
+ */
+[[nodiscard]] std::chrono::nanoseconds batch_delay(
+    ArgumentParser const& args, std::uint64_t batch, std::mt19937_64& rng
+) {
+    std::chrono::nanoseconds const max_delay{args.delay};
+    if (args.delay_pattern == "reverse") {
+        if (args.num_batches <= 1) {
+            return max_delay;
+        }
+        return max_delay * static_cast<std::int64_t>(args.num_batches - 1 - batch)
+               / static_cast<std::int64_t>(args.num_batches - 1);
+    }
+    if (args.delay_pattern == "random") {
+        std::uniform_int_distribution<std::int64_t> dist{0, max_delay.count()};
+        return std::chrono::nanoseconds{dist(rng)};
+    }
+    return max_delay;
+}
 
 void comm_barrier(std::shared_ptr<Communicator> const& comm, bool mpi_initialized) {
     if (auto ucxx_comm = std::dynamic_pointer_cast<rapidsmpf::ucxx::UCXX>(comm)) {
@@ -335,7 +441,7 @@ void comm_barrier(std::shared_ptr<Communicator> const& comm, bool mpi_initialize
         auto const bytes = std::vector<std::uint8_t>(size, *fill_byte);
         auto const& disk_buffer = data->get_storage<Buffer::DiskBufferT>();
         auto const written = disk_buffer->disk_resource()->write(
-            disk_buffer->path(), bytes.data(), bytes.size(), MemoryType::HOST, stream
+            disk_buffer->path(), bytes.data(), bytes.size(), stream
         );
         RAPIDSMPF_EXPECTS(
             written == bytes.size(), "failed to initialize disk input", std::runtime_error
@@ -356,6 +462,27 @@ void comm_barrier(std::shared_ptr<Communicator> const& comm, bool mpi_initialize
     return PackedData{std::move(metadata), std::move(data)};
 }
 
+[[nodiscard]] std::unordered_map<PartID, PackedData> generate_batch(
+    Communicator const& comm,
+    ArgumentParser const& args,
+    PartID total_num_partitions,
+    std::uint64_t batch,
+    cuda::stream_ref stream,
+    BufferResource& br
+) {
+    std::unordered_map<PartID, PackedData> chunks;
+    chunks.reserve(total_num_partitions);
+    for (PartID pid = 0; pid < total_num_partitions; ++pid) {
+        if (batch_has_partition(args, batch, pid)) {
+            chunks.emplace(
+                pid,
+                make_chunk(comm.rank(), batch, pid, args.payload_size, stream, br, args)
+            );
+        }
+    }
+    return chunks;
+}
+
 [[nodiscard]] std::vector<std::unordered_map<PartID, PackedData>> generate_batches(
     Communicator const& comm,
     ArgumentParser const& args,
@@ -366,15 +493,9 @@ void comm_barrier(std::shared_ptr<Communicator> const& comm, bool mpi_initialize
     std::vector<std::unordered_map<PartID, PackedData>> batches;
     batches.reserve(args.num_batches);
     for (std::uint64_t batch = 0; batch < args.num_batches; ++batch) {
-        std::unordered_map<PartID, PackedData> chunks;
-        chunks.reserve(total_num_partitions);
-        for (PartID pid = 0; pid < total_num_partitions; ++pid) {
-            chunks.emplace(
-                pid,
-                make_chunk(comm.rank(), batch, pid, args.payload_size, stream, br, args)
-            );
-        }
-        batches.push_back(std::move(chunks));
+        batches.push_back(
+            generate_batch(comm, args, total_num_partitions, batch, stream, br)
+        );
     }
     return batches;
 }
@@ -462,10 +583,15 @@ void validate_extracted(
         std::runtime_error
     );
 
-    auto const expected_chunks_per_partition =
-        args.num_batches * static_cast<std::uint64_t>(comm->nranks());
-
     for (PartID const pid : local_partitions) {
+        std::uint64_t batches_with_pid = 0;
+        for (std::uint64_t batch = 0; batch < args.num_batches; ++batch) {
+            if (batch_has_partition(args, batch, pid)) {
+                ++batches_with_pid;
+            }
+        }
+        auto const expected_chunks_per_partition =
+            batches_with_pid * static_cast<std::uint64_t>(comm->nranks());
         auto it = extracted.find(pid);
         RAPIDSMPF_EXPECTS(
             it != extracted.end(), "missing extracted partition", std::runtime_error
@@ -479,6 +605,7 @@ void validate_extracted(
         std::vector<bool> seen(
             args.num_batches * static_cast<std::size_t>(comm->nranks()), false
         );
+        std::optional<std::pair<Rank, std::uint32_t>> prev;
         for (auto& packed : it->second) {
             auto const header = ChunkHeader::from_metadata(*packed.metadata);
             RAPIDSMPF_EXPECTS(
@@ -486,6 +613,15 @@ void validate_extracted(
                 "chunk routed to wrong partition",
                 std::runtime_error
             );
+            // Extracted chunks must be grouped by source rank and, per source rank, be
+            // in insertion order.
+            std::pair<Rank, std::uint32_t> const cur{header.src_rank, header.batch};
+            RAPIDSMPF_EXPECTS(
+                !prev.has_value() || *prev < cur,
+                "extracted chunks are not ordered by (source rank, insertion batch)",
+                std::runtime_error
+            );
+            prev = cur;
             auto const key = static_cast<std::size_t>(header.batch)
                                  * static_cast<std::size_t>(comm->nranks())
                              + static_cast<std::size_t>(header.src_rank);
@@ -507,7 +643,9 @@ Duration run_shuffle(
     ArgumentParser const& args,
     PartID total_num_partitions,
     BufferResource& br,
-    std::vector<std::unordered_map<PartID, PackedData>>& batches
+    std::vector<std::unordered_map<PartID, PackedData>>& batches,
+    rmm::cuda_stream_pool const& batch_streams,
+    std::uint64_t run
 ) {
     Shuffler shuffler(
         comm,
@@ -524,8 +662,19 @@ Duration run_shuffle(
     RAPIDSMPF_CUDA_TRY(cudaDeviceSynchronize());
     auto const t0_elapsed = Clock::now();
 
-    for (auto& batch : batches) {
-        shuffler.insert(std::move(batch));
+    if (args.async_generation) {
+        std::mt19937_64 rng{static_cast<std::uint64_t>(comm->rank()) * 1000003 + run};
+        for (std::uint64_t batch = 0; batch < args.num_batches; ++batch) {
+            auto const stream = batch_streams.get_stream(batch);
+            launch_delay_kernel(batch_delay(args, batch, rng), stream);
+            shuffler.insert(
+                generate_batch(*comm, args, total_num_partitions, batch, stream, br)
+            );
+        }
+    } else {
+        for (auto& batch : batches) {
+            shuffler.insert(std::move(batch));
+        }
     }
     shuffler.insert_finished();
     shuffler.wait(std::chrono::seconds{3600});
@@ -601,14 +750,48 @@ int main(int argc, char** argv) {
     args.pprint(*comm);
     set_current_rmm_resource(args.rmm_mr);
 
-    auto br = BufferResource::from_options(
-        rmm::mr::get_current_device_resource_ref(), options, stats
-    );
-    std::ignore = rmm::mr::set_current_device_resource(br->device_mr_adaptor());
-
     auto const total_num_partitions = safe_cast<PartID>(
         args.output_partitions_per_rank * static_cast<std::uint64_t>(comm->nranks())
     );
+
+    // Input bytes inserted by this rank, and how many of them leave this rank.
+    std::uint64_t local_logical_bytes = 0;
+    std::uint64_t local_network_bytes = 0;
+    for (std::uint64_t batch = 0; batch < args.num_batches; ++batch) {
+        for (PartID pid = 0; pid < total_num_partitions; ++pid) {
+            if (batch_has_partition(args, batch, pid)) {
+                local_logical_bytes += args.payload_size;
+                if (Shuffler::round_robin(comm, pid, total_num_partitions)
+                    != comm->rank())
+                {
+                    local_network_bytes += args.payload_size;
+                }
+            }
+        }
+    }
+
+    // The device limit is read from the options, so override it before creating the
+    // buffer resource.
+    std::optional<std::uint64_t> device_limit;
+    if (args.device_limit_factor.has_value()) {
+        device_limit = static_cast<std::uint64_t>(
+            *args.device_limit_factor * static_cast<double>(local_logical_bytes)
+        );
+        ::setenv(
+            "RAPIDSMPF_SPILL_DEVICE_LIMIT", std::to_string(*device_limit).c_str(), 1
+        );
+    }
+    rapidsmpf::config::Options br_options{rapidsmpf::config::get_environment_variables()};
+    auto br = BufferResource::from_options(
+        rmm::mr::get_current_device_resource_ref(), br_options, stats
+    );
+    std::ignore = rmm::mr::set_current_device_resource(br->device_mr_adaptor());
+
+    // One stream per insertion batch, so each batch becomes ready independently.
+    rmm::cuda_stream_pool const batch_streams{
+        std::clamp<std::size_t>(args.num_batches, 1, 128),
+        rmm::cuda_stream::flags::non_blocking
+    };
 
     {
         std::stringstream ss;
@@ -628,15 +811,15 @@ int main(int argc, char** argv) {
         ss << "  Total partitions: " << total_num_partitions << "\n";
         ss << "  Local partitions: " << args.output_partitions_per_rank << "\n";
         ss << "  BufferResource configured from environment options\n";
+        ss << "  Local input size: " << format_nbytes(local_logical_bytes) << "\n";
+        ss << "  Device limit: "
+           << (device_limit.has_value() ? format_nbytes(*device_limit)
+                                        : std::string{"from environment"})
+           << "\n";
         log->print(ss.str());
     }
 
     auto const nranks = static_cast<std::uint64_t>(comm->nranks());
-    auto const local_logical_bytes =
-        args.payload_size * args.num_batches * args.output_partitions_per_rank * nranks;
-    auto const local_network_bytes = args.payload_size * args.num_batches
-                                     * args.output_partitions_per_rank
-                                     * (nranks > 0 ? nranks - 1 : 0);
 
     std::vector<double> elapsed_vec;
     for (std::uint64_t i = 0; i < args.num_warmups + args.num_runs; ++i) {
@@ -644,9 +827,13 @@ int main(int argc, char** argv) {
             stats->enable();
         }
 
-        auto batches = generate_batches(*comm, args, total_num_partitions, stream, *br);
+        std::vector<std::unordered_map<PartID, PackedData>> batches;
+        if (!args.async_generation) {
+            batches = generate_batches(*comm, args, total_num_partitions, stream, *br);
+        }
         auto const elapsed =
-            run_shuffle(comm, args, total_num_partitions, *br, batches).count();
+            run_shuffle(comm, args, total_num_partitions, *br, batches, batch_streams, i)
+                .count();
 
         std::stringstream ss;
         ss << "elapsed: " << format_duration(elapsed);
@@ -681,6 +868,15 @@ int main(int argc, char** argv) {
            << " | output_partitions_per_rank: " << args.output_partitions_per_rank
            << " | nranks: " << comm->nranks();
         log->print(ss.str());
+        // Machine readable summary for sweep scripts.
+        std::stringstream result;
+        result << "RESULT policy=" << shuffler::detail::send_order_policy_from_env()
+               << " rank=" << comm->rank() << " mean_elapsed_s=" << elapsed_mean
+               << " local_input_bytes=" << local_logical_bytes
+               << " local_network_bytes=" << local_network_bytes << " device_limit="
+               << (device_limit.has_value() ? std::to_string(*device_limit)
+                                            : std::string{"env"});
+        log->print(result.str());
     }
     log->print(stats->report({
         .mr = br->device_mr_adaptor(),
