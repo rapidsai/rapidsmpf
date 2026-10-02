@@ -73,6 +73,14 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
     This option ensures forward progress under memory pressure and prevents the
     system from stalling indefinitely when memory availability fluctuates.
 
+    A spill frees memory in whole buffers and can take longer than this timeout.
+    So when the timeout expires while a spill is executing, the request keeps
+    waiting for as long as spilling keeps increasing the memory available, then
+    takes one more admission attempt before forcing progress. This extra wait is
+    capped at ten times this timeout, which only matters if a spill never finishes.
+    Nothing is spilled on behalf of the request, so a workload that does not
+    spill sees the timeout unchanged.
+
 - **`allow_overbooking_by_default`**
   - **Environment Variable**: `RAPIDSMPF_ALLOW_OVERBOOKING_BY_DEFAULT`
   - **Default**: `true`
