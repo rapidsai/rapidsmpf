@@ -9,18 +9,17 @@
 
 namespace rapidsmpf {
 
-RmmResourceAdaptor::RmmResourceAdaptor(
-    cuda::mr::any_resource<cuda::mr::device_accessible> primary_mr
-)
+RmmResourceAdaptor::RmmResourceAdaptor(cuda::mr::any_device_resource primary_mr)
     : shared_base(
           cuda::mr::make_shared_resource<
-              detail::RmmResourceAdaptorImpl<any_device_resource>>(std::move(primary_mr))
+              detail::RmmResourceAdaptorImpl<cuda::mr::any_device_resource>>(
+              std::move(primary_mr)
+          )
       ) {}
 
-rapidsmpf::device_resource_ref
-RmmResourceAdaptor::get_upstream_resource() const noexcept {
-    return rapidsmpf::device_resource_ref{
-        const_cast<any_device_resource&>(get().upstream_resource())
+cuda::mr::device_resource_ref RmmResourceAdaptor::get_upstream_resource() const noexcept {
+    return cuda::mr::device_resource_ref{
+        const_cast<cuda::mr::any_device_resource&>(get().upstream_resource())
     };
 }
 

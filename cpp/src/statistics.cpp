@@ -324,7 +324,7 @@ Statistics::MemoryRecorder::~MemoryRecorder() {
 }
 
 Statistics::MemoryRecorder Statistics::create_memory_recorder(
-    any_device_resource mr, std::string name
+    cuda::mr::any_device_resource mr, std::string name
 ) {
     auto* rma = cuda::mr::resource_cast<RmmResourceAdaptor>(&mr);
     if (!enabled() || !rma) {

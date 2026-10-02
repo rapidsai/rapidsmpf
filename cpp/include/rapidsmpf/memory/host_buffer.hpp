@@ -41,13 +41,9 @@ class HostBuffer {
      * @param mr Host-accessible memory resource used for allocation. Taken by value
      * so the buffer shares ownership of the resource (e.g. bumps the refcount
      * when constructed from a shared-ownership resource); an implicit
-     * conversion from `rapidsmpf::host_resource_ref` is also supported.
+     * conversion from `cuda::mr::host_resource_ref` is also supported.
      */
-    HostBuffer(
-        std::size_t size,
-        cuda::stream_ref stream,
-        cuda::mr::any_resource<cuda::mr::host_accessible> mr
-    );
+    HostBuffer(std::size_t size, cuda::stream_ref stream, cuda::mr::any_host_resource mr);
 
     ~HostBuffer() noexcept;
 
@@ -159,7 +155,7 @@ class HostBuffer {
     static HostBuffer from_uint8_vector(
         std::vector<std::uint8_t> const& data,
         cuda::stream_ref stream,
-        rapidsmpf::host_resource_ref mr
+        cuda::mr::host_resource_ref mr
     );
 
     /**
