@@ -32,6 +32,55 @@
 #include <rapidsmpf/memory/packed_data.hpp>
 
 /**
+ * @brief A CUDA stream that is blocked until `open()` is called.
+ *
+ * Work enqueued on `stream()` does not run before the gate is opened, which makes it
+ * possible to create buffers whose latest write is deterministically not done. The
+ * gate is opened and its stream synchronized and destroyed on destruction.
+ */
+class StreamGate {
+  public:
+    StreamGate() {
+        RAPIDSMPF_CUDA_TRY(cudaStreamCreateWithFlags(&stream_, cudaStreamNonBlocking));
+        RAPIDSMPF_CUDA_TRY(cudaLaunchHostFunc(
+            stream_,
+            [](void* arg) {
+                auto const* is_open = static_cast<std::atomic<bool> const*>(arg);
+                while (!is_open->load(std::memory_order_acquire)) {
+                    std::this_thread::yield();
+                }
+            },
+            &is_open_
+        ));
+    }
+
+    ~StreamGate() noexcept {
+        open();
+        cudaStreamSynchronize(stream_);
+        cudaStreamDestroy(stream_);
+    }
+
+    StreamGate(StreamGate const&) = delete;
+    StreamGate& operator=(StreamGate const&) = delete;
+    StreamGate(StreamGate&&) = delete;
+    StreamGate& operator=(StreamGate&&) = delete;
+
+    /// @brief Unblock the stream.
+    void open() noexcept {
+        is_open_.store(true, std::memory_order_release);
+    }
+
+    /// @brief Returns the gated stream.
+    [[nodiscard]] cuda::stream_ref stream() const noexcept {
+        return cuda::stream_ref{stream_};
+    }
+
+  private:
+    std::atomic<bool> is_open_{false};
+    cudaStream_t stream_{};
+};
+
+/**
  * @brief RAII temporary directory created under GTest's temp directory.
  *
  * The directory is created on construction and recursively removed on

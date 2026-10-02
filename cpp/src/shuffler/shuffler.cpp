@@ -8,6 +8,7 @@
 #include <functional>
 #include <memory>
 #include <ranges>
+#include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -93,9 +94,23 @@ class Shuffler::Progress {
 
         // Submit outgoing chunks to the metadata payload exchange
         {
+            detail::ChunksToSend::ExtractStats extract_stats;
             auto ready_chunks = shuffler_.to_send_.extract_and_restore(
-                shuffler_.br_, shuffler_.reservation_memory_types_
+                shuffler_.br_, shuffler_.reservation_memory_types_, &extract_stats
             );
+            if (stats->enabled()) {
+                auto add_count = [&](std::string const& name, std::size_t value) {
+                    if (value > 0) {
+                        stats->add_stat(name, static_cast<double>(value));
+                    }
+                };
+                add_count("shuffle-send-not-ready", extract_stats.not_ready);
+                add_count("shuffle-send-blocked", extract_stats.blocked);
+                add_count("shuffle-send-restored", extract_stats.restored);
+                add_count(
+                    "shuffle-send-restore-deferred", extract_stats.restore_deferred
+                );
+            }
             RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE("submit_outgoing", ready_chunks.size());
 
             if (!ready_chunks.empty()) {
@@ -230,7 +245,7 @@ Shuffler::Shuffler(
       br_{br},
       spillable_memory_types_{std::move(spillable_memory_types)},
       reservation_memory_types_{std::move(reservation_memory_types)},
-      to_send_{},
+      to_send_{detail::send_order_policy_from_env()},
       received_{safe_cast<std::size_t>(total_num_partitions)},
       comm_{std::move(comm)},
       mpe_{
@@ -360,7 +375,7 @@ void Shuffler::insert(detail::Chunk&& chunk) {
         insert_into_received(std::move(chunk));
     } else {
         // this is a remote chunk, so we need to send it
-        to_send_.insert(std::make_unique<detail::Chunk>(std::move(chunk)));
+        to_send_.insert(dst_rank, std::make_unique<detail::Chunk>(std::move(chunk)));
     }
 }
 
@@ -430,6 +445,14 @@ std::vector<PackedData> Shuffler::extract(PartID pid) {
     }
 
     auto chunks = received_.extract(pid);
+
+    // Chunks may arrive out of insertion order, since outgoing chunks are only ordered
+    // per send order policy key. Chunk IDs encode the source rank in the upper bits and
+    // a per-rank counter incremented on insertion in the lower bits, so sorting by chunk
+    // ID orders the chunks by source rank, then by insertion order.
+    std::ranges::sort(chunks, std::less{}, [](auto const& chunk) {
+        return chunk.chunk_id();
+    });
 
     std::vector<PackedData> ret;
     ret.reserve(chunks.size());

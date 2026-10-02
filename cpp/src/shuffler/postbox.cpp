@@ -3,7 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cstdlib>
+#include <optional>
 #include <sstream>
+#include <stdexcept>
+#include <string>
+#include <unordered_set>
 
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
@@ -11,57 +16,138 @@
 #include <rapidsmpf/shuffler/chunk.hpp>
 #include <rapidsmpf/shuffler/postbox.hpp>
 #include <rapidsmpf/utils/misc.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 namespace rapidsmpf::shuffler::detail {
 
-void ChunksToSend::insert(std::unique_ptr<Chunk> c) {
-    std::lock_guard lock(mutex_);
-    chunks_.push_back(std::move(c));
+SendOrderPolicy parse_send_order_policy(std::string_view name) {
+    auto const lower = to_lower(trim(name));
+    if (lower == "global") {
+        return SendOrderPolicy::Global;
+    }
+    if (lower == "rank") {
+        return SendOrderPolicy::PerRank;
+    }
+    if (lower == "pid") {
+        return SendOrderPolicy::PerPartition;
+    }
+    if (lower == "none") {
+        return SendOrderPolicy::None;
+    }
+    RAPIDSMPF_FAIL(
+        "invalid send order policy: \"" + std::string{name}
+            + "\" (expected global, rank, pid or none)",
+        std::invalid_argument
+    );
 }
 
-std::vector<Chunk> ChunksToSend::extract_ready() {
-    std::lock_guard lock(mutex_);
-    std::vector<Chunk> result;
-    for (auto&& chunk : chunks_) {
-        if (!chunk->is_ready()) {
-            break;
-        }
-        auto c = std::move(chunk);
-        result.emplace_back(std::move(*c));
+SendOrderPolicy send_order_policy_from_env() {
+    char const* env = std::getenv("RAPIDSMPF_SHUFFLER_SEND_ORDER_POLICY");
+    if (env == nullptr || *env == '\0') {
+        return SendOrderPolicy::Global;
     }
-    std::erase(chunks_, nullptr);
-    return result;
+    return parse_send_order_policy(env);
+}
+
+std::ostream& operator<<(std::ostream& os, SendOrderPolicy policy) {
+    switch (policy) {
+    case SendOrderPolicy::Global:
+        return os << "global";
+    case SendOrderPolicy::PerRank:
+        return os << "rank";
+    case SendOrderPolicy::PerPartition:
+        return os << "pid";
+    case SendOrderPolicy::None:
+        return os << "none";
+    }
+    return os << "unknown";
+}
+
+void ChunksToSend::insert(Rank dst, std::unique_ptr<Chunk> c) {
+    std::lock_guard lock(mutex_);
+    chunks_.emplace_back(dst, std::move(c));
+}
+
+std::vector<Chunk> ChunksToSend::extract_ready(ExtractStats* stats) {
+    return extract(nullptr, {}, stats);
 }
 
 std::vector<Chunk> ChunksToSend::extract_and_restore(
-    BufferResource* br, std::span<MemoryType const> memory_types
+    BufferResource* br, std::span<MemoryType const> memory_types, ExtractStats* stats
+) {
+    RAPIDSMPF_EXPECTS(br != nullptr, "the buffer resource pointer cannot be NULL");
+    return extract(br, memory_types, stats);
+}
+
+std::vector<Chunk> ChunksToSend::extract(
+    BufferResource* br, std::span<MemoryType const> memory_types, ExtractStats* stats
 ) {
     std::lock_guard lock(mutex_);
+    ExtractStats local_stats;
     std::vector<Chunk> result;
-    for (auto&& chunk : chunks_) {
+
+    // Keys (destination rank or partition ID) of chunks that could not be extracted. A
+    // later chunk with a blocked key is held back so that, for each key, chunks leave in
+    // insertion order.
+    std::unordered_set<std::uint64_t> blocked_keys;
+    auto const key_of = [&](Rank dst, Chunk const& chunk) -> std::uint64_t {
+        return policy_ == SendOrderPolicy::PerRank
+                   ? safe_cast<std::uint64_t>(dst)
+                   : static_cast<std::uint64_t>(chunk.part_id());
+    };
+    // Restoring is slow and adds pressure on addressable memory, so restore at most one
+    // disk-backed chunk per call.
+    std::size_t restores_left = 1;
+
+    for (auto&& [dst, chunk] : chunks_) {
+        auto const key = key_of(dst, *chunk);
+        if (policy_ == SendOrderPolicy::Global && !blocked_keys.empty()) {
+            break;
+        }
+        if (policy_ != SendOrderPolicy::None && blocked_keys.contains(key)) {
+            continue;
+        }
         if (!chunk->is_ready()) {
-            break;
+            ++local_stats.not_ready;
+            blocked_keys.insert(key);
+            continue;
         }
-        auto const restore = chunk->is_on_disk();
-        if (restore) {
-            auto reservation = br->try_reserve_or_spill(chunk->data_size(), memory_types);
-            RAPIDSMPF_EXPECTS(
-                reservation.has_value(),
-                "failed to reserve addressable memory for an outgoing disk-backed chunk",
-                std::runtime_error
-            );
+        if (br != nullptr && chunk->is_on_disk()) {
+            std::optional<MemoryReservation> reservation;
+            if (restores_left > 0) {
+                reservation = br->try_reserve_or_spill(chunk->data_size(), memory_types);
+            }
+            if (!reservation.has_value()) {
+                RAPIDSMPF_EXPECTS(
+                    policy_ != SendOrderPolicy::Global,
+                    "failed to reserve addressable memory for an outgoing disk-backed "
+                    "chunk",
+                    std::runtime_error
+                );
+                ++local_stats.restore_deferred;
+                blocked_keys.insert(key);
+                continue;
+            }
             chunk->set_data_buffer(br->move(chunk->release_data_buffer(), *reservation));
+            --restores_left;
+            ++local_stats.restored;
+            if (policy_ == SendOrderPolicy::Global) {
+                // Preserve the original behavior: stop after the first restore.
+                result.emplace_back(std::move(*chunk));
+                chunk.reset();
+                break;
+            }
         }
-        auto c = std::move(chunk);
-        result.emplace_back(std::move(*c));
-        if (restore) {
-            // break after the first disk-backed chunk is restored to addressable memory
-            // because restoring is slow and introduce memory pressure for addressable
-            // memory.
-            break;
-        }
+        result.emplace_back(std::move(*chunk));
+        chunk.reset();
     }
-    std::erase(chunks_, nullptr);
+    std::erase_if(chunks_, [](auto const& entry) { return entry.second == nullptr; });
+    if (stats != nullptr) {
+        // Every chunk left behind that was not itself blocking is held back by one.
+        local_stats.blocked =
+            chunks_.size() - local_stats.not_ready - local_stats.restore_deferred;
+        *stats = local_stats;
+    }
     return result;
 }
 
@@ -74,8 +160,8 @@ std::string ChunksToSend::str() const {
     std::lock_guard const lock(mutex_);
     std::stringstream ss;
     ss << "ChunksToSend(";
-    for (auto const& chunk : chunks_) {
-        ss << *chunk << ", ";
+    for (auto const& [dst, chunk] : chunks_) {
+        ss << "dst=" << dst << ": " << *chunk << ", ";
     }
     ss << ")";
     return ss.str();
