@@ -8,6 +8,7 @@
 #include <functional>
 #include <memory>
 #include <ranges>
+#include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -93,7 +94,23 @@ class Shuffler::Progress {
 
         // Submit outgoing chunks to the metadata payload exchange
         {
-            auto ready_chunks = shuffler_.to_send_.extract_ready();
+            detail::ChunksToSend::ExtractStats extract_stats;
+            auto ready_chunks = shuffler_.to_send_.extract_and_restore(
+                shuffler_.br_, shuffler_.reservation_memory_types_, &extract_stats
+            );
+            if (stats->enabled()) {
+                auto add_count = [&](std::string const& name, std::size_t value) {
+                    if (value > 0) {
+                        stats->add_stat(name, static_cast<double>(value));
+                    }
+                };
+                add_count("shuffle-send-not-ready", extract_stats.not_ready);
+                add_count("shuffle-send-blocked", extract_stats.blocked);
+                add_count("shuffle-send-restored", extract_stats.restored);
+                add_count(
+                    "shuffle-send-restore-deferred", extract_stats.restore_deferred
+                );
+            }
             RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE("submit_outgoing", ready_chunks.size());
 
             if (!ready_chunks.empty()) {
@@ -112,7 +129,7 @@ class Shuffler::Progress {
                 };
 
                 for (auto const& chunk : ready_chunks) {
-                    if (chunk.data_size() > 0) {
+                    if (chunk.is_data_buffer_set() && chunk.data_size() > 0) {
                         stats->add_bytes_stat("shuffle-payload-send", chunk.data_size());
                     }
                 }
@@ -172,9 +189,9 @@ class Shuffler::Progress {
         bool const is_done = !shuffler_.active_.load(std::memory_order_acquire)
                              && is_finished && containers_empty;
         // Signal can_extract_ when all chunks have been received and all internal
-        // containers are drained. If we own no partitions we "can-extract" immediately,
-        // but we only wake a waiter once we've drained internal containers so that we can
-        // reuse the op_id for a subsequent shuffle.
+        // containers are drained. If we own no partitions we "can-extract"
+        // immediately, but we only wake a waiter once we've drained internal
+        // containers so that we can reuse the op_id for a subsequent shuffle.
         if (!shuffler_.can_extract_ && is_finished && containers_empty) {
             {
                 std::lock_guard lock(shuffler_.mutex_);
@@ -219,12 +236,16 @@ Shuffler::Shuffler(
     BufferResource* br,
     FinishedCallback&& finished_callback,
     PartitionOwner partition_owner_fn,
-    std::unique_ptr<communicator::MetadataPayloadExchange> mpe
+    std::unique_ptr<communicator::MetadataPayloadExchange> mpe,
+    std::vector<MemoryType> spillable_memory_types,
+    std::vector<MemoryType> reservation_memory_types
 )
     : total_num_partitions{total_num_partitions},
       partition_owner{std::move(partition_owner_fn)},
       br_{br},
-      to_send_{},
+      spillable_memory_types_{std::move(spillable_memory_types)},
+      reservation_memory_types_{std::move(reservation_memory_types)},
+      to_send_{detail::send_order_policy_from_env()},
       received_{safe_cast<std::size_t>(total_num_partitions)},
       comm_{std::move(comm)},
       mpe_{
@@ -233,10 +254,22 @@ Shuffler::Shuffler(
                     comm_,
                     op_id,
                     [this](std::size_t size) -> std::unique_ptr<Buffer> {
-                        return br_->make_buffer(
-                            br_->stream_pool()->get_stream(),
-                            br_->reserve_or_fail(size, ADDRESSABLE_MEMORY_TYPES)
+                        auto reservation =
+                            br_->try_reserve_or_spill(size, reservation_memory_types_);
+                        if (!reservation.has_value()) {
+                            return nullptr;
+                        }
+                        auto data = br_->make_buffer(
+                            br_->stream_pool()->get_stream(), std::move(*reservation)
                         );
+                        if (data->mem_type() == MemoryType::PINNED_HOST
+                            || data->mem_type() == MemoryType::HOST)
+                        {
+                            br_->statistics()->add_bytes_stat(
+                                "recv-into-host-memory", size
+                            );
+                        }
+                        return data;
                     },
                     comm_->progress_thread()->statistics()
                 )
@@ -250,6 +283,29 @@ Shuffler::Shuffler(
     );
     RAPIDSMPF_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be NULL");
     RAPIDSMPF_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be NULL");
+    RAPIDSMPF_EXPECTS(
+        !reservation_memory_types_.empty(),
+        "reservation_memory_types cannot be empty",
+        std::invalid_argument
+    );
+    RAPIDSMPF_EXPECTS(
+        std::ranges::all_of(
+            reservation_memory_types_,
+            [](auto mem_type) { return contains(ADDRESSABLE_MEMORY_TYPES, mem_type); }
+        ),
+        "reservation_memory_types contains a non-addressable memory type",
+        std::invalid_argument
+    );
+    RAPIDSMPF_EXPECTS(
+        std::ranges::all_of(
+            spillable_memory_types_,
+            [](auto mem_type) {
+                return mem_type != MemoryType::DEVICE && contains(MEMORY_TYPES, mem_type);
+            }
+        ),
+        "spillable_memory_types contains an invalid spill destination",
+        std::invalid_argument
+    );
 
     // We need to register the progress function with the progress thread, but
     // that cannot be done in the constructor's initializer list because the
@@ -319,7 +375,7 @@ void Shuffler::insert(detail::Chunk&& chunk) {
         insert_into_received(std::move(chunk));
     } else {
         // this is a remote chunk, so we need to send it
-        to_send_.insert(std::make_unique<detail::Chunk>(std::move(chunk)));
+        to_send_.insert(dst_rank, std::make_unique<detail::Chunk>(std::move(chunk)));
     }
 }
 
@@ -340,10 +396,9 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
         if (headroom < 0 && packed_data.data
             && packed_data.data->mem_type() == MemoryType::DEVICE)
         {
-            auto reservation =
-                br_->reserve_or_fail(packed_data.data->size, SPILL_TARGET_MEMORY_TYPES);
             auto chunk = create_chunk(pid, std::move(packed_data));
-            // Spill the new chunk before inserting.
+            auto reservation =
+                br_->reserve_or_fail(chunk.data_size(), spillable_memory_types_);
             chunk.set_data_buffer(br_->move(chunk.release_data_buffer(), reservation));
             insert(std::move(chunk));
         } else {
@@ -391,6 +446,14 @@ std::vector<PackedData> Shuffler::extract(PartID pid) {
 
     auto chunks = received_.extract(pid);
 
+    // Chunks may arrive out of insertion order, since outgoing chunks are only ordered
+    // per send order policy key. Chunk IDs encode the source rank in the upper bits and
+    // a per-rank counter incremented on insertion in the lower bits, so sorting by chunk
+    // ID orders the chunks by source rank, then by insertion order.
+    std::ranges::sort(chunks, std::less{}, [](auto const& chunk) {
+        return chunk.chunk_id();
+    });
+
     std::vector<PackedData> ret;
     ret.reserve(chunks.size());
 
@@ -423,6 +486,9 @@ void Shuffler::wait(std::optional<std::chrono::milliseconds> timeout) {
 
 std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
+    if (spillable_memory_types_.empty()) {
+        return 0;
+    }
     std::size_t spill_need{0};
     if (amount.has_value()) {
         spill_need = amount.value();
@@ -434,7 +500,7 @@ std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
     }
     std::size_t spilled{0};
     if (spill_need > 0) {
-        spilled = received_.spill(br_, spill_need);
+        spilled = received_.spill(br_, spill_need, spillable_memory_types_);
     }
     return spilled;
 }

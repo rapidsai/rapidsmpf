@@ -4,12 +4,18 @@
  */
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <future>
 #include <memory>
+#include <optional>
+#include <string>
 #include <thread>
+#include <unordered_map>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -44,7 +50,10 @@ TEST(ReceivedChunks, spill_skips_control_messages) {
         )
     );
 
-    EXPECT_EQ(received.spill(br.get(), /*amount=*/1024), 0UL);
+    EXPECT_EQ(
+        received.spill(br.get(), /*amount=*/1024, rapidsmpf::SPILL_TARGET_MEMORY_TYPES),
+        0UL
+    );
 }
 
 TEST(ReceivedChunks, spill_respects_amount) {
@@ -69,7 +78,10 @@ TEST(ReceivedChunks, spill_respects_amount) {
 
     // Two partitions, one 100-byte chunk each. spill() must stop after the first
     // partition satisfies the request; the outer loop must not continue into partition 1.
-    EXPECT_EQ(received.spill(br.get(), chunk_size), chunk_size);
+    EXPECT_EQ(
+        received.spill(br.get(), chunk_size, rapidsmpf::SPILL_TARGET_MEMORY_TYPES),
+        chunk_size
+    );
 }
 
 TEST(MetadataMessage, round_trip) {
@@ -140,6 +152,20 @@ MemoryLimitsMap get_memory_limits_map(rapidsmpf::MemoryType priorities) {
     // Note, we never set host memory to zero because it is used to allocate
     // stuff like metadata and control messages.
     return ret;
+}
+
+std::shared_ptr<rapidsmpf::BufferResource> make_disk_spill_buffer_resource(
+    TempDir const& temp_dir, std::int64_t device_limit
+) {
+    return rapidsmpf::BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        rapidsmpf::PinnedMemoryDisabled,
+        {{rapidsmpf::MemoryType::DEVICE, device_limit}, {rapidsmpf::MemoryType::HOST, 0}},
+        std::nullopt,
+        std::make_shared<rapidsmpf::StreamPool>(4),
+        rapidsmpf::Statistics::disabled(),
+        temp_dir.path()
+    );
 }
 
 /// Conservation-preserving data model shared by the shuffler round-trip tests.
@@ -415,6 +441,106 @@ TEST(Shuffler, payload_statistics) {
     }
 }
 
+namespace {
+
+/// Sets an environment variable for the lifetime of the object.
+class ScopedEnvVar {
+  public:
+    ScopedEnvVar(char const* name, std::string const& value) : name_{name} {
+        if (char const* old = std::getenv(name)) {
+            old_ = old;
+        }
+        ::setenv(name, value.c_str(), 1);
+    }
+
+    ~ScopedEnvVar() {
+        if (old_.has_value()) {
+            ::setenv(name_, old_->c_str(), 1);
+        } else {
+            ::unsetenv(name_);
+        }
+    }
+
+    ScopedEnvVar(ScopedEnvVar const&) = delete;
+    ScopedEnvVar& operator=(ScopedEnvVar const&) = delete;
+
+  private:
+    char const* name_;
+    std::optional<std::string> old_;
+};
+
+}  // namespace
+
+class ShufflerSendOrderPolicyTest : public ::testing::TestWithParam<std::string> {};
+
+INSTANTIATE_TEST_SUITE_P(
+    Shuffler,
+    ShufflerSendOrderPolicyTest,
+    ::testing::Values("global", "rank", "pid", "none"),
+    [](auto const& info) { return info.param; }
+);
+
+// Inserts several batches that share partitions, where the first batch becomes ready
+// last, and checks that extraction still returns each partition in insertion order.
+TEST_P(ShufflerSendOrderPolicyTest, extract_preserves_insertion_order) {
+    using rapidsmpf::shuffler::PartID;
+    ScopedEnvVar const policy{"RAPIDSMPF_SHUFFLER_SEND_ORDER_POLICY", GetParam()};
+    auto const& comm = GlobalEnvironment->comm_;
+    auto br =
+        rapidsmpf::BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    auto const nranks = comm->nranks();
+    auto const total_num_partitions = rapidsmpf::safe_cast<PartID>(2 * nranks);
+    constexpr std::int32_t num_batches = 4;
+    auto const ready_stream = cuda::stream_ref{cudaStreamLegacy};
+
+    StreamGate gate;
+    rapidsmpf::shuffler::Shuffler shuffler(comm, 0, total_num_partitions, br.get());
+    EXPECT_EQ(
+        rapidsmpf::shuffler::detail::send_order_policy_from_env(),
+        rapidsmpf::shuffler::detail::parse_send_order_policy(GetParam())
+    );
+    for (std::int32_t batch = 0; batch < num_batches; ++batch) {
+        auto const stream = batch == 0 ? gate.stream() : ready_stream;
+        std::unordered_map<PartID, rapidsmpf::PackedData> chunks;
+        for (PartID pid = 0; pid < total_num_partitions; ++pid) {
+            std::array<std::int32_t, 2> const header{comm->rank(), batch};
+            auto metadata = std::make_unique<std::vector<std::uint8_t>>(sizeof(header));
+            std::memcpy(metadata->data(), header.data(), sizeof(header));
+            auto data = std::make_unique<rmm::device_buffer>(16, stream);
+            chunks.emplace(
+                pid,
+                rapidsmpf::PackedData{
+                    std::move(metadata), br->move(std::move(data), stream)
+                }
+            );
+        }
+        shuffler.insert(std::move(chunks));
+    }
+    ready_stream.sync();
+    // Give the progress thread time to send the later batches before the first batch.
+    std::this_thread::sleep_for(std::chrono::milliseconds{50});
+    gate.open();
+    shuffler.insert_finished();
+    shuffler.wait(std::chrono::seconds{30});
+
+    std::vector<std::array<std::int32_t, 2>> expected;
+    for (std::int32_t src = 0; src < nranks; ++src) {
+        for (std::int32_t batch = 0; batch < num_batches; ++batch) {
+            expected.push_back({src, batch});
+        }
+    }
+    for (auto pid : shuffler.local_partitions()) {
+        std::vector<std::array<std::int32_t, 2>> actual;
+        for (auto const& packed : shuffler.extract(pid)) {
+            std::array<std::int32_t, 2> header{};
+            EXPECT_EQ(packed.metadata->size(), sizeof(header));
+            std::memcpy(header.data(), packed.metadata->data(), sizeof(header));
+            actual.push_back(header);
+        }
+        EXPECT_EQ(actual, expected) << "pid=" << pid;
+    }
+}
+
 // Test that the same communicator can be used concurrently by multiple shufflers in
 // separate threads
 class ConcurrentShuffleTest : public ::testing::TestWithParam<
@@ -588,6 +714,93 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
         shuffler.insert(std::move(chunk));
     }
     EXPECT_EQ(mr.get_main_record().num_current_allocs(), 0);
+    shuffler.insert_finished();
+}
+
+TEST(Shuffler, ReturnsDiskResidentChunksForCallerToUnspill) {
+    constexpr rapidsmpf::shuffler::PartID total_num_partitions = 1;
+    constexpr std::size_t num_rows = 1000;
+    constexpr std::size_t data_size = num_rows * sizeof(int);
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+    TempDir temp_dir;
+    auto br = make_disk_spill_buffer_resource(
+        temp_dir, rapidsmpf::safe_cast<std::int64_t>(data_size)
+    );
+    auto const& mr = br->device_mr_adaptor();
+    auto comm = GlobalEnvironment->split_comm();
+    EXPECT_EQ(comm->nranks(), 1);
+
+    rapidsmpf::shuffler::Shuffler shuffler(
+        comm,
+        0,
+        total_num_partitions,
+        br.get(),
+        rapidsmpf::shuffler::Shuffler::round_robin,
+        nullptr,
+        {rapidsmpf::MemoryType::DISK}
+    );
+    std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> input;
+    input.emplace(0, generate_packed_data(num_rows, 0, stream, *br));
+    shuffler.insert(std::move(input));
+    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
+
+    EXPECT_EQ(shuffler.spill(data_size), data_size);
+    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 0);
+
+    auto extracted = shuffler.extract(0);
+    ASSERT_EQ(extracted.size(), 1);
+    ASSERT_NE(extracted[0].data, nullptr);
+    EXPECT_EQ(extracted[0].data->mem_type(), rapidsmpf::MemoryType::DISK);
+
+    auto unspilled = rapidsmpf::unspill_partitions(
+        std::move(extracted), br.get(), rapidsmpf::AllowOverbooking::NO
+    );
+    EXPECT_EQ(unspilled[0].data->mem_type(), rapidsmpf::MemoryType::DEVICE);
+    br->set_memory_limit(rapidsmpf::MemoryType::HOST, 1LL << 40);
+    validate_packed_data(std::move(unspilled[0]), num_rows, 0, stream, *br);
+    shuffler.insert_finished();
+}
+
+TEST(Shuffler, SpillToDiskOnInsert) {
+    constexpr rapidsmpf::shuffler::PartID num_partitions = 1;
+    constexpr std::int64_t force_spill_limit = -(1LL << 40);
+    constexpr std::int64_t available_limit = 1LL << 40;
+    constexpr std::size_t num_rows = 1000;
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+    TempDir temp_dir;
+    auto br = make_disk_spill_buffer_resource(temp_dir, force_spill_limit);
+    auto const& mr = br->device_mr_adaptor();
+    auto comm = GlobalEnvironment->split_comm();
+    EXPECT_EQ(comm->nranks(), 1);
+
+    rapidsmpf::shuffler::Shuffler shuffler(
+        comm,
+        0,
+        num_partitions,
+        br.get(),
+        rapidsmpf::shuffler::Shuffler::round_robin,
+        nullptr,
+        {rapidsmpf::MemoryType::DISK}
+    );
+    std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> input;
+    input.emplace(0, generate_packed_data(num_rows, 0, stream, *br));
+    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
+
+    shuffler.insert(std::move(input));
+    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 0);
+
+    br->set_memory_limit(rapidsmpf::MemoryType::DEVICE, available_limit);
+    auto extracted = shuffler.extract(0);
+    ASSERT_EQ(extracted.size(), 1);
+    ASSERT_NE(extracted[0].data, nullptr);
+    EXPECT_EQ(extracted[0].data->mem_type(), rapidsmpf::MemoryType::DISK);
+
+    auto unspilled = rapidsmpf::unspill_partitions(
+        std::move(extracted), br.get(), rapidsmpf::AllowOverbooking::NO
+    );
+    EXPECT_EQ(unspilled[0].data->mem_type(), rapidsmpf::MemoryType::DEVICE);
+    br->set_memory_limit(rapidsmpf::MemoryType::HOST, available_limit);
+    validate_packed_data(std::move(unspilled[0]), num_rows, 0, stream, *br);
     shuffler.insert_finished();
 }
 
