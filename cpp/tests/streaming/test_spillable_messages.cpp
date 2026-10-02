@@ -19,8 +19,8 @@
 #include <rapidsmpf/streaming/chunks/packed_data.hpp>
 #include <rapidsmpf/streaming/core/spillable_messages.hpp>
 
-#include "base_streaming_fixture.hpp"
 #include "../utils.hpp"
+#include "base_streaming_fixture.hpp"
 
 using namespace rapidsmpf;
 using namespace rapidsmpf::streaming;
@@ -137,7 +137,9 @@ TEST_F(StreamingSpillableMessages, SpillWithoutReservation) {
 
     br->set_memory_limit(MemoryType::HOST, 0);
     EXPECT_EQ(msgs.spill(mid, br.get()), 0);
-    EXPECT_EQ(msgs.get_content_description(mid).content_size(MemoryType::DEVICE), sizeof(int));
+    EXPECT_EQ(
+        msgs.get_content_description(mid).content_size(MemoryType::DEVICE), sizeof(int)
+    );
 
     br->set_memory_limit(MemoryType::HOST, sizeof(int));
     EXPECT_EQ(msgs.spill(mid, br.get()), sizeof(int));
@@ -157,7 +159,9 @@ TEST_F(StreamingSpillableMessages, SpillDisabled) {
         create_int_msg(1, 42, MemoryType::DEVICE, ContentDescription::Spillable::YES)
     );
     EXPECT_EQ(msgs.spill(mid, br.get()), 0);
-    EXPECT_EQ(msgs.get_content_description(mid).content_size(MemoryType::DEVICE), sizeof(int));
+    EXPECT_EQ(
+        msgs.get_content_description(mid).content_size(MemoryType::DEVICE), sizeof(int)
+    );
 }
 
 TEST_F(StreamingSpillableMessages, SpillToConfiguredMemoryType) {
@@ -166,7 +170,9 @@ TEST_F(StreamingSpillableMessages, SpillToConfiguredMemoryType) {
         create_int_msg(1, 42, MemoryType::DEVICE, ContentDescription::Spillable::YES)
     );
     EXPECT_EQ(msgs.spill(mid, br.get()), sizeof(int));
-    EXPECT_EQ(msgs.get_content_description(mid).content_size(MemoryType::HOST), sizeof(int));
+    EXPECT_EQ(
+        msgs.get_content_description(mid).content_size(MemoryType::HOST), sizeof(int)
+    );
 }
 
 TEST_F(StreamingSpillableMessages, DiskSpill) {
@@ -185,9 +191,8 @@ TEST_F(StreamingSpillableMessages, DiskSpill) {
     for (std::size_t i = 0; i < size; ++i) {
         expected[i] = static_cast<std::uint8_t>(i);
     }
-    auto data = disk_br->make_buffer(
-        stream, disk_br->reserve_or_fail(size, MemoryType::DEVICE)
-    );
+    auto data =
+        disk_br->make_buffer(stream, disk_br->reserve_or_fail(size, MemoryType::DEVICE));
     data->write_access([&](std::byte* ptr, cuda::stream_ref copy_stream) {
         RAPIDSMPF_CUDA_TRY(cuda_memcpy_async(ptr, expected.data(), size, copy_stream));
     });
@@ -207,9 +212,8 @@ TEST_F(StreamingSpillableMessages, DiskSpill) {
     auto spilled = msgs.extract(mid).release<PackedData>();
     EXPECT_EQ(spilled.data->mem_type(), MemoryType::DISK);
 
-    auto host = disk_br->make_buffer(
-        stream, disk_br->reserve_or_fail(size, MemoryType::HOST)
-    );
+    auto host =
+        disk_br->make_buffer(stream, disk_br->reserve_or_fail(size, MemoryType::HOST));
     buffer_copy(disk_br->statistics(), *host, *spilled.data, size);
     EXPECT_EQ(host->get_storage<Buffer::HostBufferT>()->copy_to_uint8_vector(), expected);
 }

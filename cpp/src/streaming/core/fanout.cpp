@@ -226,9 +226,10 @@ struct UnboundedFanout {
                 auto const cd = spillable_messages->get_content_description(msg_id);
                 // Disk-backed data must be copied into addressable memory. Otherwise,
                 // prefer the input tier or a lower-priority tier.
-                auto const mem_types = cd.principal_memory_type() == MemoryType::DISK
-                                           ? std::span<MemoryType const>{ADDRESSABLE_MEMORY_TYPES}
-                                           : leq_memory_types(cd.principal_memory_type());
+                auto const mem_types =
+                    cd.principal_memory_type() == MemoryType::DISK
+                        ? std::span<MemoryType const>{ADDRESSABLE_MEMORY_TYPES}
+                        : leq_memory_types(cd.principal_memory_type());
                 auto res = ctx.br()->try_reserve_or_spill(cd.content_size(), mem_types);
                 RAPIDSMPF_EXPECTS(
                     res.has_value(),
