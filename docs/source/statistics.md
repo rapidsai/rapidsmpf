@@ -11,9 +11,9 @@ This table gives an overview of the different statistics collected.
 | `event-loop-total` | Time spent in in the background `ProgressThread` event-loop. |
 | `recv-into-host-memory` | Data received directly into host memory rather than device memory, due to memory pressure at receive time. |
 | `reserve-{memtype}-wait-avoided` | Reservation requests that `MemoryReserveOrWait` satisfied at once, over all requests. A miss means the request had to wait. |
-| `reserve-{memtype}-wait-timeout` | Waiting requests that ran out `memory_reserve_timeout`, over the requests that had to wait. A miss means memory was released in time. |
-| `reserve-{memtype}-wait-satisfied-time` | Time requests spent waiting before a reservation release satisfied them. |
-| `reserve-{memtype}-wait-timeout-time` | Time requests spent waiting before the progress timeout fired. |
+| `reserve-{memtype}-wait-timeout` | Waiting requests that were forced through when the timeout ran out, including any spill extension, over the requests that had to wait. A miss means the request was admitted, possibly during a spill extension. |
+| `reserve-{memtype}-wait-satisfied-time` | Time requests spent waiting before being admitted without forced progress, including any time spent in a spill extension. |
+| `reserve-{memtype}-wait-timeout-time` | Time requests spent waiting before being forced through, including any time spent in a spill extension. |
 | `reserve-{memtype}-wait-spill-extended` | Waiting requests that reached `memory_reserve_timeout` with a spill in flight and so extended their deadline, over all requests that reached the timeout. A miss means nothing was spilling and the timeout stood. |
 | `reserve-{memtype}-wait-spill-rescued` | Extended requests that were admitted during the extension, over all extended requests. The memory may come from the spill or from a reservation released meanwhile. A miss means the request extended its deadline and timed out anyway. |
 | `reserve-{memtype}-wait-spill-extension-time` | Time requests spent waiting beyond `memory_reserve_timeout` for a spill to land. |

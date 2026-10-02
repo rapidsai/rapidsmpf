@@ -306,7 +306,13 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
     //    callers' overbooking counts as progress even while it stays below zero.
     //  - When the spill ends, one more admission pass runs before giving up, so the
     //    memory it freed is not missed.
-    //  - The whole wait is capped, see `SPILL_WAIT_CAP_FACTOR`.
+    //  - The extension beyond the timeout is capped, see `SPILL_WAIT_CAP_FACTOR`.
+    //
+    // Most spills target zero headroom, so a spill on its own rarely frees enough to
+    // admit a waiting request. It brings the availability back up, and the request is
+    // then usually admitted by a reservation released during the extension, or by a
+    // spill that frees more than it was asked for, since spilling works in whole
+    // buffers. That is why the progress rule counts any gain, even below zero.
     //
     // Nothing is spilled from here. This only declines to give up during a spill
     // that someone else started.
@@ -422,8 +428,8 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
                 extended_at.reset();
             }
 
-            // Satisfied: a reservation release made room for this request, so it
-            // did not reach the timeout.
+            // Satisfied without forcing progress. The memory came from a reservation
+            // release, or from a spill if the request was in a spill extension.
             record_stat("wait-timeout", 0);
             record_stat(
                 "wait-satisfied-time",
