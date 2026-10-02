@@ -10,10 +10,14 @@
 #include <mutex>
 #include <optional>
 #include <unordered_map>
+#include <vector>
 
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/content_description.hpp>
+#include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/streaming/core/message.hpp>
+#include <rapidsmpf/utils/misc.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 namespace rapidsmpf::streaming {
 
@@ -41,7 +45,23 @@ class SpillableMessages {
     /// @brief Unique identifier assigned to each message.
     using MessageId = std::uint64_t;
 
-    SpillableMessages() = default;
+    /**
+     * @brief Construct an empty container.
+     *
+     * @param spillable_memory_types Memory types available as spill destinations, in
+     * preference order. An empty vector disables spilling. Device memory is not a valid
+     * spill destination.
+     *
+     * @throws std::invalid_argument If @p spillable_memory_types contains an invalid
+     * spill destination.
+     */
+    explicit SpillableMessages(
+        std::vector<MemoryType> spillable_memory_types = from_env_var(
+            "RAPIDSMPF_SPILLABLE_MESSAGES_SPILLABLE_MEM_TYPES",
+            to_vector(SPILL_TARGET_MEMORY_TYPES)
+        )  // TODO: this is a temporary backdoor for testing disk spilling.
+    );
+
     SpillableMessages(SpillableMessages const&) = delete;
     SpillableMessages& operator=(SpillableMessages const&) = delete;
     SpillableMessages(SpillableMessages&&) noexcept = delete;
@@ -91,20 +111,18 @@ class SpillableMessages {
     [[nodiscard]] Message copy(MessageId mid, MemoryReservation& reservation);
 
     /**
-     * @brief Spill a message's device memory to host memory.
+     * @brief Spill a message's device memory to a lower memory tier.
      *
-     * Performs an in-place deep copy of the message's payload from device to
-     * host memory using the specified buffer resource.
+     * Moves the message's payload from device memory to the first of the configured
+     * spillable memory types that can be reserved using the specified buffer resource.
      *
      * If the message is currently being accessed by another thread, is already
-     * spilled, not spillable, or does not exist, the operation returns immediately
-     * without spilling.
+     * spilled, not spillable, does not exist, or none of the spillable memory types can
+     * be reserved, the operation returns immediately without spilling.
      *
      * @param mid Message identifier. If the message does not exist, zero is returned.
      * @param br Buffer resource used for allocations during the spill operation.
      * @return Number of bytes released from device memory (0 if nothing was spilled).
-     *
-     * @throws std::runtime_error If there is insufficient host memory to reserve.
      */
     [[nodiscard]] std::size_t spill(MessageId mid, BufferResource* br) const;
 
@@ -165,6 +183,7 @@ class SpillableMessages {
         Item(Message&& message) : message(std::move(message)) {}
     };
 
+    std::vector<MemoryType> const spillable_memory_types_;
     // Never lock the global mutex and an item's mutex at the same time!
     mutable std::mutex global_mutex_;
     MessageId counter_{0};
