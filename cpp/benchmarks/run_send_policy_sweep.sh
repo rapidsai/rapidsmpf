@@ -15,12 +15,13 @@
 #   GPUS         rrun GPU list, e.g. 0,1,2,3 (0 repeated NRANKS times)
 #   POLICIES     ("global rank pid none")
 #   LIMITS       device limit factors of the local input size ("unlimited 2 1 0.5")
-#   SCENARIOS    ("S0 S1 S2 S3 S4")
+#   SCENARIOS    ("S0 S1 S2 S4")
 #   SIZES        "<payload>x<batches>x<partitions per rank>" ("1048576x16x2 8388608x8x2")
-#   DELAY_US     max batch delay for S1/S2/S4 (2000)
+#   DELAY_US     max batch delay for S1/S2/S4 (100000). Make it comparable to the
+#                shuffle time, otherwise chunks are ready before the progress thread
+#                looks at them and the policies never differ.
 #   RUNS/WARMUPS (5/1)
 #   RMM_MR       (async)
-#   SPILL_DIR    disk spill directory (<out-dir>/spill)
 #   TIMEOUT      per cell timeout in seconds (900)
 #   PRELOAD      optional library to LD_PRELOAD (e.g. a freshly built librapidsmpf.so)
 #
@@ -28,7 +29,6 @@
 #   S0  pre-generated device input, all chunks ready (control)
 #   S1  batches generated on their own streams, reverse delay (first batch ready last)
 #   S2  as S1, random delay
-#   S3  disk input (sending requires restoring)
 #   S4  as S1, but batch b only covers partitions p with p % 2 == b % 2
 
 set -u
@@ -45,26 +45,23 @@ RRUN=${RRUN:-${BUILD_DIR}/tools/rrun}
 GPUS=${GPUS:-$(printf '0,%.0s' $(seq "${NRANKS}") | sed 's/,$//')}
 POLICIES=${POLICIES:-"global rank pid none"}
 LIMITS=${LIMITS:-"unlimited 2 1 0.5"}
-SCENARIOS=${SCENARIOS:-"S0 S1 S2 S3 S4"}
+SCENARIOS=${SCENARIOS:-"S0 S1 S2 S4"}
 SIZES=${SIZES:-"1048576x16x2 8388608x8x2"}
-DELAY_US=${DELAY_US:-2000}
+DELAY_US=${DELAY_US:-100000}
 RUNS=${RUNS:-5}
 WARMUPS=${WARMUPS:-1}
 RMM_MR=${RMM_MR:-async}
-SPILL_DIR=${SPILL_DIR:-${OUT_DIR}/spill}
 TIMEOUT=${TIMEOUT:-900}
 PRELOAD=${PRELOAD:-}
 BENCH=${BUILD_DIR}/benchmarks/bench_shuffle
 CSV=${OUT_DIR}/results.csv
 
-mkdir -p "${SPILL_DIR}"
 
 scenario_args() {
     case "$1" in
         S0) echo "" ;;
         S1) echo "-g -d ${DELAY_US}:reverse" ;;
         S2) echo "-g -d ${DELAY_US}:random" ;;
-        S3) echo "-i disk" ;;
         S4) echo "-g -d ${DELAY_US}:reverse -k 2" ;;
         *) echo "unknown scenario $1" >&2; exit 1 ;;
     esac
@@ -75,7 +72,6 @@ run_cell() {
     shift 2
     local env_vars=(
         "RAPIDSMPF_SHUFFLER_SEND_ORDER_POLICY=${policy}"
-        "RAPIDSMPF_DISK_SPILL_DIR=${SPILL_DIR}"
     )
     if [[ -n "${PRELOAD}" ]]; then
         env_vars+=("LD_PRELOAD=${PRELOAD}")
@@ -93,7 +89,7 @@ run_cell() {
     fi
 }
 
-echo "size,scenario,limit,policy,rc,max_mean_elapsed_s,local_input_bytes,device_limit,peak_device_bytes,spilled_bytes,not_ready,blocked,restored,restore_deferred,retries_exhausted,log" > "${CSV}"
+echo "size,scenario,limit,policy,rc,max_mean_elapsed_s,local_input_bytes,device_limit,peak_device_bytes,spilled_bytes,not_ready,blocked,oom,log" > "${CSV}"
 
 for size in ${SIZES}; do
     IFS=x read -r payload batches parts <<< "${size}"
@@ -141,15 +137,12 @@ print(",".join(str(x) for x in [
     int(spilled),
     counter("shuffle-send-not-ready"),
     counter("shuffle-send-blocked"),
-    counter("shuffle-send-restored"),
-    counter("shuffle-send-restore-deferred"),
-    int("retries exhausted" in text),
+    int(bool(re.search(r"out of memory|out_of_memory|reserve_or_fail|bad_alloc", text, re.I))),
 ]))
 EOF
 )
                 echo "${size},${scenario},${limit},${policy},${rc},${row},${log}" >> "${CSV}"
                 echo "${size} ${scenario} L=${limit} ${policy}: rc=${rc} ${row}"
-                rm -rf "${SPILL_DIR:?}"/*
             done
         done
     done

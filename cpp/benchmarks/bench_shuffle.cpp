@@ -91,7 +91,7 @@ class ArgumentParser {
 
         try {
             int option;
-            while ((option = getopt(argc, argv, "hC:r:w:n:p:o:m:si:t:a:gd:k:L:")) != -1) {
+            while ((option = getopt(argc, argv, "hC:r:w:n:p:o:m:si:gd:k:L:")) != -1) {
                 switch (option) {
                 case 'h':
                     {
@@ -113,11 +113,7 @@ class ArgumentParser {
                            << "  -w <num>   Number of warmup runs (default: 0)\n"
                            << "  -s         Discard extracted output (skip validation)\n"
                            << "  -i <type>  Input buffer memory type "
-                              "{device, pinned, host, disk} (default: device)\n"
-                           << "  -t <types> Comma-separated shuffler spill targets "
-                              "{pinned, host, disk} (default: pinned,host,disk)\n"
-                           << "  -a <types> Comma-separated shuffler allocation types "
-                              "{device, pinned, host} (default: device,pinned,host)\n"
+                              "{device, pinned, host} (default: device)\n"
                            << "  -g         Generate each batch inside the timed "
                               "region on its own stream and insert it without "
                               "synchronizing (default: pre-generate and sync)\n"
@@ -187,40 +183,9 @@ class ArgumentParser {
                     break;
                 case 'i':
                     input_memory_type = parse_string<MemoryType>(optarg);
-                    break;
-                case 't':
-                    spill_targets.clear();
-                    for (auto const& token : parse_string_list(optarg)) {
-                        auto const mem_type = parse_string<MemoryType>(token);
-                        if (!contains(SPILL_TARGET_MEMORY_TYPES, mem_type)) {
-                            throw std::invalid_argument(
-                                "-t (shuffler spill targets) must only contain "
-                                "{pinned, host, disk}"
-                            );
-                        }
-                        spill_targets.push_back(mem_type);
-                    }
-                    if (spill_targets.empty()) {
+                    if (!contains(ADDRESSABLE_MEMORY_TYPES, input_memory_type)) {
                         throw std::invalid_argument(
-                            "-t (shuffler spill targets) cannot be empty"
-                        );
-                    }
-                    break;
-                case 'a':
-                    allocation_types.clear();
-                    for (auto const& token : parse_string_list(optarg)) {
-                        auto const mem_type = parse_string<MemoryType>(token);
-                        if (!contains(ADDRESSABLE_MEMORY_TYPES, mem_type)) {
-                            throw std::invalid_argument(
-                                "-a (shuffler allocation types) must only contain "
-                                "{device, pinned, host}"
-                            );
-                        }
-                        allocation_types.push_back(mem_type);
-                    }
-                    if (allocation_types.empty()) {
-                        throw std::invalid_argument(
-                            "-a (shuffler allocation types) cannot be empty"
+                            "-i (input memory type) must be one of {device, pinned, host}"
                         );
                     }
                     break;
@@ -311,22 +276,6 @@ class ArgumentParser {
         ss << "  -m " << rmm_mr << " (RMM memory resource)\n";
         ss << "  -s " << (discard_output ? "true" : "false") << " (discard output)\n";
         ss << "  -i " << input_memory_type << " (input buffer memory type)\n";
-        ss << "  -t ";
-        for (std::size_t i = 0; i < spill_targets.size(); ++i) {
-            if (i > 0) {
-                ss << ",";
-            }
-            ss << spill_targets[i];
-        }
-        ss << " (shuffler spill targets)\n";
-        ss << "  -a ";
-        for (std::size_t i = 0; i < allocation_types.size(); ++i) {
-            if (i > 0) {
-                ss << ",";
-            }
-            ss << allocation_types[i];
-        }
-        ss << " (shuffler allocation types)\n";
         ss << "  -g " << (async_generation ? "true" : "false")
            << " (generate batches asynchronously in the timed region)\n";
         ss << "  -d " << delay.count() << ":" << delay_pattern << " (batch delay)\n";
@@ -352,8 +301,6 @@ class ArgumentParser {
     std::uint64_t output_partitions_per_rank{1};
     bool discard_output{false};
     MemoryType input_memory_type{MemoryType::DEVICE};
-    std::vector<MemoryType> spill_targets{to_vector(SPILL_TARGET_MEMORY_TYPES)};
-    std::vector<MemoryType> allocation_types{to_vector(ADDRESSABLE_MEMORY_TYPES)};
     bool async_generation{false};
     std::chrono::microseconds delay{0};
     std::string delay_pattern{"uniform"};
@@ -437,28 +384,15 @@ void comm_barrier(std::shared_ptr<Communicator> const& comm, bool mpi_initialize
         return br.reserve_or_fail(size, args.input_memory_type);
     }();
     auto data = br.make_buffer(stream, std::move(reservation));
-    if (data->mem_type() == MemoryType::DISK) {
-        auto const bytes = std::vector<std::uint8_t>(size, *fill_byte);
-        auto const& disk_buffer = data->get_storage<Buffer::DiskBufferT>();
-        auto const written = disk_buffer->disk_resource()->write(
-            disk_buffer->path(), bytes.data(), bytes.size(), stream
-        );
-        RAPIDSMPF_EXPECTS(
-            written == bytes.size(), "failed to initialize disk input", std::runtime_error
-        );
-    } else {
-        data->write_access([fill_byte, size, mem_type = data->mem_type()](
-                               std::byte* ptr, cuda::stream_ref op_stream
-                           ) {
-            if (contains(Buffer::host_buffer_types, mem_type)) {
-                std::memset(ptr, *fill_byte, size);
-            } else {
-                RAPIDSMPF_CUDA_TRY(
-                    cudaMemsetAsync(ptr, *fill_byte, size, op_stream.get())
-                );
-            }
-        });
-    }
+    data->write_access([fill_byte, size, mem_type = data->mem_type()](
+                           std::byte* ptr, cuda::stream_ref op_stream
+                       ) {
+        if (contains(Buffer::host_buffer_types, mem_type)) {
+            std::memset(ptr, *fill_byte, size);
+        } else {
+            RAPIDSMPF_CUDA_TRY(cudaMemsetAsync(ptr, *fill_byte, size, op_stream.get()));
+        }
+    });
     return PackedData{std::move(metadata), std::move(data)};
 }
 
@@ -541,14 +475,7 @@ void validate_chunk(
     );
 
     std::vector<std::uint8_t> bytes;
-    if (packed.data->mem_type() == MemoryType::DISK) {
-        bytes = packed.data->get_storage<Buffer::DiskBufferT>()->copy_to_uint8_vector();
-        RAPIDSMPF_EXPECTS(
-            bytes.size() == expected_payload_size,
-            "unexpected disk buffer size",
-            std::runtime_error
-        );
-    } else if (contains(Buffer::host_buffer_types, packed.data->mem_type())) {
+    if (contains(Buffer::host_buffer_types, packed.data->mem_type())) {
         packed.data->latest_write_event().host_wait();
         bytes.resize(expected_payload_size);
         std::memcpy(bytes.data(), packed.data->data(), expected_payload_size);
@@ -647,16 +574,7 @@ Duration run_shuffle(
     rmm::cuda_stream_pool const& batch_streams,
     std::uint64_t run
 ) {
-    Shuffler shuffler(
-        comm,
-        0,
-        total_num_partitions,
-        &br,
-        Shuffler::round_robin,
-        nullptr,
-        args.spill_targets,
-        args.allocation_types
-    );
+    Shuffler shuffler(comm, 0, total_num_partitions, &br, Shuffler::round_robin);
 
     comm_barrier(comm, mpi::is_initialized());
     RAPIDSMPF_CUDA_TRY(cudaDeviceSynchronize());
