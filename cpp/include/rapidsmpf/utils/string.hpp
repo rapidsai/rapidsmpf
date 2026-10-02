@@ -10,6 +10,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <rapidsmpf/utils/misc.hpp>
 
@@ -296,5 +297,32 @@ std::optional<std::string> parse_optional(std::string text);
  * @return Vector of trimmed strings.
  */
 std::vector<std::string> parse_string_list(std::string_view text, char delimiter = ',');
+
+/**
+ * @brief Read a comma-separated list from an environment variable.
+ *
+ * Each item is parsed as a `T` using `parse_string`. If the environment variable is
+ * unset, @p default_value is returned. A set but empty variable produces an empty
+ * vector.
+ *
+ * @tparam T The element type to parse.
+ * @param name The environment variable name.
+ * @param default_value The value to return when the environment variable is unset.
+ * @return The parsed values, or @p default_value if the variable is unset.
+ * @throws std::invalid_argument If any item cannot be parsed as a `T`.
+ */
+template <typename T>
+std::vector<T> from_env_var(char const* name, std::vector<T> default_value) {
+    auto const* value = std::getenv(name);
+    if (value == nullptr) {
+        return default_value;
+    }
+
+    std::vector<T> ret;
+    for (auto const& token : parse_string_list(value)) {
+        ret.push_back(parse_string<T>(token));
+    }
+    return ret;
+}
 
 }  // namespace rapidsmpf
