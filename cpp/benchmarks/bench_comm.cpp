@@ -11,7 +11,6 @@
 #include <cuda/stream>
 
 #include <rmm/mr/per_device_resource.hpp>
-#include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/bootstrap/bootstrap.hpp>
 #include <rapidsmpf/bootstrap/ucxx.hpp>
@@ -22,6 +21,7 @@
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
+#include <rapidsmpf/memory/resource_types.hpp>
 #include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils/string.hpp>
@@ -321,7 +321,7 @@ int main(int argc, char** argv) {
     args.pprint(*comm);
     set_current_rmm_resource(args.rmm_mr);
 
-    rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref();
+    cuda::mr::device_resource_ref mr = rmm::mr::get_current_device_resource_ref();
     auto br = BufferResource::create(
         mr,
         PinnedMemoryDisabled,
