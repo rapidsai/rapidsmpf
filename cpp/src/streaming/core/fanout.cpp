@@ -224,11 +224,18 @@ struct UnboundedFanout {
 
             for (auto const msg_id : msg_ids_to_send) {
                 auto const cd = spillable_messages->get_content_description(msg_id);
-                // Reserve memory for the output using the input message's memory type, or
-                // a lower-priority type if needed.
-                auto const mem_types = leq_memory_types(cd.principal_memory_type());
-                auto res = ctx.br()->reserve_or_fail(cd.content_size(), mem_types);
-                if (!co_await ch_out->send(spillable_messages->copy(msg_id, res))) {
+                // Disk-backed data must be copied into addressable memory. Otherwise,
+                // prefer the input tier or a lower-priority tier.
+                auto const mem_types = cd.principal_memory_type() == MemoryType::DISK
+                                           ? std::span<MemoryType const>{ADDRESSABLE_MEMORY_TYPES}
+                                           : leq_memory_types(cd.principal_memory_type());
+                auto res = ctx.br()->try_reserve_or_spill(cd.content_size(), mem_types);
+                RAPIDSMPF_EXPECTS(
+                    res.has_value(),
+                    "failed to reserve addressable memory for a fanout message",
+                    std::runtime_error
+                );
+                if (!co_await ch_out->send(spillable_messages->copy(msg_id, *res))) {
                     // Failed to send message. Could be that the channel is shut down.
                     // So we need to abort the send task, and notify the process input
                     // task
