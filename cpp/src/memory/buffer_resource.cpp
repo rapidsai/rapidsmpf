@@ -30,7 +30,7 @@
 namespace rapidsmpf {
 
 BufferResource::BufferResource(
-    cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
+    cuda::mr::any_device_resource device_mr,
     std::optional<PinnedMemoryResource> pinned_mr,
     std::unordered_map<MemoryType, std::int64_t> memory_limits,
     std::optional<Duration> periodic_spill_check,
@@ -59,7 +59,7 @@ BufferResource::BufferResource(
 }
 
 std::shared_ptr<BufferResource> BufferResource::create(
-    cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
+    cuda::mr::any_device_resource device_mr,
     std::optional<PinnedPoolProperties> pinned_pool_properties,
     std::unordered_map<MemoryType, std::int64_t> memory_limits,
     std::optional<Duration> periodic_spill_check,
@@ -114,7 +114,7 @@ std::shared_ptr<BufferResource> BufferResource::create(
 }
 
 std::shared_ptr<BufferResource> BufferResource::from_options(
-    cuda::mr::any_resource<cuda::mr::device_accessible> mr,
+    cuda::mr::any_device_resource mr,
     config::Options options,
     std::shared_ptr<Statistics> statistics
 ) {
@@ -159,19 +159,19 @@ void BufferResource::set_memory_limit(MemoryType mem_type, std::int64_t limit) n
     );
 }
 
-rapidsmpf::device_resource_ref BufferResource::device_mr() noexcept {
-    return rapidsmpf::device_resource_ref{owning_mr_};
+cuda::mr::device_resource_ref BufferResource::device_mr() noexcept {
+    return cuda::mr::device_resource_ref{owning_mr_};
 }
 
 RmmResourceAdaptor& BufferResource::device_mr_adaptor() noexcept {
     return owning_mr_;
 }
 
-rapidsmpf::host_resource_ref BufferResource::host_mr() noexcept {
+cuda::mr::host_resource_ref BufferResource::host_mr() noexcept {
     return host_mr_;
 }
 
-rapidsmpf::host_device_resource_ref BufferResource::pinned_mr() {
+cuda::mr::host_device_resource_ref BufferResource::pinned_mr() {
     RAPIDSMPF_EXPECTS(
         pinned_mr_, "no pinned memory resource is available", std::invalid_argument
     );

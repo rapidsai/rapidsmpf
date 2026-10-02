@@ -905,11 +905,11 @@ TEST(BufferResource, PinnedMrKeepsBufferResourceAlive) {
 
 TEST(RmmResourceAdaptor, EqualityAcrossCopiesAndAccessPaths) {
     auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
-    any_device_resource copy1{br->device_mr()};
-    any_device_resource copy2 = copy1;
+    cuda::mr::any_device_resource copy1{br->device_mr()};
+    cuda::mr::any_device_resource copy2 = copy1;
 
     RmmResourceAdaptor owned_copy = br->device_mr_adaptor();
-    any_device_resource owned_any{br->device_mr_adaptor()};
+    cuda::mr::any_device_resource owned_any{br->device_mr_adaptor()};
 
     // RmmResourceAdaptor == RmmResourceAdaptor (custom operator==).
     EXPECT_EQ(owned_copy, br->device_mr_adaptor());

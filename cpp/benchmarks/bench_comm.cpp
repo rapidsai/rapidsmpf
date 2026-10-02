@@ -321,7 +321,7 @@ int main(int argc, char** argv) {
     args.pprint(*comm);
     set_current_rmm_resource(args.rmm_mr);
 
-    rapidsmpf::device_resource_ref mr = rmm::mr::get_current_device_resource_ref();
+    cuda::mr::device_resource_ref mr = rmm::mr::get_current_device_resource_ref();
     auto br = BufferResource::create(
         mr,
         PinnedMemoryDisabled,

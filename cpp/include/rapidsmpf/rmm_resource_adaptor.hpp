@@ -32,12 +32,11 @@ class BufferResource;
  * use for allocations and then obtain the adaptor with `device_mr_adaptor()`.
  */
 class RmmResourceAdaptor
-    : public cuda::mr::shared_resource<detail::RmmResourceAdaptorImpl<
-          cuda::mr::any_resource<cuda::mr::device_accessible>>>,
+    : public cuda::mr::shared_resource<
+          detail::RmmResourceAdaptorImpl<cuda::mr::any_device_resource>>,
       public BackRefMixin<BufferResource> {
-    using any_device_resource = cuda::mr::any_resource<cuda::mr::device_accessible>;
-    using shared_base =
-        cuda::mr::shared_resource<detail::RmmResourceAdaptorImpl<any_device_resource>>;
+    using shared_base = cuda::mr::shared_resource<
+        detail::RmmResourceAdaptorImpl<cuda::mr::any_device_resource>>;
 
   public:
     /// @brief Tag this resource as device-accessible for the CCCL concept.
@@ -67,7 +66,7 @@ class RmmResourceAdaptor
      *
      * @return Reference to the RMM memory resource.
      */
-    [[nodiscard]] rapidsmpf::device_resource_ref get_upstream_resource() const noexcept;
+    [[nodiscard]] cuda::mr::device_resource_ref get_upstream_resource() const noexcept;
 
     /**
      * @brief Returns a copy of the main memory record.
@@ -132,9 +131,7 @@ class RmmResourceAdaptor
      *
      * @param primary_mr The primary memory resource.
      */
-    explicit RmmResourceAdaptor(
-        cuda::mr::any_resource<cuda::mr::device_accessible> primary_mr
-    );
+    explicit RmmResourceAdaptor(cuda::mr::any_device_resource primary_mr);
 };
 
 static_assert(cuda::mr::resource_with<RmmResourceAdaptor, cuda::mr::device_accessible>);

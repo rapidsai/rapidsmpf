@@ -9,12 +9,12 @@ from libcpp.optional cimport optional
 from libcpp.unordered_map cimport unordered_map
 from rmm.librmm.cuda_stream_pool cimport cuda_stream_pool
 from rmm.librmm.cuda_stream_ref cimport stream_ref
-from rmm.librmm.memory_resource cimport (any_resource, device_accessible,
-                                         device_async_resource_ref)
 from rmm.pylibrmm.cuda_stream_pool cimport CudaStreamPool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
+from rapidsmpf._detail.memory_resource cimport (any_device_resource,
+                                                device_resource_ref)
 from rapidsmpf.config cimport Options, cpp_Options
 from rapidsmpf.memory.buffer cimport Buffer, MemoryType, cpp_Buffer
 from rapidsmpf.memory.memory_reservation cimport cpp_MemoryReservation
@@ -40,7 +40,7 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
     cdef cppclass cpp_BufferResource "rapidsmpf::BufferResource":
         @staticmethod
         shared_ptr[cpp_BufferResource] create(
-            any_resource[device_accessible],
+            any_device_resource,
             optional[cpp_PinnedPoolProperties],
             unordered_map[MemoryType, int64_t],
             optional[cpp_Duration],
@@ -55,7 +55,7 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
         cpp_SpillManager &spill_manager() except +ex_handler
         size_t release(cpp_MemoryReservation&, size_t) except +ex_handler
         shared_ptr[cpp_Statistics] statistics() except +ex_handler
-        device_async_resource_ref device_mr() noexcept
+        device_resource_ref device_mr() noexcept
         cpp_RmmResourceAdaptor& device_mr_adaptor() noexcept
         optional[cpp_PinnedMemoryResource] try_pinned_mr() except +ex_handler
         unique_ptr[cpp_Buffer] make_buffer(
@@ -76,9 +76,9 @@ cdef class BufferResource:
 
 
 cdef class OwningDeviceMemoryResource(DeviceMemoryResource):
-    cdef any_resource[device_accessible] c_obj
+    cdef any_device_resource c_obj
 
     @staticmethod
     cdef OwningDeviceMemoryResource _create(
-        any_resource[device_accessible] resource,
+        any_device_resource resource,
     )

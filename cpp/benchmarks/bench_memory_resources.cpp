@@ -114,7 +114,7 @@ std::shared_ptr<rapidsmpf::BufferResource> make_pinned_buffer_resource(
 }
 
 // Helper function to create a type-erased host memory resource.
-cuda::mr::any_resource<cuda::mr::host_accessible> create_host_memory_resource(
+cuda::mr::any_host_resource create_host_memory_resource(
     ResourceType const& resource_type
 ) {
     switch (resource_type) {
