@@ -31,7 +31,7 @@ install(
   EXCLUDE_FROM_ALL
 )
 
-add_executable(bench_shuffle "bench_shuffle.cpp")
+add_executable(bench_shuffle "bench_shuffle.cpp" "utils/delay_kernel.cu")
 set_target_properties(
   bench_shuffle
   PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${RAPIDSMPF_BINARY_DIR}/benchmarks"
