@@ -122,8 +122,8 @@ class Shuffler {
      * @param mpe Optional custom metadata payload exchange. If not provided,
      * uses the default tag-based implementation.
      *
-     * @note It is safe to reuse the `op_id` as soon as `wait` has completed
-     * locally.
+     * @note It is safe to reuse the `op_id` as soon as `wait_reusable()` has
+     * completed locally, or after the shuffler has been shut down or destroyed.
      *
      * @note The caller promises that inserted buffers are stream-ordered with respect
      * to their own stream, and extracted buffers are likewise guaranteed to be stream-
@@ -143,13 +143,15 @@ class Shuffler {
      * @brief Construct a new shuffler for a single shuffle.
      *
      * @param comm The communicator to use.
-     * @param op_id The operation ID of the shuffle. This ID is unique for this operation,
-     * and should not be reused until all nodes has called `Shuffler::shutdown()`.
+     * @param op_id The operation ID of the shuffle.
      * @param total_num_partitions Total number of partitions in the shuffle.
      * @param br Buffer resource used to allocate temporary and the shuffle result.
      * @param partition_owner Function to determine partition ownership.
      * @param mpe Optional custom metadata payload exchange. If not provided,
      * uses the default tag-based implementation.
+     *
+     * @note It is safe to reuse the `op_id` as soon as `wait_reusable()` has
+     * completed locally, or after the shuffler has been shut down or destroyed.
      *
      * @note The caller promises that inserted buffers are stream-ordered with respect
      * to their own stream, and extracted buffers are likewise guaranteed to be stream-
@@ -240,11 +242,26 @@ class Shuffler {
     /**
      * @brief Wait for all partitions to finish (blocking).
      *
+     * Once this returns, local partitions are ready to extract. Internal send and
+     * protocol cleanup may still be progressing in the background.
+     *
      * @param timeout Optional timeout (ms) to wait.
      *
      * @throws std::runtime_error if the timeout is reached.
      */
     void wait(std::optional<std::chrono::milliseconds> timeout = {});
+
+    /**
+     * @brief Wait until this shuffle is fully drained and its op_id is reusable.
+     *
+     * This is stronger than `wait()`: it also waits for all internal communication
+     * state to drain, including protocol messages used to protect op_id reuse.
+     *
+     * @param timeout Optional timeout (ms) to wait.
+     *
+     * @throws std::runtime_error if the timeout is reached.
+     */
+    void wait_reusable(std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
      * @brief Spills data to device if necessary.
@@ -325,9 +342,10 @@ class Shuffler {
     std::atomic<bool> active_{true};
     // Have we called `insert_finished()` on this rank.
     std::atomic<bool> locally_finished_{false};
-    // Flipped to true exactly once when partitions are ready for extraction and we've
-    // posted all sends we're going to
+    // Flipped to true exactly once when partitions are ready for extraction.
     bool can_extract_{false};
+    // Flipped to true exactly once when all internal communication has drained.
+    bool can_reuse_{false};
     detail::ChunksToSend to_send_;  ///< Storage for chunks to send to other ranks.
     detail::ReceivedChunks received_;  ///< Storage for received chunks that are
                                        ///< ready to be extracted by the user.
