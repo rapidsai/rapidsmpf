@@ -7,6 +7,7 @@
 #include <concepts>
 #include <cstddef>
 #include <filesystem>
+#include <functional>
 #include <initializer_list>
 #include <limits>
 #include <map>
@@ -30,6 +31,29 @@
 #include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf {
+
+class Statistics;
+
+/**
+ * @brief Marks data as spilled, measuring how long a spill keeps device memory free.
+ *
+ * A token's life:
+ *  - Opened when a relocation frees a device buffer.
+ *  - Carried along by further relocations, so one token follows the data.
+ *  - Closed when a relocation allocates a device buffer again, recording the interval.
+ *
+ * A copy that keeps its source frees nothing and opens no token, and data freed while
+ * spilled is never closed and never recorded.
+ *
+ * **Stream ordering.** The interval is not stream ordered. Both ends are taken at the
+ * host calls that move `BufferResource::memory_available()`, which is what reservations
+ * are checked against and what triggers spilling, rather than at the stream positions
+ * where the copies run.
+ */
+struct SpillTrackToken {
+    /// @brief When the spilled buffer was freed.
+    Clock::time_point since{Clock::now()};
+};
 
 class StreamOrderedTiming;
 
@@ -98,6 +122,10 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
      *   the wall-clock gap between CPU submission and GPU execution of the operation:
      *   "1.2 GiB | 2.5 ms | 480 GiB/s | avg-stream-delay 10 us"
      *
+     * - Gauge (1 stat): for quantities that rise and fall, such as a queue size,
+     *   where the running total carries no meaning and the peak is the point:
+     *   "max 8 | avg 2.5 (100 samples)"
+     *
      * `_Count` is an internal sentinel — always keep it last.
      */
     enum class Formatter : std::uint8_t {
@@ -106,6 +134,7 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
         Duration,
         HitRate,
         MemoryThroughput,
+        Gauge,
         _Count,  ///< Sentinel; must remain last.
     };
 
@@ -416,6 +445,14 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
         double value_{0};
         double max_{-std::numeric_limits<double>::infinity()};
     };
+
+    /**
+     * @brief Whether a statistic has been recorded.
+     *
+     * @param name Name of the statistic.
+     * @return True if `get_stat(name)` would succeed.
+     */
+    [[nodiscard]] bool has_stat(std::string const& name) const;
 
     /**
      * @brief Retrieves a statistic by name.

@@ -5,11 +5,11 @@ from libc.stdint cimport uint8_t
 from libcpp.memory cimport make_unique, unique_ptr
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
+from rmm.librmm.cuda_stream_ref cimport stream_ref
 from rmm.librmm.device_buffer cimport device_buffer
 from rmm.pylibrmm.device_buffer cimport DeviceBuffer
 from rmm.pylibrmm.stream cimport Stream
 
-from rapidsmpf._detail.cuda_stream_ref cimport stream_ref
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.buffer_resource cimport (BufferResource,
                                                cpp_BufferResource)
@@ -201,12 +201,11 @@ cdef class PackedData:
         cdef const uint8_t* meta_ptr = NULL
         if meta_size > 0:
             meta_ptr = <const uint8_t*>&metadata[0]
-        cdef stream_ref sv = stream_ref(stream.view().get())
         cdef unique_ptr[device_buffer] gpu = move(gpu_data.c_obj)
         cdef PackedData ret = cls.__new__(cls)
         with nogil:
             ret.c_obj = cpp_packed_data_from_device_buffer(
-                meta_ptr, meta_size, move(gpu), sv, _br
+                meta_ptr, meta_size, move(gpu), stream.view(), _br
             )
         ret._br = br
         return ret

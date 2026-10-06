@@ -234,9 +234,10 @@ Duration parse_duration(std::string_view text);
  * @note This function assumes that the input string contains a valid representation of
  * type `T`, and that `T` has a suitable `operator>>` overload.
  *
- * @example
+ * @code
  * int i = parse_string<int>("42");            // i == 42
  * double d = parse_string<double>("3.14");    // d == 3.14
+ * @endcode
  */
 template <typename T>
 T parse_string(std::string const& text) {

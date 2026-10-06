@@ -109,7 +109,11 @@ class ShufflerAsync {
         return shuffler_.partition_owner;
     }
 
-    /// @copydoc rapidsmpf::shuffler::Shuffler::local_partitions
+    /**
+     * @brief Returns the local partition IDs owned by the shuffler.
+     *
+     * @return A span of partition IDs owned by the shuffler.
+     */
     [[nodiscard]] std::span<shuffler::PartID const> local_partitions() const;
 
     /// @copydoc rapidsmpf::shuffler::Shuffler::insert

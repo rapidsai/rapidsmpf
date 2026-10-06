@@ -5,13 +5,17 @@
 
 #pragma once
 
+#include <mutex>
 #include <optional>
 #include <set>
+#include <string>
+#include <string_view>
 
 #include <coro/task.hpp>
 
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/coro_executor.hpp>
 #include <rapidsmpf/streaming/core/coro_utils.hpp>
@@ -246,6 +250,9 @@ class MemoryReserveOrWait {
         /// @brief Queue into which a reservation is pushed once the request is satisfied.
         coro::queue<MemoryReservation>& queue;
 
+        /// @brief When the request was submitted, used to measure how long it waited.
+        Clock::time_point submitted_at;
+
         /// @brief Ordering by `size` and `sequence_number` (ascending).
         friend bool operator<(Request const& a, Request const& b) {
             return std::tie(a.size, a.sequence_number)
@@ -285,12 +292,29 @@ class MemoryReserveOrWait {
      */
     coro::task<void> periodic_memory_check();
 
+    /**
+     * @brief Adds a value to one of this instance's statistics.
+     *
+     * The name recorded is `stat_prefix_` followed by @p suffix. Returns without
+     * building the name when statistics are disabled, so a disabled `Statistics`
+     * costs a single atomic load.
+     *
+     * Callers must not hold `mutex_`, since `Statistics` takes a lock of its own.
+     *
+     * @param suffix Stat name suffix, appended to `stat_prefix_`.
+     * @param value Value to add.
+     */
+    void record_stat(std::string_view suffix, double value) const;
+
     mutable std::mutex mutex_;
     std::uint64_t sequence_counter{0};
     MemoryType const mem_type_;
     std::shared_ptr<CoroThreadPoolExecutor> executor_;
     std::shared_ptr<BufferResource> br_;
     Duration const timeout_;
+    std::shared_ptr<Statistics> statistics_;
+    std::string const stat_prefix_;
+    mutable std::once_flag report_entries_once_;
     std::set<Request> reservation_requests_;
     std::atomic<std::uint64_t> periodic_memory_check_counter_{0};
     std::optional<coro::task<void>> periodic_memory_check_task_;

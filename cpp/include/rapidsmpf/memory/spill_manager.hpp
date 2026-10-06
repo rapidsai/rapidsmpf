@@ -5,6 +5,9 @@
 
 #pragma once
 
+#include <atomic>
+#include <compare>
+#include <cstdint>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -46,6 +49,20 @@ class SpillManager {
      * @brief Represents a unique identifier for a registered spill function.
      */
     using SpillFunctionID = std::size_t;
+
+    /// @brief What `spill_to_make_headroom()` found and did.
+    struct HeadroomResult {
+        /// How far the memory available for reservation fell short of the headroom,
+        /// read under the spill lock. Zero when the headroom was already available.
+        std::size_t deficit;
+        /// What was spilled towards it. May be less than `deficit` if there was too
+        /// little spillable data, or more, since data is spilled in whole buffers.
+        std::size_t spilled;
+
+        /// @brief Member-wise comparison, `deficit` first.
+        /// @return The ordering of the two results.
+        auto operator<=>(HeadroomResult const&) const = default;
+    };
 
     /**
      * @brief Constructs a SpillManager instance.
@@ -113,34 +130,39 @@ class SpillManager {
      * priorities until the requested headroom is reservable or no more spilling is
      * possible. Spilling reduces allocations, never outstanding reservations.
      *
+     * The call waits for any spill that is already running and only then reads the
+     * deficit, so memory freed by that spill is not spilled again.
+     *
      * @param headroom The target amount of headroom (in bytes). A negative headroom
      * triggers spilling only once the memory available for reservation drops below
      * `headroom`.
-     * @return The actual amount of memory spilled (in bytes), which may be less than
-     * requested if there is insufficient spillable data, but may also be more
-     * or equal to requested depending on the sizes of spillable data buffers.
+     * @return The deficit found under the spill lock and what was spilled towards it.
      *
      * @see BufferResource::memory_available_for_reservation()
      */
-    std::size_t spill_to_make_headroom(std::int64_t headroom = 0);
+    HeadroomResult spill_to_make_headroom(std::int64_t headroom = 0);
 
     /**
-     * @brief Non-blocking version of `spill_to_make_headroom()`.
+     * @brief Whether a spill is executing right now.
      *
-     * Returns immediately instead of waiting when the spill lock is unavailable.
-     * Intended for pollers that retry, such as the streaming layer's memory
-     * reservation loop.
+     * Does not block on any lock.
      *
-     * @param headroom The target amount of headroom (in bytes). A negative headroom
-     * triggers spilling only once the memory available for reservation drops below
-     * `headroom`.
-     * @return The actual amount of memory spilled (in bytes), or `std::nullopt` if no
-     * spill was attempted. A `std::nullopt` result does not imply that spilling is
-     * impossible or that another spill is in progress. Callers should retry.
+     * @return True while at least one spill function is running.
      *
-     * @see spill_to_make_headroom()
+     * @see spill_generation()
      */
-    std::optional<std::size_t> try_spill_to_make_headroom(std::int64_t headroom = 0);
+    [[nodiscard]] bool spilling_now() const noexcept;
+
+    /**
+     * @brief Number of spills that have completed.
+     *
+     * Increments once per `spill()` or `spill_to_make_headroom()` call that asked for a
+     * non-zero amount, after its spill functions have returned. A caller that samples
+     * this before and after a wait can tell whether memory was freed while it waited.
+     *
+     * @return A monotonically increasing count.
+     */
+    [[nodiscard]] std::uint64_t spill_generation() const noexcept;
 
   private:
     /**
@@ -151,21 +173,14 @@ class SpillManager {
      */
     std::size_t spill_unsafe(std::size_t amount);
 
-    /**
-     * @brief Spills to reach the requested headroom without locking, reading the
-     * available memory under the caller's lock. The caller must hold `mutex_`.
-     *
-     * @param headroom The target amount of headroom (in bytes).
-     * @return The actual amount of memory spilled (in bytes).
-     */
-    std::size_t spill_to_make_headroom_unsafe(std::int64_t headroom);
-
     mutable std::mutex mutex_;
     BufferResource* br_;
     std::size_t spill_function_id_counter_{0};
     std::map<SpillFunctionID, SpillFunction> spill_functions_;
     std::multimap<int, SpillFunctionID, std::greater<>> spill_function_priorities_;
     std::optional<detail::PausableThreadLoop> periodic_spill_thread_;
+    std::atomic<int> spills_in_flight_{0};
+    std::atomic<std::uint64_t> spill_generation_{0};
 };
 
 

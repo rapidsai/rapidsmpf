@@ -110,6 +110,25 @@ TEST_F(StatisticsTest, AddReportEntryFirstWins) {
     EXPECT_THAT(stats->report(), ::testing::Not(::testing::HasSubstr("KiB")));
 }
 
+TEST_F(StatisticsTest, GaugeFormatterReportsPeakNotTotal) {
+    auto stats = rapidsmpf::Statistics::create();
+    stats->add_report_entry("queue", {"queue"}, rapidsmpf::Statistics::Formatter::Gauge);
+    stats->add_stat("queue", 1);
+    stats->add_stat("queue", 5);
+    stats->add_stat("queue", 3);
+    EXPECT_THAT(stats->report(), ::testing::HasSubstr("max 5 | avg 3 (3 samples)"));
+}
+
+TEST_F(StatisticsTest, GaugeFormatterSingleSampleOmitsAverage) {
+    auto stats = rapidsmpf::Statistics::create();
+    stats->add_report_entry("queue", {"queue"}, rapidsmpf::Statistics::Formatter::Gauge);
+    stats->add_stat("queue", 2);
+
+    auto const report = stats->report();
+    EXPECT_THAT(report, ::testing::HasSubstr("max 2"));
+    EXPECT_THAT(report, ::testing::Not(::testing::HasSubstr("avg")));
+}
+
 TEST_F(StatisticsTest, MultiStatReportEntry) {
     auto stats = rapidsmpf::Statistics::create();
     // Build a MemoryThroughput-style 3-stat report entry.

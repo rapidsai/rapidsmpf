@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 """
 Module for running commands with timeout and capturing stack traces.
@@ -30,6 +30,7 @@ import sys
 import time
 from contextlib import suppress
 from enum import IntEnum
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import psutil
@@ -115,10 +116,26 @@ def capture_stack_trace(pid: int, stack_type=StackType.C) -> None:
         print(f"Skipping stack trace for process {pid}: gdb not found")
         return
 
-    proc = subprocess.run(
+    gdb_args = [gdb, "--quiet"]
+    try:
+        executable = psutil.Process(pid).exe()
+    except (psutil.AccessDenied, psutil.NoSuchProcess):
+        pass
+    else:
+        auto_load_script = f"{executable}-gdb.py"
+        if Path(auto_load_script).is_file():
+            # GDB attaches while processing --pid, before regular -ex commands
+            # run. Trust only this executable's helper early enough for it to
+            # register Python commands such as py-bt during the attach.
+            gdb_args.extend(
+                [
+                    "-iex",
+                    f"add-auto-load-safe-path {auto_load_script}",
+                ]
+            )
+
+    gdb_args.extend(
         [
-            gdb,
-            "--quiet",
             "--pid",
             str(pid),
             "-ex",
@@ -129,7 +146,11 @@ def capture_stack_trace(pid: int, stack_type=StackType.C) -> None:
             bt_command,
             "-ex",
             "quit",
-        ],
+        ]
+    )
+
+    proc = subprocess.run(
+        gdb_args,
         capture_output=True,
         text=True,
         check=False,

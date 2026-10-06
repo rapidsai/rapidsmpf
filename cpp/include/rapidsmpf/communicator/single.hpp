@@ -37,6 +37,7 @@ class Single final : public Communicator {
         friend class Single;
 
       public:
+        /// @brief Destructor.
         ~Future() noexcept override = default;
     };
 
@@ -138,13 +139,15 @@ class Single final : public Communicator {
         std::vector<std::size_t>>
     test_some(std::vector<std::unique_ptr<Communicator::Future>>& future_vector) override;
 
-    // clang-format off
     /**
-     * @copydoc Communicator::test_some(std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> const& future_map)
+     * @brief Tests for completion of multiple futures in a map.
      *
-     * @throws std::runtime_error if called (single-process communicators should never send messages).
+     * @param future_map Map of futures identified by keys.
+     * @return Keys of completed futures.
+     *
+     * @throws std::runtime_error if called (single-process communicators should never
+     * send messages).
      */
-    // clang-format on
     std::vector<std::size_t> test_some(
         std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> const&
             future_map
