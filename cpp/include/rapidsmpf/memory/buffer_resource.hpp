@@ -162,7 +162,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * must be supported on the system (see `is_pinned_memory_resources_supported()`);
      * otherwise a `std::runtime_error` is thrown.
      * @param memory_limits Maximum allocation limits in bytes per `MemoryType`. Missing
-     * entries are treated as unlimited.
+     * entries are treated as unlimited. See `memory_limits_from_options()`.
      * @param periodic_spill_check Interval between periodic spill checks. `std::nullopt`
      * disables the dedicated spill-check thread.
      * @param stream_pool CUDA stream pool used for operations that do not take an
@@ -174,7 +174,6 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @return A newly constructed `BufferResource` owned by `std::shared_ptr`.
      * @throws std::runtime_error if `pinned_pool_properties` has a value but pinned
      * host memory is not supported on this system.
-     * @throws std::invalid_argument if the pinned maximum pool size is zero.
      */
     [[nodiscard]] static std::shared_ptr<BufferResource> create(
         cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
@@ -661,20 +660,24 @@ static_assert(StatisticsProvider<BufferResource>);
 std::int64_t device_limit_from_options(config::Options options);
 
 /**
- * @brief Parse the `spill_host_limit` parameter from configuration options.
+ * @brief Build the per-`MemoryType` memory limits from configuration options.
  *
- * The limit must be an absolute byte count. Disabled values produce an
- * unbounded pageable-host budget (`std::nullopt`). This limit is independent
- * of `pinned_max_pool_size`. When both limits are bounded,
- * `BufferResource::from_options()` rejects configurations where their sum
- * exceeds the summed host memory of the nodes in the calling thread's memory
- * policy. The pinned maximum is also constrained by the host memory of its
- * NUMA node. An explicit numeric value is always a finite limit.
+ * - `MemoryType::DEVICE`: `device_limit_from_options()`.
+ * - `MemoryType::HOST`: `host_limit_from_options()`.
+ * - `MemoryType::PINNED_HOST`: the pool's `max_pool_size`, omitted when pinned
+ *   memory is disabled or the pool has no explicit cap.
+ *
+ * @note Omitted entries are treated as unlimited by `BufferResource::create()`.
  *
  * @param options Configuration options.
- * @return Pageable-host soft limit in bytes, or `std::nullopt` if unbounded.
+ * @param pinned_pool_properties Pinned pool configuration, typically from
+ * `pinned_pool_properties_from_options()`, or `PinnedMemoryDisabled`.
+ * @return Memory limits in bytes, suitable for `BufferResource::create()`.
  */
-std::optional<std::uint64_t> host_limit_from_options(config::Options options);
+std::unordered_map<MemoryType, std::int64_t> memory_limits_from_options(
+    config::Options options,
+    std::optional<PinnedPoolProperties> const& pinned_pool_properties
+);
 
 /**
  * @brief Get the `periodic_spill_check` parameter from configuration options.

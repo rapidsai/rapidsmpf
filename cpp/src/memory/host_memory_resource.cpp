@@ -4,6 +4,7 @@
  */
 
 
+#include <limits>
 #include <memory>
 
 #include <sys/mman.h>
@@ -12,6 +13,9 @@
 #include <cuda/stream>
 
 #include <rapidsmpf/memory/host_memory_resource.hpp>
+#include <rapidsmpf/system_info.hpp>
+#include <rapidsmpf/utils/misc.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 namespace rapidsmpf {
 namespace {
@@ -55,5 +59,18 @@ void detail::HostMemoryResourceImpl::deallocate(
 ) noexcept {
     stream.sync();
     ::operator delete(ptr, std::align_val_t{alignment});
+}
+
+std::int64_t host_limit_from_options(config::Options options) {
+    return options.get<std::int64_t>("spill_host_limit", [](auto const& s) {
+        auto const value = parse_optional(s);
+        if (!value.has_value()) {
+            return std::numeric_limits<std::int64_t>::max();
+        }
+        auto const total = safe_cast<double>(get_host_memory_per_gpu());
+        return safe_cast<std::int64_t>(rmm::align_down(
+            parse_nbytes_or_percent(*value, total), rmm::CUDA_ALLOCATION_ALIGNMENT
+        ));
+    });
 }
 }  // namespace rapidsmpf

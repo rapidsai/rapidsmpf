@@ -372,7 +372,7 @@ TEST(PinnedResource, from_default_options) {
         )
     );
     EXPECT_EQ(
-        props->max_pool_size.value(),
+        props->max_pool_size,
         rapidsmpf::parse_nbytes_or_percent(
             rapidsmpf::config::DEFAULTS.at("pinned_max_pool_size"),
             static_cast<double>(rapidsmpf::get_host_memory_per_gpu())

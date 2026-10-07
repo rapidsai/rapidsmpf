@@ -122,8 +122,10 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
   - **Description**: Maximum size of the pinned host memory pool when `pinned_memory` is
     enabled. When unset or empty, the pool is capped at 80% of total host memory
     available in the current NUMA node divided by the number of GPUs in that NUMA node.
-    Accepts positive byte counts or percentages (e.g. `"4GiB"`, `"2048MiB"`).
-    Use `"disabled"` for an unbounded pool; zero is not valid.
+    Accepts byte counts or percentages (e.g. `"4GiB"`, `"2048MiB"`). Use `"0"` or
+    `"disabled"` for an unbounded pool. The value cannot exceed the host memory of the
+    current NUMA node. See also `spill_host_limit`, which limits pageable host memory
+    separately and shares the same percentage base.
 
 - **`spill_device_limit`**
   - **Environment Variable**: `RAPIDSMPF_SPILL_DEVICE_LIMIT`
@@ -137,16 +139,13 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
 - **`spill_host_limit`**
   - **Environment Variable**: `RAPIDSMPF_SPILL_HOST_LIMIT`
   - **Default**: disabled (unbounded)
-  - **Description**: Soft upper limit on pageable host memory configured for
-    RapidsMPF, independent of `pinned_max_pool_size`. When both limits are
-    bounded, their sum cannot exceed the summed host memory of the nodes in the
-    calling thread's memory policy; the pinned maximum also cannot exceed its
-    NUMA node's host memory. This is a coarse validation because other processes
-    and allocations may consume the same host memory. It accepts absolute byte
-    counts (for example, `"10GiB"` or `"512MB"`). Percentages are not supported
-    because the appropriate host-memory share depends on the job's process and
-    NUMA topology. Use `"disabled"` for an unbounded (unset) limit. An explicit
-    numeric value is always treated as a finite cap, including `INT64_MAX`.
+  - **Description**: Soft upper limit on pageable host memory used by RapidsMPF
+    for spilling. Accepts byte counts (e.g. `"10GiB"`, `"512MB"`) or a percentage
+    of the host memory available per GPU, the same base as `pinned_max_pool_size`
+    (e.g. `"40%"`). Use `"disabled"` for an unbounded limit. This limit is
+    independent of `pinned_max_pool_size` and is not validated against it; keep
+    the two percentages at or below 100% combined (e.g. `pinned_max_pool_size=40%`
+    and `spill_host_limit=40%`) to stay within the host memory available per GPU.
 
 - **`periodic_spill_check`**
   - **Environment Variable**: `RAPIDSMPF_PERIODIC_SPILL_CHECK`

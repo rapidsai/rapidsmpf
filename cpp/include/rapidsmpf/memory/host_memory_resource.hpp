@@ -5,6 +5,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <stdexcept>
@@ -15,6 +16,7 @@
 #include <rmm/aligned.hpp>
 #include <rmm/resource_ref.hpp>
 
+#include <rapidsmpf/config.hpp>
 #include <rapidsmpf/detail/rmm_resource_adaptor_impl.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/back_ref_mixin.hpp>
@@ -187,5 +189,21 @@ class HostMemoryResource final
 static_assert(cuda::mr::resource<HostMemoryResource>);
 static_assert(cuda::mr::resource_with<HostMemoryResource, cuda::mr::host_accessible>);
 static_assert(!cuda::mr::resource_with<HostMemoryResource, cuda::mr::device_accessible>);
+
+/**
+ * @brief Parse the `spill_host_limit` parameter from configuration options.
+ *
+ * The limit is a byte count (e.g. "10GiB") or a percentage of
+ * `get_host_memory_per_gpu()` (e.g. "40%"), the same base used by
+ * `pinned_max_pool_size`. The result is aligned down to
+ * `rmm::CUDA_ALLOCATION_ALIGNMENT`. Disabled values produce an unbounded limit.
+ * This limit is independent of `pinned_max_pool_size` and is not validated
+ * against it.
+ *
+ * @param options Configuration options.
+ * @return The pageable-host limit in bytes, or
+ * `std::numeric_limits<std::int64_t>::max()` when disabled (unbounded).
+ */
+std::int64_t host_limit_from_options(config::Options options);
 
 }  // namespace rapidsmpf

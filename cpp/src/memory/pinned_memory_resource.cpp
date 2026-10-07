@@ -35,7 +35,7 @@ cuda::memory_pool_properties get_memory_pool_properties(
         // This defines how the allocations can be exported (IPC). See the docs of
         // `cudaMemPoolCreate` in <https://docs.nvidia.com/cuda/cuda-runtime-api>.
         .allocation_handle_type = ::cudaMemAllocationHandleType::cudaMemHandleTypeNone,
-        .max_pool_size = pool_properties.max_pool_size.value_or(0),
+        .max_pool_size = pool_properties.max_pool_size,
     };
 }
 
@@ -78,16 +78,16 @@ std::optional<PinnedPoolProperties> pinned_pool_properties_from_options(
             "pinned_initial_pool_size",
             [total](auto const& s) { return parse_nbytes_or_percent(s, total); }
         ),
-        .max_pool_size = options.get<std::optional<size_t>>(
-            "pinned_max_pool_size", [total](auto const& s) -> std::optional<std::size_t> {
+        .max_pool_size = options.get<size_t>(
+            "pinned_max_pool_size", [total](auto const& s) -> std::size_t {
                 auto const value = parse_optional(s);
                 if (!value.has_value()) {
-                    return std::nullopt;
+                    return 0;  // No explicit cap.
                 }
                 auto const max_pool_size = parse_nbytes_or_percent(*value, total);
                 RAPIDSMPF_EXPECTS(
-                    max_pool_size > 0,
-                    "pinned_max_pool_size must be greater than zero",
+                    max_pool_size <= get_numa_node_host_memory(),
+                    "pinned_max_pool_size exceeds NUMA node host memory",
                     std::invalid_argument
                 );
                 return max_pool_size;

@@ -3,7 +3,7 @@
 
 from cython cimport no_gc_clear
 from cython.operator cimport dereference as deref
-from libc.stdint cimport int64_t, uint64_t
+from libc.stdint cimport int64_t
 from libcpp cimport bool as bool_t
 from libcpp.memory cimport make_shared, shared_ptr, unique_ptr
 from libcpp.optional cimport optional
@@ -17,8 +17,6 @@ from rmm.pylibrmm import CudaStreamFlags
 from rmm.pylibrmm.stream cimport Stream
 
 from rapidsmpf.utils.memory import check_reservation_size
-from rapidsmpf.utils.system_info import (get_current_numa_nodes,
-                                         get_numa_node_host_memory)
 
 from rmm.librmm.memory_resource cimport (any_resource, device_accessible,
                                          device_async_resource_ref)
@@ -225,8 +223,7 @@ cdef class BufferResource:
         cdef optional[cpp_PinnedPoolProperties] cpp_pinned_pool
         if pinned_pool_properties is not None:
             _props.initial_pool_size = <size_t>pinned_pool_properties.initial_pool_size
-            if pinned_pool_properties.max_pool_size is not None:
-                _props.max_pool_size = <size_t>pinned_pool_properties.max_pool_size
+            _props.max_pool_size = <size_t>pinned_pool_properties.max_pool_size
             if pinned_pool_properties.numa_id is not None:
                 _props.numa_id = <int>pinned_pool_properties.numa_id
             cpp_pinned_pool = _props
@@ -274,43 +271,20 @@ cdef class BufferResource:
         if statistics is None:
             statistics = Statistics.disabled()
 
-        # BufferResource defaults to unlimited memory for each memory type.
-        # Set limits only if they are provided.
-        memory_limits = {
-            MemoryType.DEVICE: device_limit_from_options(options),
-        }
-
+        # Derive the pinned pool configuration from the options; an empty optional
+        # means pinned host memory is disabled.
         cdef optional[cpp_PinnedPoolProperties] props = \
             pinned_pool_properties_from_options(options._handle)
-        host_limit = host_limit_from_options(options)
         pinned_pool_properties = None
         if props.has_value():
             pinned_pool_properties = create_pinned_pool_properties_from_cpp(
                 props.value()
             )
-            max_pool_size = pinned_pool_properties.max_pool_size
-            if max_pool_size is not None:
-                numa_host = get_numa_node_host_memory(pinned_pool_properties.numa_id)
-                if max_pool_size > numa_host:
-                    raise ValueError(
-                        "pinned_max_pool_size exceeds NUMA node host memory"
-                    )
-                if host_limit is not None:
-                    total_host = sum(
-                        get_numa_node_host_memory(numa_id)
-                        for numa_id in get_current_numa_nodes()
-                    )
-                    if host_limit > (total_host - max_pool_size):
-                        raise ValueError(
-                            "spill_host_limit exceeds host memory in the current "
-                            "NUMA policy after pinned_max_pool_size"
-                        )
-                memory_limits[MemoryType.PINNED_HOST] = max_pool_size
-        else:
-            memory_limits[MemoryType.PINNED_HOST] = 0
 
-        if host_limit is not None:
-            memory_limits[MemoryType.HOST] = host_limit
+        cdef unordered_map[MemoryType, int64_t] limits
+        with nogil:
+            limits = cpp_memory_limits_from_options(options._handle, props)
+        memory_limits = {kv.first: kv.second for kv in limits}
 
         return cls(
             device_mr=mr,
@@ -650,13 +624,21 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
             cpp_Options options
         ) except +ex_handler
 
-    cdef optional[uint64_t] cpp_host_limit_from_options \
-        "rapidsmpf::host_limit_from_options"(
-            cpp_Options options
+    cdef unordered_map[MemoryType, int64_t] cpp_memory_limits_from_options \
+        "rapidsmpf::memory_limits_from_options"(
+            cpp_Options options,
+            const optional[cpp_PinnedPoolProperties]& pinned_pool_properties,
         ) except +ex_handler
 
     cdef optional[cpp_Duration] cpp_periodic_spill_check_from_options \
         "rapidsmpf::periodic_spill_check_from_options"(
+            cpp_Options options
+        ) except +ex_handler
+
+
+cdef extern from "<rapidsmpf/memory/host_memory_resource.hpp>" nogil:
+    cdef int64_t cpp_host_limit_from_options \
+        "rapidsmpf::host_limit_from_options"(
             cpp_Options options
         ) except +ex_handler
 
@@ -686,18 +668,23 @@ def device_limit_from_options(Options options not None):
 
 def host_limit_from_options(Options options not None):
     """
-    Get the configured pageable-host soft spill limit in bytes.
+    Get the ``spill_host_limit`` parameter from configuration options.
+
+    Parameters
+    ----------
+    options
+        Configuration options.
 
     Returns
     -------
-    The limit in bytes, or ``None`` if unbounded (disabled / unset).
+    int
+        The pageable-host limit in bytes, or the maximum ``int64`` value when
+        disabled (unbounded).
     """
-    cdef optional[uint64_t] ret
+    cdef int64_t ret
     with nogil:
         ret = cpp_host_limit_from_options(options._handle)
-    if not ret.has_value():
-        return None
-    return ret.value()
+    return ret
 
 
 def periodic_spill_check_from_options(Options options not None):

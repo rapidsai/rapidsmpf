@@ -17,7 +17,7 @@ cdef extern from "<rapidsmpf/memory/pinned_memory_resource.hpp>" nogil:
 
     cdef cppclass cpp_PinnedPoolProperties"rapidsmpf::PinnedPoolProperties":
         size_t initial_pool_size
-        optional[size_t] max_pool_size
+        size_t max_pool_size
         int numa_id
 
     optional[cpp_PinnedPoolProperties] pinned_pool_properties_from_options \

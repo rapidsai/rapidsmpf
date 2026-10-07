@@ -9,7 +9,7 @@ def is_pinned_memory_resources_supported() -> bool: ...
 @dataclass
 class PinnedPoolProperties:
     initial_pool_size: int = 0
-    max_pool_size: int | None = None
+    max_pool_size: int = 0
     numa_id: int | None = None
 
 class PinnedMemoryResource:

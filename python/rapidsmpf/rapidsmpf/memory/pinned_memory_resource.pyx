@@ -67,29 +67,22 @@ class PinnedPoolProperties:
         is important for pinned-memory performance, especially for the first
         allocation. Defaults to ``0``.
     max_pool_size
-        Maximum size of the pinned host memory pool in bytes, or ``None`` for no
-        limit. Defaults to ``None``.
+        Maximum size of the pinned host memory pool in bytes. ``0`` means no
+        explicit cap (CUDA's system-dependent default). Defaults to ``0``.
     numa_id
         NUMA node from which pinned host memory should be allocated, or ``None``
         to use the NUMA node of the calling thread. Defaults to ``None``.
     """
     initial_pool_size: int = 0
-    max_pool_size: object = None
+    max_pool_size: int = 0
     numa_id: object = None
-
-    def __post_init__(self):
-        if self.max_pool_size is not None and int(self.max_pool_size) <= 0:
-            raise ValueError("max_pool_size must be greater than zero")
 
 
 cdef object create_pinned_pool_properties_from_cpp(cpp_PinnedPoolProperties props):
     """Build a Python ``PinnedPoolProperties`` from a C++ ``PinnedPoolProperties``."""
-    cdef object max_pool_size = None
-    if props.max_pool_size.has_value():
-        max_pool_size = props.max_pool_size.value()
     return PinnedPoolProperties(
         initial_pool_size=props.initial_pool_size,
-        max_pool_size=max_pool_size,
+        max_pool_size=props.max_pool_size,
         numa_id=props.numa_id,
     )
 
