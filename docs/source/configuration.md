@@ -143,9 +143,11 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
     for spilling. Accepts byte counts (e.g. `"10GiB"`, `"512MB"`) or a percentage
     of the host memory available per GPU, the same base as `pinned_max_pool_size`
     (e.g. `"40%"`). Use `"disabled"` for an unbounded limit. This limit is
-    independent of `pinned_max_pool_size` and is not validated against it; keep
-    the two percentages at or below 100% combined (e.g. `pinned_max_pool_size=40%`
-    and `spill_host_limit=40%`) to stay within the host memory available per GPU.
+    independent of `pinned_max_pool_size` and is not validated against it. Keep the
+    two at or below 80% combined (e.g. `pinned_max_pool_size=40%` and
+    `spill_host_limit=40%`), leaving 20% of the host memory available per GPU for the
+    OS and any other untracked host allocations. Since `pinned_max_pool_size`
+    defaults to 80%, lower it when setting this limit with `pinned_memory` enabled.
 
 - **`periodic_spill_check`**
   - **Environment Variable**: `RAPIDSMPF_PERIODIC_SPILL_CHECK`
