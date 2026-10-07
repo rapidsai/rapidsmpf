@@ -662,13 +662,6 @@ std::int64_t device_limit_from_options(config::Options options);
 /**
  * @brief Build the per-`MemoryType` memory limits from configuration options.
  *
- * - `MemoryType::DEVICE`: `device_limit_from_options()`.
- * - `MemoryType::HOST`: `host_limit_from_options()`.
- * - `MemoryType::PINNED_HOST`: the pool's `max_pool_size`, omitted when pinned
- *   memory is disabled or the pool has no explicit cap.
- *
- * @note Omitted entries are treated as unlimited by `BufferResource::create()`.
- *
  * @param options Configuration options.
  * @param pinned_pool_properties Pinned pool configuration, typically from
  * `pinned_pool_properties_from_options()`, or `PinnedMemoryDisabled`.
