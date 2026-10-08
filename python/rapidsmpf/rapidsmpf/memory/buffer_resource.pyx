@@ -47,8 +47,7 @@ cdef extern from *:
     ) except +ex_handler
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
-from rapidsmpf.memory.host_memory_resource cimport (HostMemoryResource,
-                                                    cpp_HostMemoryResource)
+from rapidsmpf.memory.host_memory_resource cimport HostMemoryResource
 from rapidsmpf.memory.memory_reservation cimport MemoryReservation
 from rapidsmpf.memory.pinned_memory_resource cimport (
     PinnedMemoryResource, cpp_PinnedMemoryResource, cpp_PinnedPoolProperties,
@@ -378,10 +377,9 @@ cdef class BufferResource:
         -------
         The pageable host memory resource.
         """
-        cdef optional[cpp_HostMemoryResource] opt
-        with nogil:
-            opt = optional[cpp_HostMemoryResource](deref(self._handle).host_memory_resource())
-        return HostMemoryResource.from_handle(opt)
+        return HostMemoryResource.from_handle(
+            deref(self._handle).host_memory_resource()
+        )
 
     @property
     def pinned_mr(self):

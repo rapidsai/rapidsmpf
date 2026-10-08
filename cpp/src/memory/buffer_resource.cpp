@@ -176,7 +176,7 @@ rmm::host_async_resource_ref BufferResource::host_mr() noexcept {
     return host_mr_;
 }
 
-HostMemoryResource BufferResource::host_memory_resource() const {
+HostMemoryResource const& BufferResource::host_memory_resource() const noexcept {
     return host_mr_;
 }
 

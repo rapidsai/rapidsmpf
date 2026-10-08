@@ -22,5 +22,5 @@ cdef class HostMemoryResource:
 
     @staticmethod
     cdef HostMemoryResource from_handle(
-        const optional[cpp_HostMemoryResource]& handle
+        const cpp_HostMemoryResource& handle
     )

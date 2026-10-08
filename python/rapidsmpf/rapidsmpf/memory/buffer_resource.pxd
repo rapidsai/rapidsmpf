@@ -60,7 +60,7 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
         device_async_resource_ref device_mr() noexcept
         cpp_RmmResourceAdaptor& device_mr_adaptor() noexcept
         optional[cpp_PinnedMemoryResource] try_pinned_mr() except +ex_handler
-        cpp_HostMemoryResource host_memory_resource() except +ex_handler
+        const cpp_HostMemoryResource& host_memory_resource() noexcept
         unique_ptr[cpp_Buffer] make_buffer(
             size_t size,
             stream_ref stream,

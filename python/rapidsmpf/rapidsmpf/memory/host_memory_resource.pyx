@@ -15,17 +15,17 @@ cdef extern from *:
     #include <optional>
 
     namespace {
-    // Copy an optional back-referenced `HostMemoryResource`. The copy promotes the
+    // Copy a back-referenced `HostMemoryResource`. The copy promotes the
     // resource's back-reference, so the result keeps the owning `BufferResource`
     // alive. Throws `std::bad_weak_ptr` if the resource carries no back-reference.
     std::optional<rapidsmpf::HostMemoryResource>
-    cpp_copy_host_mr(std::optional<rapidsmpf::HostMemoryResource> const& src) {
+    cpp_copy_host_mr(rapidsmpf::HostMemoryResource const& src) {
         return src;
     }
     }  // namespace
     """
     optional[cpp_HostMemoryResource] cpp_copy_host_mr(
-        const optional[cpp_HostMemoryResource]&
+        const cpp_HostMemoryResource&
     ) except +ex_handler nogil
 
 
@@ -119,7 +119,7 @@ cdef class HostMemoryResource:
 
     @staticmethod
     cdef HostMemoryResource from_handle(
-        const optional[cpp_HostMemoryResource]& handle
+        const cpp_HostMemoryResource& handle
     ):
         """
         Create a Python ``HostMemoryResource`` by copying a back-ref'd C++ handle.

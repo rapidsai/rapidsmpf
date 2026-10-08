@@ -6,8 +6,16 @@
 # =================================================================================
 
 set(cython_modules
-    buffer.pyx buffer_resource.pyx content_description.pyx host_memory_resource.pyx
-    memory_reservation.pyx packed_data.pyx pinned_memory_resource.pyx scoped_memory_record.pyx spill.pyx spill_manager.pyx
+    buffer.pyx
+    buffer_resource.pyx
+    content_description.pyx
+    host_memory_resource.pyx
+    memory_reservation.pyx
+    packed_data.pyx
+    pinned_memory_resource.pyx
+    scoped_memory_record.pyx
+    spill.pyx
+    spill_manager.pyx
 )
 
 rapids_cython_create_modules(

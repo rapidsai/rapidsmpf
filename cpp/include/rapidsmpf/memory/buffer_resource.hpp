@@ -300,9 +300,11 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     /**
      * @brief Get the pageable-host memory resource handle.
      *
-     * @return A copy of the `HostMemoryResource`.
+     * @return Reference to the `HostMemoryResource`, valid for as long as this
+     * `BufferResource` is alive. Copy it to obtain a handle that keeps this
+     * `BufferResource` alive.
      */
-    [[nodiscard]] HostMemoryResource host_memory_resource() const;
+    [[nodiscard]] HostMemoryResource const& host_memory_resource() const noexcept;
 
     /**
      * @brief Get the RMM pinned host memory resource.
