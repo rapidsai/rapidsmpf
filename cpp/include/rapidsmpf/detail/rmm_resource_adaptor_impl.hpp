@@ -103,11 +103,6 @@ class RmmResourceAdaptorImpl
         return primary_mr_;
     }
 
-    /// @copydoc upstream_resource
-    [[nodiscard]] PrimaryMR const& get_upstream_resource() const noexcept {
-        return upstream_resource();
-    }
-
     /// @copydoc RmmResourceAdaptor::get_main_record
     [[nodiscard]] ScopedMemoryRecord get_main_record() const {
         std::lock_guard<std::mutex> lock(mutex_);

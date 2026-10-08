@@ -272,8 +272,18 @@ TEST(BufferResource, HostMemoryAvailabilityTracksLiveAllocations) {
     EXPECT_EQ(br->memory_available(MemoryType::HOST), 10_KiB);
 }
 
+TEST(BufferResource, RejectsZeroPinnedMaxPoolSize) {
+    rmm::mr::cuda_memory_resource cuda_mr;
+    EXPECT_THROW(
+        std::ignore = BufferResource::create(
+            cuda_mr, PinnedPoolProperties{.max_pool_size = 0}, {}, std::nullopt, nullptr
+        ),
+        std::invalid_argument
+    );
+}
+
 class PinnedMaxPoolSizeReservationLimitTest
-    : public ::testing::TestWithParam<std::size_t> {};
+    : public ::testing::TestWithParam<std::optional<std::size_t>> {};
 
 TEST_P(PinnedMaxPoolSizeReservationLimitTest, TwoReservations) {
     if (!is_pinned_memory_resources_supported()) {
@@ -281,15 +291,15 @@ TEST_P(PinnedMaxPoolSizeReservationLimitTest, TwoReservations) {
     }
 
     auto const max_pool_size = GetParam();
-    auto const expect_second_succeeds = [&] { return max_pool_size == 0; };
+    auto const expect_second_succeeds = [&] { return !max_pool_size.has_value(); };
 
     rmm::mr::cuda_memory_resource cuda_mr;
 
     // Wire the PINNED_HOST limit to the pool's max_pool_size (or unlimited if the
     // pool is unbounded) so reservations respect the same ceiling as allocations.
     std::unordered_map<MemoryType, std::int64_t> memory_limits;
-    if (max_pool_size > 0) {
-        memory_limits[MemoryType::PINNED_HOST] = safe_cast<std::int64_t>(max_pool_size);
+    if (max_pool_size.has_value()) {
+        memory_limits[MemoryType::PINNED_HOST] = safe_cast<std::int64_t>(*max_pool_size);
     }
     auto br = BufferResource::create(
         cuda_mr,
@@ -312,7 +322,9 @@ TEST_P(PinnedMaxPoolSizeReservationLimitTest, TwoReservations) {
 INSTANTIATE_TEST_SUITE_P(
     PinnedMaxPoolSize,
     PinnedMaxPoolSizeReservationLimitTest,
-    ::testing::Values(std::size_t{0}, std::size_t{1_KiB})
+    ::testing::Values(
+        std::optional<std::size_t>{std::nullopt}, std::optional<std::size_t>{1_KiB}
+    )
 );
 
 TEST(BufferResource, AllocStatistics) {

@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <optional>
 #include <stdexcept>
 #include <utility>
 
@@ -196,14 +197,16 @@ static_assert(!cuda::mr::resource_with<HostMemoryResource, cuda::mr::device_acce
  * The limit is a byte count (e.g. "10GiB") or a percentage of
  * `get_host_memory_per_gpu()` (e.g. "40%"), the same base used by
  * `pinned_max_pool_size`. The result is aligned down to
- * `rmm::CUDA_ALLOCATION_ALIGNMENT`. Disabled values produce an unbounded limit.
- * This limit is independent of `pinned_max_pool_size` and is not validated
- * against it.
+ * `rmm::CUDA_ALLOCATION_ALIGNMENT`. Disabled values leave the limit unset
+ * (unbounded). This limit is independent of `pinned_max_pool_size` and is not
+ * validated against it.
  *
  * @param options Configuration options.
- * @return The pageable-host limit in bytes, or
- * `std::numeric_limits<std::int64_t>::max()` when disabled (unbounded).
+ * @return The pageable-host limit in bytes, or `std::nullopt` when disabled
+ * (unbounded).
+ *
+ * @throws std::invalid_argument if the limit resolves to zero (e.g. "0" or "0%").
  */
-std::int64_t host_limit_from_options(config::Options options);
+std::optional<std::int64_t> host_limit_from_options(config::Options options);
 
 }  // namespace rapidsmpf

@@ -78,6 +78,12 @@ std::shared_ptr<BufferResource> BufferResource::create(
             "may apply. Pass `PinnedMemoryDisabled` to disable pinned host memory.",
             std::runtime_error
         );
+        RAPIDSMPF_EXPECTS(
+            !pinned_pool_properties->max_pool_size.has_value()
+                || *pinned_pool_properties->max_pool_size > 0,
+            "PinnedPoolProperties::max_pool_size must be greater than zero",
+            std::invalid_argument
+        );
         pinned_mr = PinnedMemoryResource{*pinned_pool_properties};
     }
 
@@ -442,11 +448,15 @@ std::unordered_map<MemoryType, std::int64_t> memory_limits_from_options(
 ) {
     std::unordered_map<MemoryType, std::int64_t> ret{
         {MemoryType::DEVICE, device_limit_from_options(options)},
-        {MemoryType::HOST, host_limit_from_options(options)},
     };
-    if (pinned_pool_properties.has_value() && pinned_pool_properties->max_pool_size > 0) {
+    if (auto const host_limit = host_limit_from_options(options); host_limit) {
+        ret[MemoryType::HOST] = *host_limit;
+    }
+    if (pinned_pool_properties.has_value()
+        && pinned_pool_properties->max_pool_size.has_value())
+    {
         ret[MemoryType::PINNED_HOST] =
-            safe_cast<std::int64_t>(pinned_pool_properties->max_pool_size);
+            safe_cast<std::int64_t>(*pinned_pool_properties->max_pool_size);
     }
     return ret;
 }

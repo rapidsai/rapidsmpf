@@ -17,6 +17,7 @@ from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import (
     BufferResource,
     device_limit_from_options,
+    host_limit_from_options,
     periodic_spill_check_from_options,
     stream_pool_from_options,
 )
@@ -439,6 +440,22 @@ def test_pinned_memory_from_options(
 def test_device_limit_from_options_returns_configured_limit() -> None:
     opts = Options({"spill_device_limit": "1GiB"})
     assert device_limit_from_options(opts) == 1024 * 1024 * 1024
+
+
+def test_host_limit_from_options_returns_configured_limit() -> None:
+    opts = Options({"spill_host_limit": "1GiB"})
+    assert host_limit_from_options(opts) == 1024 * 1024 * 1024
+
+
+def test_host_limit_from_options_disabled_is_unbounded() -> None:
+    assert host_limit_from_options(Options()) is None
+    assert host_limit_from_options(Options({"spill_host_limit": "disabled"})) is None
+
+
+@pytest.mark.parametrize("value", ["0", "0%"])
+def test_host_limit_from_options_rejects_zero(value: str) -> None:
+    with pytest.raises(ValueError, match="greater than zero"):
+        host_limit_from_options(Options({"spill_host_limit": value}))
 
 
 def test_device_limit_from_options_uses_default() -> None:

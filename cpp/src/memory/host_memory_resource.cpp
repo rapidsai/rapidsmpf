@@ -6,6 +6,7 @@
 
 #include <limits>
 #include <memory>
+#include <stdexcept>
 
 #include <sys/mman.h>
 #include <unistd.h>
@@ -61,16 +62,24 @@ void detail::HostMemoryResourceImpl::deallocate(
     ::operator delete(ptr, std::align_val_t{alignment});
 }
 
-std::int64_t host_limit_from_options(config::Options options) {
-    return options.get<std::int64_t>("spill_host_limit", [](auto const& s) {
-        auto const value = parse_optional(s);
-        if (!value.has_value()) {
-            return std::numeric_limits<std::int64_t>::max();
+std::optional<std::int64_t> host_limit_from_options(config::Options options) {
+    return options.get<std::optional<std::int64_t>>(
+        "spill_host_limit", [](auto const& s) -> std::optional<std::int64_t> {
+            auto const value = parse_optional(s);
+            if (!value.has_value()) {
+                return std::nullopt;
+            }
+            auto const total = safe_cast<double>(get_host_memory_per_gpu());
+            auto const limit = safe_cast<std::int64_t>(rmm::align_down(
+                parse_nbytes_or_percent(*value, total), rmm::CUDA_ALLOCATION_ALIGNMENT
+            ));
+            RAPIDSMPF_EXPECTS(
+                limit > 0,
+                "spill_host_limit must be greater than zero",
+                std::invalid_argument
+            );
+            return limit;
         }
-        auto const total = safe_cast<double>(get_host_memory_per_gpu());
-        return safe_cast<std::int64_t>(rmm::align_down(
-            parse_nbytes_or_percent(*value, total), rmm::CUDA_ALLOCATION_ALIGNMENT
-        ));
-    });
+    );
 }
 }  // namespace rapidsmpf

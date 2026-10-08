@@ -504,17 +504,28 @@ TEST(OptionsTest, PinnedPoolPropertiesFromOptionsDisabledByDefault) {
     EXPECT_FALSE(props.has_value());
 }
 
-TEST(OptionsTest, PinnedPoolPropertiesFromOptionsAllowsUnboundedMaxPoolSize) {
-    for (auto const& value : {"disabled", "0"}) {
+TEST(OptionsTest, PinnedPoolPropertiesFromOptionsRejectsZeroMaxPoolSize) {
+    for (auto const& value : {"0", "0%"}) {
         std::unordered_map<std::string, std::string> strings = {
             {"pinned_memory", "True"},
             {"pinned_max_pool_size", value},
         };
-        auto const properties = pinned_pool_properties_from_options(Options{strings});
-
-        ASSERT_TRUE(properties.has_value()) << value;
-        EXPECT_EQ(properties->max_pool_size, 0) << value;
+        EXPECT_THROW(
+            std::ignore = pinned_pool_properties_from_options(Options{strings}),
+            std::invalid_argument
+        ) << value;
     }
+}
+
+TEST(OptionsTest, PinnedPoolPropertiesFromOptionsAllowsUnboundedMaxPoolSize) {
+    std::unordered_map<std::string, std::string> strings = {
+        {"pinned_memory", "True"},
+        {"pinned_max_pool_size", "disabled"},
+    };
+    auto const properties = pinned_pool_properties_from_options(Options{strings});
+
+    ASSERT_TRUE(properties.has_value());
+    EXPECT_FALSE(properties->max_pool_size.has_value());
 }
 
 TEST(OptionsTest, PinnedPoolPropertiesFromOptionsRejectsMaxPoolSizeAboveNumaNode) {
@@ -559,23 +570,31 @@ TEST(OptionsTest, DeviceLimitFromOptionsUsesDefaultWhenNotSet) {
 
 TEST(OptionsTest, HostLimitFromOptionsReturnsConfiguredLimit) {
     std::unordered_map<std::string, std::string> strings = {{"spill_host_limit", "1GiB"}};
-    EXPECT_EQ(host_limit_from_options(Options{strings}), 1_GiB);
+    EXPECT_EQ(
+        host_limit_from_options(Options{strings}), std::optional<std::int64_t>{1_GiB}
+    );
 }
 
 TEST(OptionsTest, HostLimitFromOptionsIsUnboundedByDefault) {
-    EXPECT_EQ(
-        host_limit_from_options(Options{}), std::numeric_limits<std::int64_t>::max()
-    );
+    EXPECT_FALSE(host_limit_from_options(Options{}).has_value());
 }
 
 TEST(OptionsTest, HostLimitFromOptionsDisabledIsUnbounded) {
     std::unordered_map<std::string, std::string> strings = {
         {"spill_host_limit", "disabled"}
     };
-    EXPECT_EQ(
-        host_limit_from_options(Options{strings}),
-        std::numeric_limits<std::int64_t>::max()
-    );
+    EXPECT_FALSE(host_limit_from_options(Options{strings}).has_value());
+}
+
+TEST(OptionsTest, HostLimitFromOptionsRejectsZero) {
+    for (auto const& value : {"0", "0%"}) {
+        std::unordered_map<std::string, std::string> strings = {
+            {"spill_host_limit", value}
+        };
+        EXPECT_THROW(
+            std::ignore = host_limit_from_options(Options{strings}), std::invalid_argument
+        ) << value;
+    }
 }
 
 TEST(OptionsTest, HostLimitFromOptionsPercentageIsRelativeToHostMemoryPerGpu) {
@@ -586,7 +605,7 @@ TEST(OptionsTest, HostLimitFromOptionsPercentageIsRelativeToHostMemoryPerGpu) {
     auto options = Options{
         std::unordered_map<std::string, std::string>{{"spill_host_limit", "50%"}}
     };
-    EXPECT_EQ(host_limit_from_options(options), expected);
+    EXPECT_EQ(host_limit_from_options(options), std::optional<std::int64_t>{expected});
 }
 
 TEST(OptionsTest, PeriodicSpillCheckFromOptionsParsesMilliseconds) {
@@ -733,9 +752,9 @@ TEST(OptionsTest, BufferResourceFromOptionsEnablesPinnedMemoryWhenSupported) {
 
 TEST(OptionsTest, MemoryLimitsFromOptionsDefaults) {
     auto const limits = memory_limits_from_options(Options{}, PinnedMemoryDisabled);
-    EXPECT_EQ(limits.size(), 2);
+    EXPECT_EQ(limits.size(), 1);
     EXPECT_EQ(limits.at(MemoryType::DEVICE), device_limit_from_options(Options{}));
-    EXPECT_EQ(limits.at(MemoryType::HOST), std::numeric_limits<std::int64_t>::max());
+    EXPECT_FALSE(limits.contains(MemoryType::HOST));
 }
 
 TEST(OptionsTest, MemoryLimitsFromOptionsWiresHostAndPinned) {
@@ -749,12 +768,6 @@ TEST(OptionsTest, MemoryLimitsFromOptionsWiresHostAndPinned) {
     EXPECT_EQ(limits.at(MemoryType::DEVICE), 1_GiB);
     EXPECT_EQ(limits.at(MemoryType::HOST), 2_GiB);
     EXPECT_EQ(limits.at(MemoryType::PINNED_HOST), 4_MiB);
-}
-
-TEST(OptionsTest, MemoryLimitsFromOptionsOmitsUncappedPinnedPool) {
-    auto const limits =
-        memory_limits_from_options(Options{}, PinnedPoolProperties{.max_pool_size = 0});
-    EXPECT_FALSE(limits.contains(MemoryType::PINNED_HOST));
 }
 
 TEST(OptionsTest, BufferResourceFromOptionsWiresPinnedPoolLimit) {
@@ -809,27 +822,6 @@ TEST(OptionsTest, BufferResourceFromOptionsAllowsUnboundedPinnedWithBoundedHost)
         std::numeric_limits<std::int64_t>::max()
     );
     EXPECT_EQ(br->memory_available(MemoryType::HOST), 4_MiB);
-}
-
-TEST(OptionsTest, BufferResourceFromOptionsDoesNotCrossValidateHostAndPinnedLimits) {
-    if (!is_pinned_memory_resources_supported()) {
-        GTEST_SKIP() << "Pinned memory not supported on this system";
-    }
-
-    // The limits are independent soft limits, so their sum may exceed host memory.
-    std::unordered_map<std::string, std::string> strings = {
-        {"pinned_memory", "True"},
-        {"pinned_max_pool_size", "80%"},
-        {"spill_host_limit", "80%"},
-    };
-    rmm::mr::cuda_memory_resource cuda_mr;
-    auto br = BufferResource::from_options(cuda_mr, config::Options{strings});
-
-    auto const expected = safe_cast<std::int64_t>(rmm::align_down(
-        parse_nbytes_or_percent("80%", static_cast<double>(get_host_memory_per_gpu())),
-        rmm::CUDA_ALLOCATION_ALIGNMENT
-    ));
-    EXPECT_EQ(br->memory_available(MemoryType::HOST), expected);
 }
 
 TEST(OptionsTest, BufferResourceFromOptionsWiresIndependentHostAndPinnedLimits) {

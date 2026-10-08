@@ -223,7 +223,8 @@ cdef class BufferResource:
         cdef optional[cpp_PinnedPoolProperties] cpp_pinned_pool
         if pinned_pool_properties is not None:
             _props.initial_pool_size = <size_t>pinned_pool_properties.initial_pool_size
-            _props.max_pool_size = <size_t>pinned_pool_properties.max_pool_size
+            if pinned_pool_properties.max_pool_size is not None:
+                _props.max_pool_size = <size_t>pinned_pool_properties.max_pool_size
             if pinned_pool_properties.numa_id is not None:
                 _props.numa_id = <int>pinned_pool_properties.numa_id
             cpp_pinned_pool = _props
@@ -637,7 +638,7 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
 
 
 cdef extern from "<rapidsmpf/memory/host_memory_resource.hpp>" nogil:
-    cdef int64_t cpp_host_limit_from_options \
+    cdef optional[int64_t] cpp_host_limit_from_options \
         "rapidsmpf::host_limit_from_options"(
             cpp_Options options
         ) except +ex_handler
@@ -677,14 +678,20 @@ def host_limit_from_options(Options options not None):
 
     Returns
     -------
-    int
-        The pageable-host limit in bytes, or the maximum ``int64`` value when
-        disabled (unbounded).
+    int or None
+        The pageable-host limit in bytes, or ``None`` when disabled (unbounded).
+
+    Raises
+    ------
+    ValueError
+        If the limit resolves to zero.
     """
-    cdef int64_t ret
+    cdef optional[int64_t] ret
     with nogil:
         ret = cpp_host_limit_from_options(options._handle)
-    return ret
+    if not ret.has_value():
+        return None
+    return ret.value()
 
 
 def periodic_spill_check_from_options(Options options not None):
