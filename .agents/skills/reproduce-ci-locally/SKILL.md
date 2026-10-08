@@ -77,7 +77,7 @@ images from the CI run:
 2. For each relevant job, download its logs (requires `GH_TOKEN` with `repo`
    scope) and look for the `docker pull` line in the **Initialize Containers**
    / **Starting job container** section — it contains the full image tag
-   (e.g., `rapidsai/ci-conda:26.06-cuda12.9.1-ubuntu22.04-py3.11`).
+   (e.g., `rapidsai/ci-conda:26.06-cuda12.9.1-ubuntu22.04-py3.12`).
 3. Alternatively, for jobs in `.github/workflows/` that set `container_image`
    explicitly, read the value from the workflow file. However, most jobs use
    shared workflows (e.g., `conda-cpp-tests.yaml`) which select the image
