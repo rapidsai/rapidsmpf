@@ -298,6 +298,13 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     [[nodiscard]] rmm::host_async_resource_ref host_mr() noexcept;
 
     /**
+     * @brief Get the pageable-host memory resource handle.
+     *
+     * @return A copy of the `HostMemoryResource`.
+     */
+    [[nodiscard]] HostMemoryResource host_memory_resource() const;
+
+    /**
      * @brief Get the RMM pinned host memory resource.
      *
      * @throws std::invalid_argument if no pinned memory resource is available.
