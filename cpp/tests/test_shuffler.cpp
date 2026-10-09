@@ -4,12 +4,18 @@
  */
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <future>
 #include <memory>
+#include <optional>
+#include <string>
 #include <thread>
+#include <unordered_map>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -412,6 +418,106 @@ TEST(Shuffler, payload_statistics) {
         EXPECT_EQ(recv.count(), expected_count);
         EXPECT_EQ(recv.value(), expected_bytes);
         EXPECT_EQ(recv.max(), expected_message_size);
+    }
+}
+
+namespace {
+
+/// Sets an environment variable for the lifetime of the object.
+class ScopedEnvVar {
+  public:
+    ScopedEnvVar(char const* name, std::string const& value) : name_{name} {
+        if (char const* old = std::getenv(name)) {
+            old_ = old;
+        }
+        ::setenv(name, value.c_str(), 1);
+    }
+
+    ~ScopedEnvVar() {
+        if (old_.has_value()) {
+            ::setenv(name_, old_->c_str(), 1);
+        } else {
+            ::unsetenv(name_);
+        }
+    }
+
+    ScopedEnvVar(ScopedEnvVar const&) = delete;
+    ScopedEnvVar& operator=(ScopedEnvVar const&) = delete;
+
+  private:
+    char const* name_;
+    std::optional<std::string> old_;
+};
+
+}  // namespace
+
+class ShufflerSendOrderPolicyTest : public ::testing::TestWithParam<std::string> {};
+
+INSTANTIATE_TEST_SUITE_P(
+    Shuffler,
+    ShufflerSendOrderPolicyTest,
+    ::testing::Values("global", "rank", "pid", "none"),
+    [](auto const& info) { return info.param; }
+);
+
+// Inserts several batches that share partitions, where the first batch becomes ready
+// last, and checks that extraction still returns each partition in insertion order.
+TEST_P(ShufflerSendOrderPolicyTest, extract_preserves_insertion_order) {
+    using rapidsmpf::shuffler::PartID;
+    ScopedEnvVar const policy{"RAPIDSMPF_SHUFFLER_SEND_ORDER_POLICY", GetParam()};
+    auto const& comm = GlobalEnvironment->comm_;
+    auto br =
+        rapidsmpf::BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    auto const nranks = comm->nranks();
+    auto const total_num_partitions = rapidsmpf::safe_cast<PartID>(2 * nranks);
+    constexpr std::int32_t num_batches = 4;
+    auto const ready_stream = cuda::stream_ref{cudaStreamLegacy};
+
+    StreamGate gate;
+    rapidsmpf::shuffler::Shuffler shuffler(comm, 0, total_num_partitions, br.get());
+    EXPECT_EQ(
+        rapidsmpf::shuffler::detail::send_order_policy_from_env(),
+        rapidsmpf::shuffler::detail::parse_send_order_policy(GetParam())
+    );
+    for (std::int32_t batch = 0; batch < num_batches; ++batch) {
+        auto const stream = batch == 0 ? gate.stream() : ready_stream;
+        std::unordered_map<PartID, rapidsmpf::PackedData> chunks;
+        for (PartID pid = 0; pid < total_num_partitions; ++pid) {
+            std::array<std::int32_t, 2> const header{comm->rank(), batch};
+            auto metadata = std::make_unique<std::vector<std::uint8_t>>(sizeof(header));
+            std::memcpy(metadata->data(), header.data(), sizeof(header));
+            auto data = std::make_unique<rmm::device_buffer>(16, stream);
+            chunks.emplace(
+                pid,
+                rapidsmpf::PackedData{
+                    std::move(metadata), br->move(std::move(data), stream)
+                }
+            );
+        }
+        shuffler.insert(std::move(chunks));
+    }
+    ready_stream.sync();
+    // Give the progress thread time to send the later batches before the first batch.
+    std::this_thread::sleep_for(std::chrono::milliseconds{50});
+    gate.open();
+    shuffler.insert_finished();
+    shuffler.wait(std::chrono::seconds{30});
+
+    std::vector<std::array<std::int32_t, 2>> expected;
+    for (std::int32_t src = 0; src < nranks; ++src) {
+        for (std::int32_t batch = 0; batch < num_batches; ++batch) {
+            expected.push_back({src, batch});
+        }
+    }
+    for (auto pid : shuffler.local_partitions()) {
+        std::vector<std::array<std::int32_t, 2>> actual;
+        for (auto const& packed : shuffler.extract(pid)) {
+            std::array<std::int32_t, 2> header{};
+            EXPECT_EQ(packed.metadata->size(), sizeof(header));
+            std::memcpy(header.data(), packed.metadata->data(), sizeof(header));
+            actual.push_back(header);
+        }
+        EXPECT_EQ(actual, expected) << "pid=" << pid;
     }
 }
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 set -xeuo pipefail
@@ -17,6 +17,9 @@ export OMPI_MCA_opal_cuda_support=1  # enable CUDA support in OpenMPI
 # Ensure that benchmarks are runnable
 python "${TIMEOUT_TOOL_PATH}" 30 \
     mpirun --map-by node --bind-to none -np 3 ./bench_comm -m cuda
+
+python "${TIMEOUT_TOOL_PATH}" 30 \
+    mpirun --map-by node --bind-to none -np 3 ./bench_shuffle -m cuda -n 65536 -o 1
 
 RAPIDSMPF_SMOKE_TEST_MODE="ON" \
     python "${TIMEOUT_TOOL_PATH}" 30 ./bench_memory_resources

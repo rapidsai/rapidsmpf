@@ -4,38 +4,109 @@
  */
 #pragma once
 
+#include <cstdint>
 #include <mutex>
+#include <ostream>
 #include <string>
+#include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
+#include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/shuffler/chunk.hpp>
 
 namespace rapidsmpf::shuffler::detail {
 
 /**
+ * @brief Policy deciding which outgoing chunks may overtake a chunk that is not ready.
+ *
+ * Insertion order per partition is restored on the receiving side by sorting on chunk
+ * ID, so these policies only bound how much data is in flight, not correctness.
+ */
+enum class SendOrderPolicy : std::uint8_t {
+    Global,  ///< A not-ready chunk blocks every later chunk.
+    PerRank,  ///< A not-ready chunk blocks later chunks to the same destination rank.
+    PerPartition,  ///< A not-ready chunk blocks later chunks of the same partition.
+    None,  ///< A not-ready chunk never blocks other chunks.
+};
+
+/**
+ * @brief Parse a send order policy name.
+ *
+ * @param name One of "global", "rank", "pid" or "none" (case-insensitive).
+ * @return The parsed policy.
+ *
+ * @throws std::invalid_argument If @p name is not a valid policy name.
+ */
+SendOrderPolicy parse_send_order_policy(std::string_view name);
+
+/**
+ * @brief Read the send order policy from `RAPIDSMPF_SHUFFLER_SEND_ORDER_POLICY`.
+ *
+ * TODO: this is a temporary backdoor for benchmarking send order policies.
+ *
+ * @return The policy in the environment variable, or `SendOrderPolicy::Global` if unset.
+ */
+SendOrderPolicy send_order_policy_from_env();
+
+/**
+ * @brief Overloads the stream insertion operator for SendOrderPolicy.
+ *
+ * @param os The output stream to write to.
+ * @param policy The policy to write.
+ * @return A reference to the modified output stream.
+ */
+std::ostream& operator<<(std::ostream& os, SendOrderPolicy policy);
+
+/**
  * @brief A thread-safe container for managing outgoing (to send) chunks.
  */
 class ChunksToSend {
   public:
-    ChunksToSend() = default;
+    /**
+     * @brief Counters describing a single extraction.
+     */
+    struct ExtractStats {
+        std::size_t not_ready{0};  ///< Chunks skipped because they were not ready.
+        std::size_t blocked{0};  ///< Chunks held back behind a not-ready chunk.
+    };
+
+    /**
+     * @brief Construct a new container.
+     *
+     * @param policy The policy deciding which chunks may overtake a not-ready chunk.
+     */
+    ChunksToSend(SendOrderPolicy policy = SendOrderPolicy::Global) : policy_{policy} {}
 
     /**
      * @brief Insert a chunk into the container.
      *
+     * @param dst The destination rank of the chunk.
      * @param c The chunk to insert.
      */
-    void insert(std::unique_ptr<Chunk> c);
+    void insert(Rank dst, std::unique_ptr<Chunk> c);
 
     /**
      * @brief Extract ready chunks.
      *
+     * A chunk that is not ready blocks later chunks as decided by the send order policy.
+     * With `SendOrderPolicy::Global`, extraction stops at the first such chunk.
+     *
      * @note Ready means no stream-ordered work queued on the chunk's data.
      *
+     * @param stats If not null, filled with counters describing this extraction.
      * @return Vector of chunks ready to send.
      */
-    [[nodiscard]] std::vector<Chunk> extract_ready();
+    [[nodiscard]] std::vector<Chunk> extract_ready(ExtractStats* stats = nullptr);
+
+    /**
+     * @brief @return The send order policy.
+     */
+    [[nodiscard]] SendOrderPolicy policy() const noexcept {
+        return policy_;
+    }
 
     /**
      * @brief @return Whether the container is empty.
@@ -48,8 +119,9 @@ class ChunksToSend {
     [[nodiscard]] std::string str() const;
 
   private:
+    SendOrderPolicy const policy_;
     mutable std::mutex mutex_{};
-    std::vector<std::unique_ptr<Chunk>> chunks_{};
+    std::vector<std::pair<Rank, std::unique_ptr<Chunk>>> chunks_{};
 };
 
 /**
