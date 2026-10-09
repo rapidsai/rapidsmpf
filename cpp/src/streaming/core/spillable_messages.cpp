@@ -3,9 +3,25 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
+
 #include <rapidsmpf/streaming/core/spillable_messages.hpp>
 
 namespace rapidsmpf::streaming {
+
+SpillableMessages::SpillableMessages(std::vector<MemoryType> spillable_memory_types)
+    : spillable_memory_types_{std::move(spillable_memory_types)} {
+    RAPIDSMPF_EXPECTS(
+        std::ranges::all_of(
+            spillable_memory_types_,
+            [](auto mem_type) {
+                return mem_type != MemoryType::DEVICE && contains(MEMORY_TYPES, mem_type);
+            }
+        ),
+        "spillable_memory_types contains an invalid spill destination",
+        std::invalid_argument
+    );
+}
 
 SpillableMessages::MessageId SpillableMessages::insert(Message&& message) {
     std::lock_guard<std::mutex> lock(global_mutex_);
@@ -71,13 +87,18 @@ std::size_t SpillableMessages::spill(MessageId mid, BufferResource* br) const {
     // Ensure the item still contains something to spill.
     auto& msg = item->message.value();
     auto const old_cd = msg.content_description();
-    if (!old_cd.spillable() || old_cd.content_size(MemoryType::DEVICE) == 0) {
+    if (spillable_memory_types_.empty() || !old_cd.spillable()
+        || old_cd.content_size(MemoryType::DEVICE) == 0)
+    {
         return 0;
     }
 
     // Spill item in-place.
-    auto res = br->reserve_or_fail(msg.copy_cost(), SPILL_TARGET_MEMORY_TYPES);
-    item->message = msg.move(res);
+    auto res = br->try_reserve(msg.copy_cost(), spillable_memory_types_);
+    if (!res.has_value()) {
+        return 0;
+    }
+    item->message = msg.move(*res);
     auto const new_cd = item->message.value().content_description();
     item_lock.unlock();
 
