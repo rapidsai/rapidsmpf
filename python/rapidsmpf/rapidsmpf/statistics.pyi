@@ -9,6 +9,7 @@ from os import PathLike
 from typing import Any, Self
 
 from rapidsmpf.config import Options
+from rapidsmpf.memory.host_memory_resource import HostMemoryResource
 from rapidsmpf.memory.pinned_memory_resource import PinnedMemoryResource
 from rapidsmpf.memory.scoped_memory_record import ScopedMemoryRecord
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
@@ -35,6 +36,7 @@ class Statistics:
         *,
         mr: RmmResourceAdaptor | None = None,
         pinned_mr: PinnedMemoryResource | None = None,
+        host_mr: HostMemoryResource | None = None,
         header: str | None = None,
     ) -> str: ...
     def get_stat(self, name: str) -> dict[str, int | float]: ...

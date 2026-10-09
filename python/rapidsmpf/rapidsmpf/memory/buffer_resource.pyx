@@ -47,6 +47,7 @@ cdef extern from *:
     ) except +ex_handler
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
+from rapidsmpf.memory.host_memory_resource cimport HostMemoryResource
 from rapidsmpf.memory.memory_reservation cimport MemoryReservation
 from rapidsmpf.memory.pinned_memory_resource cimport (
     PinnedMemoryResource, cpp_PinnedMemoryResource, cpp_PinnedPoolProperties,
@@ -363,6 +364,22 @@ cdef class BufferResource:
         alive.
         """
         return RmmResourceAdaptor._from_cpp(deref(self._handle).device_mr_adaptor())
+
+    @property
+    def host_mr(self):
+        """
+        The tracked memory resource used for pageable host memory allocations.
+
+        The returned handle holds shared ownership of this ``BufferResource``,
+        keeping it alive for as long as the handle (or any copy of it) lives.
+
+        Returns
+        -------
+        The pageable host memory resource.
+        """
+        return HostMemoryResource.from_handle(
+            deref(self._handle).host_memory_resource()
+        )
 
     @property
     def pinned_mr(self):
