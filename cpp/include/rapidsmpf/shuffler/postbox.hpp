@@ -4,12 +4,15 @@
  */
 #pragma once
 
+#include <array>
+#include <cstddef>
 #include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/shuffler/chunk.hpp>
 
 namespace rapidsmpf::shuffler::detail {
@@ -121,6 +124,20 @@ class ReceivedChunks {
     [[nodiscard]] bool empty() const;
 
     /**
+     * @brief Get the total data size of the chunks residing in the given memory type.
+     *
+     * Only chunks with a non-empty data buffer are accounted for; control messages
+     * and metadata-only chunks do not contribute.
+     *
+     * @param mem_type The memory type to query.
+     * @return The total data size in bytes.
+     *
+     * @note The result reflects a snapshot at the time of the call and may change
+     * immediately afterward.
+     */
+    [[nodiscard]] std::size_t data_size(MemoryType mem_type) const;
+
+    /**
      * @brief @return A description of this container.
      */
     [[nodiscard]] std::string str() const;
@@ -141,6 +158,8 @@ class ReceivedChunks {
     mutable std::mutex mutex_;
     std::unordered_map<PartID, std::vector<Chunk>>
         pigeonhole_;  ///< Storage for chunks, stratified by partition ID.
+    std::array<std::size_t, MEMORY_TYPES.size()>
+        data_sizes_{};  ///< Total data size of the stored chunks, per memory type.
 };
 
 /**
