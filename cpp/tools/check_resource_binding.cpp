@@ -43,6 +43,8 @@
 
 #include <rrun/rrun.hpp>
 
+#include <rapidsmpf/system_info.hpp>
+
 namespace {
 
 /**
@@ -252,6 +254,7 @@ void print_help(char const* program_name) {
               << "    GPU PCI Bus ID: 00000000:41:00.0\n"
               << "    CPU Affinity: 0-19,40-59\n"
               << "    NUMA Nodes: 0\n"
+              << "    Allowed Host NUMA Nodes: 0,1\n"
               << "    UCX_NET_DEVICES: mlx5_1\n"
               << "    \n"
               << "    === Validation ===\n"
@@ -306,6 +309,25 @@ std::optional<rapidsmpf::rrun::expected_binding> collect_expected_binding(
 }
 
 /**
+ * @brief Streams a NUMA node list as comma-separated values, e.g. `0,1`.
+ *
+ * The referenced vector must outlive the stream expression.
+ */
+struct format_nodes {
+    std::vector<int> const& nodes;  ///< NUMA node IDs.
+
+    friend std::ostream& operator<<(std::ostream& os, format_nodes const& f) {
+        for (std::size_t i = 0; i + 1 < f.nodes.size(); ++i) {
+            os << f.nodes[i] << ",";
+        }
+        if (!f.nodes.empty()) {
+            os << f.nodes.back();
+        }
+        return os;
+    }
+};
+
+/**
  * @brief Format output string for the binding test.
  *
  * Builds the complete output string in memory to minimize interleaved output
@@ -333,18 +355,13 @@ std::string format_output(
     }
     output << "CPU Affinity: "
            << (actual.cpu_affinity.empty() ? "(none)" : actual.cpu_affinity) << std::endl;
-    output << "NUMA Nodes: ";
-    if (actual.numa_nodes.empty()) {
-        output << "(none)";
-    } else {
-        for (std::size_t i = 0; i < actual.numa_nodes.size(); ++i) {
-            if (i > 0) {
-                output << ",";
-            }
-            output << actual.numa_nodes[i];
-        }
-    }
-    output << std::endl;
+    // Nodes in the effective memory policy: bound nodes under MPOL_BIND, otherwise all
+    // allowed host nodes with the policy's own nodes first.
+    output << "NUMA Nodes: " << format_nodes{actual.numa_nodes} << std::endl;
+    // Host nodes the process may allocate from (cpuset-aware, CPU-less nodes such as GPU
+    // HBM excluded). If this is wider than "NUMA Nodes" a memory binding is in effect.
+    output << "Allowed Host NUMA Nodes: "
+           << format_nodes{rapidsmpf::get_allowed_host_numa_nodes()} << std::endl;
     output << "UCX_NET_DEVICES: "
            << (actual.ucx_net_devices.empty() ? "(not set)" : actual.ucx_net_devices)
            << std::endl;
@@ -361,22 +378,10 @@ std::string format_output(
         output << "NUMA Binding: " << (validation->numa_ok ? "PASS" : "FAIL")
                << std::endl;
         if (!validation->numa_ok) {
-            output << "  Expected: [";
-            for (std::size_t i = 0; i < expected->memory_binding.size(); ++i) {
-                if (i > 0) {
-                    output << ",";
-                }
-                output << expected->memory_binding[i];
-            }
-            output << "]" << std::endl;
-            output << "  Actual:   [";
-            for (std::size_t i = 0; i < actual.numa_nodes.size(); ++i) {
-                if (i > 0) {
-                    output << ",";
-                }
-                output << actual.numa_nodes[i];
-            }
-            output << "]" << std::endl;
+            output << "  Expected: [" << format_nodes{expected->memory_binding} << "]"
+                   << std::endl;
+            output << "  Actual:   [" << format_nodes{actual.numa_nodes} << "]"
+                   << std::endl;
         }
 
         output << "UCX_NET_DEVICES: " << (validation->ucx_ok ? "PASS" : "FAIL")
