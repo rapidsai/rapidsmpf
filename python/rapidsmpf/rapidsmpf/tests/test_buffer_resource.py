@@ -2,15 +2,24 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+import os
+import pathlib
+
 import numpy as np
 import pytest
 
 import rmm
 import rmm.mr
+from rmm.pylibrmm.stream import Stream
 
+from rapidsmpf.config import Options
 from rapidsmpf.error import ReservationError
 from rapidsmpf.memory.buffer import MemoryType
-from rapidsmpf.memory.buffer_resource import BufferResource, OwningDeviceMemoryResource
+from rapidsmpf.memory.buffer_resource import (
+    BufferResource,
+    OwningDeviceMemoryResource,
+    spill_dir_from_options,
+)
 from rapidsmpf.memory.memory_reservation import opaque_memory_usage
 from rapidsmpf.statistics import Statistics
 from rapidsmpf.utils.memory import _MAX_RESERVATION_BYTES
@@ -76,6 +85,20 @@ def test_memory_reservation(mem_type: MemoryType) -> None:
         match="isn't big enough",
     ):
         br.release(res1, KiB(10))
+
+
+def test_host_memory_availability_tracks_live_allocations() -> None:
+    br = BufferResource(
+        rmm.mr.CudaMemoryResource(),
+        memory_limits={MemoryType.HOST: KiB(10)},
+        periodic_spill_check=None,
+    )
+    reservation, _ = br.reserve(MemoryType.HOST, KiB(4), allow_overbooking=False)
+    buffer = br.make_buffer(KiB(4), Stream(), reservation)
+    assert br.memory_available(MemoryType.HOST) == KiB(6)
+
+    del buffer
+    assert br.memory_available(MemoryType.HOST) == KiB(10)
 
 
 @pytest.mark.parametrize("mem_type", [MemoryType.DEVICE, MemoryType.HOST])
@@ -310,3 +333,49 @@ def test_reservation_split_releases_on_scope_exit(mem_type: MemoryType) -> None:
     assert child.size == 0
     assert res.size == KiB(40)
     assert br.memory_available_for_reservation(mem_type) == available + KiB(60)
+
+
+def check_spill_directory(br: BufferResource, parent: pathlib.Path) -> None:
+    # The buffer resource owns a unique `<parent>/<pid>-XXXXXX` subdirectory.
+    assert br.spill_directory is not None
+    spill_dir = pathlib.Path(br.spill_directory)
+    assert spill_dir.parent == parent
+    assert spill_dir.name.startswith(f"{os.getpid()}-")
+    assert spill_dir.is_dir()
+
+
+def test_spill_directory_default() -> None:
+    br = BufferResource(rmm.mr.CudaMemoryResource())
+    assert br.spill_directory is None
+
+
+@pytest.mark.parametrize("as_str", [False, True])
+def test_spill_directory(tmp_path: pathlib.Path, *, as_str: bool) -> None:
+    br = BufferResource(
+        rmm.mr.CudaMemoryResource(),
+        spill_directory=str(tmp_path) if as_str else tmp_path,
+    )
+    check_spill_directory(br, tmp_path)
+
+
+def test_spill_directory_from_options(tmp_path: pathlib.Path) -> None:
+    options = Options({"disk_spill_dir": str(tmp_path)})
+    assert spill_dir_from_options(options) == tmp_path
+    br = BufferResource.from_options(rmm.mr.CudaMemoryResource(), options)
+    check_spill_directory(br, tmp_path)
+
+
+@pytest.mark.parametrize("value", [None, "false", "none", ""])
+def test_spill_directory_from_options_disabled(value: str | None) -> None:
+    options = Options({} if value is None else {"disk_spill_dir": value})
+    assert spill_dir_from_options(options) is None
+    br = BufferResource.from_options(rmm.mr.CudaMemoryResource(), options)
+    assert br.spill_directory is None
+
+
+def test_spill_directory_from_options_whitespace() -> None:
+    options = Options({"disk_spill_dir": "   "})
+    with pytest.raises(ValueError, match="disk_spill_dir"):
+        spill_dir_from_options(options)
+    with pytest.raises(ValueError, match="disk_spill_dir"):
+        BufferResource.from_options(rmm.mr.CudaMemoryResource(), options)

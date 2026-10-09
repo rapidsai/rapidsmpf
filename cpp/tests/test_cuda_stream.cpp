@@ -139,25 +139,18 @@ TEST(CudaStreamJoinCppOnly, MultiUpstreamsMultiDownstreams) {
     }
 }
 
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-#endif
 TEST(CudaStreamJoinCppOnly, AcceptsNonRangeStreamTypes) {
     // Types that convert to `cuda::stream_ref` but are not ranges must select the
     // stream/stream overload. If the range template wins, this stops compiling
     // with "'begin' was not declared in this scope". The invocation is vacuous:
     // regression coverage comes from instantiating the selected overload.
-    static_assert(!std::ranges::range<rmm::cuda_stream_view>);
+    static_assert(!std::ranges::range<cuda::stream_ref>);
     static_assert(!std::ranges::range<cudaStream_t>);
 
     CudaEvent event;
     rmm::cuda_stream stream;
 
-    cuda_stream_join(stream.view(), stream.view(), &event);
+    cuda_stream_join(stream, stream, &event);
     cuda_stream_join(cudaStreamLegacy, cudaStreamLegacy, &event);
-    cuda_stream_join(cuda::stream_ref{cudaStreamLegacy}, stream.view(), &event);
+    cuda_stream_join(cuda::stream_ref{cudaStreamLegacy}, stream, &event);
 }
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic pop
-#endif

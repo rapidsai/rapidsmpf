@@ -77,7 +77,8 @@ struct PinnedPoolProperties {
     /// `BM_PinnedFirstAlloc_InitialPoolSize` benchmark.)
     std::size_t initial_pool_size = 0;
 
-    /// @brief Maximum size of the pool. `std::nullopt` means no limit.
+    /// @brief Maximum size of the pool in bytes. Must be greater than zero when set;
+    /// `std::nullopt` means no explicit cap (CUDA's system-dependent default).
     std::optional<std::size_t> max_pool_size = std::nullopt;
 
     /// @brief NUMA node from which pinned memory should be allocated. Defaults to
@@ -103,11 +104,15 @@ inline constexpr std::optional<PinnedPoolProperties> PinnedMemoryDisabled{};
  *   - Percentages (e.g. "10%") are relative to `get_host_memory_per_gpu()`.
  * - "pinned_max_pool_size" (bytes, percentage, or disabled): maximum pool size.
  *   - Byte and percentages uses the same parsing rules as "pinned_initial_pool_size".
- *   - A disabled value (e.g. "off") leaves the pool unbounded.
+ *   - A disabled value (e.g. "off") leaves `max_pool_size` unset (no explicit cap).
+ *   - The value must be greater than zero (e.g. "0" or "0%" are rejected).
+ *   - The value cannot exceed the host memory of the current NUMA node.
  *
  * @param options Configuration options.
  * @return The parsed `PinnedPoolProperties` when "pinned_memory" is enabled,
  * otherwise `std::nullopt` (pinned host memory disabled).
+ * @throws std::invalid_argument if "pinned_max_pool_size" resolves to zero or exceeds
+ * the host memory of the current NUMA node.
  */
 std::optional<PinnedPoolProperties> pinned_pool_properties_from_options(
     config::Options options

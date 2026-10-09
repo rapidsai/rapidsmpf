@@ -1,6 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import os
+import pathlib
+
 from cython cimport no_gc_clear
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int64_t
@@ -8,6 +11,7 @@ from libcpp cimport bool as bool_t
 from libcpp.memory cimport make_shared, shared_ptr, unique_ptr
 from libcpp.optional cimport optional
 from libcpp.pair cimport pair
+from libcpp.string cimport string
 from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
@@ -46,7 +50,6 @@ cdef extern from *:
         any_resource[device_accessible]&
     ) except +ex_handler
 
-from rapidsmpf._detail.cuda_stream_ref cimport stream_ref
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.memory_reservation cimport MemoryReservation
 from rapidsmpf.memory.pinned_memory_resource cimport (
@@ -157,6 +160,11 @@ cdef class BufferResource:
     statistics
         The statistics instance to use. If None, a disabled statistics instance
         will be created.
+    spill_directory
+        Directory for disk spilling, as a ``str`` or ``os.PathLike``. When set,
+        disk spilling is enabled and spill files are written to a uniquely named
+        subdirectory ``<spill_directory>/<pid>-XXXXXX`` owned by this buffer
+        resource (see :attr:`spill_directory`). If None, disk spilling is disabled.
 
     Notes
     -----
@@ -180,6 +188,7 @@ cdef class BufferResource:
         periodic_spill_check = 1e-3,
         CudaStreamPool stream_pool = None,
         statistics = None,
+        spill_directory = None,
     ):
         cdef unordered_map[MemoryType, int64_t] _mem_limits
         if memory_limits is not None:
@@ -229,6 +238,9 @@ cdef class BufferResource:
             if pinned_pool_properties.numa_id is not None:
                 _props.numa_id = <int>pinned_pool_properties.numa_id
             cpp_pinned_pool = _props
+        cdef optional[cpp_path] cpp_spill_directory
+        if spill_directory is not None:
+            cpp_spill_directory = cpp_path(<string>os.fsencode(spill_directory))
         with nogil:
             # TODO: Replace this RMM pool with a cuda-python stream pool once a suitable
             # one is available with all the necessary CCCL interop.
@@ -239,6 +251,7 @@ cdef class BufferResource:
                 period,
                 make_shared[cpp_StreamPool](stream_pool.c_obj),
                 stats_handle,
+                cpp_spill_directory,
             )
         self.spill_manager = SpillManager._create(self)
 
@@ -283,13 +296,19 @@ cdef class BufferResource:
                 props.value()
             )
 
+        cdef unordered_map[MemoryType, int64_t] limits
+        with nogil:
+            limits = cpp_memory_limits_from_options(options._handle, props)
+        memory_limits = {kv.first: kv.second for kv in limits}
+
         return cls(
             device_mr=mr,
             pinned_pool_properties=pinned_pool_properties,
-            memory_limits={MemoryType.DEVICE: device_limit_from_options(options)},
+            memory_limits=memory_limits,
             periodic_spill_check=periodic_spill_check_from_options(options),
             stream_pool=stream_pool_from_options(options),
             statistics=statistics,
+            spill_directory=spill_dir_from_options(options),
         )
 
     def __dealloc__(self):
@@ -379,6 +398,23 @@ cdef class BufferResource:
         if not opt.has_value():
             return None
         return PinnedMemoryResource.from_handle(opt)
+
+    @property
+    def spill_directory(self):
+        """
+        The directory owned by this buffer resource for disk spilling.
+
+        This is a uniquely named subdirectory ``<spill_directory>/<pid>-XXXXXX``
+        of the ``spill_directory`` given at construction.
+
+        Returns
+        -------
+        The spill directory path, or None if disk spilling is disabled.
+        """
+        cdef shared_ptr[cpp_DiskResource] disk = deref(self._handle).disk_resource()
+        if disk.get() == NULL:
+            return None
+        return pathlib.Path(os.fsdecode(deref(disk).directory().string()))
 
     def memory_available_for_reservation(self, MemoryType mem_type):
         """
@@ -598,7 +634,7 @@ cdef class BufferResource:
         with nogil:
             handle = move(
                 deref(self._handle).make_buffer(
-                    size, stream_ref(stream.view().get()), deref(reservation._handle)
+                    size, stream.view(), deref(reservation._handle)
                 )
             )
         return Buffer.from_handle(move(handle), self, stream)
@@ -621,8 +657,28 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
             cpp_Options options
         ) except +ex_handler
 
+    cdef unordered_map[MemoryType, int64_t] cpp_memory_limits_from_options \
+        "rapidsmpf::memory_limits_from_options"(
+            cpp_Options options,
+            const optional[cpp_PinnedPoolProperties]& pinned_pool_properties,
+        ) except +ex_handler
+
     cdef optional[cpp_Duration] cpp_periodic_spill_check_from_options \
         "rapidsmpf::periodic_spill_check_from_options"(
+            cpp_Options options
+        ) except +ex_handler
+
+
+cdef extern from "<rapidsmpf/disk/disk_resource.hpp>" nogil:
+    cdef optional[cpp_path] cpp_spill_dir_from_options \
+        "rapidsmpf::spill_dir_from_options"(
+            cpp_Options options
+        ) except +ex_handler
+
+
+cdef extern from "<rapidsmpf/memory/host_memory_resource.hpp>" nogil:
+    cdef optional[int64_t] cpp_host_limit_from_options \
+        "rapidsmpf::host_limit_from_options"(
             cpp_Options options
         ) except +ex_handler
 
@@ -650,6 +706,33 @@ def device_limit_from_options(Options options not None):
     return ret
 
 
+def host_limit_from_options(Options options not None):
+    """
+    Get the ``spill_host_limit`` parameter from configuration options.
+
+    Parameters
+    ----------
+    options
+        Configuration options.
+
+    Returns
+    -------
+    int or None
+        The pageable-host limit in bytes, or ``None`` when disabled (unbounded).
+
+    Raises
+    ------
+    ValueError
+        If the limit resolves to zero.
+    """
+    cdef optional[int64_t] ret
+    with nogil:
+        ret = cpp_host_limit_from_options(options._handle)
+    if not ret.has_value():
+        return None
+    return ret.value()
+
+
 def periodic_spill_check_from_options(Options options not None):
     """
     Get the ``periodic_spill_check`` parameter from configuration options.
@@ -670,6 +753,35 @@ def periodic_spill_check_from_options(Options options not None):
     if not ret.has_value():
         return None
     return ret.value().count()
+
+
+def spill_dir_from_options(Options options not None):
+    """
+    Get the ``disk_spill_dir`` parameter from configuration options.
+
+    Disabled values (e.g. ``"false"`` or ``"none"``) and an unset option
+    yield None.
+
+    Parameters
+    ----------
+    options
+        Configuration options.
+
+    Returns
+    -------
+    The configured spill directory, or None if disk spilling is disabled.
+
+    Raises
+    ------
+    ValueError
+        If the option is whitespace-only.
+    """
+    cdef optional[cpp_path] ret
+    with nogil:
+        ret = cpp_spill_dir_from_options(options._handle)
+    if not ret.has_value():
+        return None
+    return pathlib.Path(os.fsdecode(ret.value().string()))
 
 
 def stream_pool_from_options(Options options not None):
