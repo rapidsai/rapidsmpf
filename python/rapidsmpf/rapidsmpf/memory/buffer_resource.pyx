@@ -295,10 +295,15 @@ cdef class BufferResource:
                 props.value()
             )
 
+        cdef unordered_map[MemoryType, int64_t] limits
+        with nogil:
+            limits = cpp_memory_limits_from_options(options._handle, props)
+        memory_limits = {kv.first: kv.second for kv in limits}
+
         return cls(
             device_mr=mr,
             pinned_pool_properties=pinned_pool_properties,
-            memory_limits={MemoryType.DEVICE: device_limit_from_options(options)},
+            memory_limits=memory_limits,
             periodic_spill_check=periodic_spill_check_from_options(options),
             stream_pool=stream_pool_from_options(options),
             statistics=statistics,
@@ -651,6 +656,12 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
             cpp_Options options
         ) except +ex_handler
 
+    cdef unordered_map[MemoryType, int64_t] cpp_memory_limits_from_options \
+        "rapidsmpf::memory_limits_from_options"(
+            cpp_Options options,
+            const optional[cpp_PinnedPoolProperties]& pinned_pool_properties,
+        ) except +ex_handler
+
     cdef optional[cpp_Duration] cpp_periodic_spill_check_from_options \
         "rapidsmpf::periodic_spill_check_from_options"(
             cpp_Options options
@@ -660,6 +671,13 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
 cdef extern from "<rapidsmpf/disk/disk_resource.hpp>" nogil:
     cdef optional[cpp_path] cpp_spill_dir_from_options \
         "rapidsmpf::spill_dir_from_options"(
+            cpp_Options options
+        ) except +ex_handler
+
+
+cdef extern from "<rapidsmpf/memory/host_memory_resource.hpp>" nogil:
+    cdef optional[int64_t] cpp_host_limit_from_options \
+        "rapidsmpf::host_limit_from_options"(
             cpp_Options options
         ) except +ex_handler
 
@@ -685,6 +703,33 @@ def device_limit_from_options(Options options not None):
     with nogil:
         ret = cpp_device_limit_from_options(options._handle)
     return ret
+
+
+def host_limit_from_options(Options options not None):
+    """
+    Get the ``spill_host_limit`` parameter from configuration options.
+
+    Parameters
+    ----------
+    options
+        Configuration options.
+
+    Returns
+    -------
+    int or None
+        The pageable-host limit in bytes, or ``None`` when disabled (unbounded).
+
+    Raises
+    ------
+    ValueError
+        If the limit resolves to zero.
+    """
+    cdef optional[int64_t] ret
+    with nogil:
+        ret = cpp_host_limit_from_options(options._handle)
+    if not ret.has_value():
+        return None
+    return ret.value()
 
 
 def periodic_spill_check_from_options(Options options not None):
