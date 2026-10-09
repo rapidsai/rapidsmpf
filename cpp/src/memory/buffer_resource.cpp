@@ -78,6 +78,12 @@ std::shared_ptr<BufferResource> BufferResource::create(
             "may apply. Pass `PinnedMemoryDisabled` to disable pinned host memory.",
             std::runtime_error
         );
+        RAPIDSMPF_EXPECTS(
+            !pinned_pool_properties->max_pool_size.has_value()
+                || *pinned_pool_properties->max_pool_size > 0,
+            "PinnedPoolProperties::max_pool_size must be greater than zero",
+            std::invalid_argument
+        );
         pinned_mr = PinnedMemoryResource{*pinned_pool_properties};
     }
 
@@ -118,12 +124,11 @@ std::shared_ptr<BufferResource> BufferResource::from_options(
     config::Options options,
     std::shared_ptr<Statistics> statistics
 ) {
-    std::unordered_map<MemoryType, std::int64_t> memory_limits{
-        {MemoryType::DEVICE, device_limit_from_options(options)}
-    };
+    auto pinned_pool_properties = pinned_pool_properties_from_options(options);
+    auto memory_limits = memory_limits_from_options(options, pinned_pool_properties);
     return create(
         std::move(mr),
-        pinned_pool_properties_from_options(options),
+        std::move(pinned_pool_properties),
         std::move(memory_limits),
         periodic_spill_check_from_options(options),
         stream_pool_from_options(options),
@@ -146,7 +151,7 @@ std::int64_t BufferResource::memory_available(MemoryType mem_type) const noexcep
             return limit - pinned_mr_->current_allocated();
         }
     case MemoryType::HOST:
-        return limit;
+        return limit - host_mr_.current_allocated();
     case MemoryType::DISK:
         return disk_resource_ != nullptr ? limit : 0;
     }
@@ -435,6 +440,25 @@ std::int64_t device_limit_from_options(config::Options options) {
             parse_nbytes_or_percent(s, total_mem), rmm::CUDA_ALLOCATION_ALIGNMENT
         );
     });
+}
+
+std::unordered_map<MemoryType, std::int64_t> memory_limits_from_options(
+    config::Options options,
+    std::optional<PinnedPoolProperties> const& pinned_pool_properties
+) {
+    std::unordered_map<MemoryType, std::int64_t> ret{
+        {MemoryType::DEVICE, device_limit_from_options(options)},
+    };
+    if (auto const host_limit = host_limit_from_options(options); host_limit) {
+        ret[MemoryType::HOST] = *host_limit;
+    }
+    if (pinned_pool_properties.has_value()
+        && pinned_pool_properties->max_pool_size.has_value())
+    {
+        ret[MemoryType::PINNED_HOST] =
+            safe_cast<std::int64_t>(*pinned_pool_properties->max_pool_size);
+    }
+    return ret;
 }
 
 std::optional<Duration> periodic_spill_check_from_options(config::Options options) {

@@ -79,8 +79,24 @@ std::optional<PinnedPoolProperties> pinned_pool_properties_from_options(
             [total](auto const& s) { return parse_nbytes_or_percent(s, total); }
         ),
         .max_pool_size = options.get<std::optional<size_t>>(
-            "pinned_max_pool_size",
-            [total](auto const& s) { return parse_nbytes_or_percent(s, total); }
+            "pinned_max_pool_size", [total](auto const& s) -> std::optional<std::size_t> {
+                auto const value = parse_optional(s);
+                if (!value.has_value()) {
+                    return std::nullopt;  // No explicit cap.
+                }
+                auto const max_pool_size = parse_nbytes_or_percent(*value, total);
+                RAPIDSMPF_EXPECTS(
+                    max_pool_size > 0,
+                    "pinned_max_pool_size must be greater than zero",
+                    std::invalid_argument
+                );
+                RAPIDSMPF_EXPECTS(
+                    max_pool_size <= get_numa_node_host_memory(),
+                    "pinned_max_pool_size exceeds NUMA node host memory",
+                    std::invalid_argument
+                );
+                return max_pool_size;
+            }
         )
     };
 }
