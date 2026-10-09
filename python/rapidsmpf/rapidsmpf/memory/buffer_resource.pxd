@@ -6,6 +6,7 @@ from libc.stdint cimport int64_t
 from libcpp cimport bool as bool_t
 from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.optional cimport optional
+from libcpp.string cimport string
 from libcpp.unordered_map cimport unordered_map
 from rmm.librmm.cuda_stream_pool cimport cuda_stream_pool
 from rmm.librmm.cuda_stream_ref cimport stream_ref
@@ -28,6 +29,16 @@ from rapidsmpf.statistics cimport Statistics, cpp_Statistics
 from rapidsmpf.utils.time cimport cpp_Duration
 
 
+cdef extern from "<filesystem>" nogil:
+    cdef cppclass cpp_path "std::filesystem::path":
+        cpp_path() noexcept
+        cpp_path(string) except +
+        string string() except +
+
+cdef extern from "<rapidsmpf/disk/disk_resource.hpp>" nogil:
+    cdef cppclass cpp_DiskResource "rapidsmpf::DiskResource":
+        const cpp_path& directory() noexcept
+
 cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
     cdef enum class AllowOverbooking"rapidsmpf::AllowOverbooking"(bool_t):
         NO
@@ -46,6 +57,7 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
             optional[cpp_Duration],
             shared_ptr[cpp_StreamPool],
             shared_ptr[cpp_Statistics],
+            optional[cpp_path],
         ) except +ex_handler
         int64_t memory_available_for_reservation(
             MemoryType mem_type
@@ -58,6 +70,7 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
         device_async_resource_ref device_mr() noexcept
         cpp_RmmResourceAdaptor& device_mr_adaptor() noexcept
         optional[cpp_PinnedMemoryResource] try_pinned_mr() except +ex_handler
+        const shared_ptr[cpp_DiskResource]& disk_resource() noexcept
         unique_ptr[cpp_Buffer] make_buffer(
             size_t size,
             stream_ref stream,
