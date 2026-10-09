@@ -824,23 +824,6 @@ TEST(OptionsTest, BufferResourceFromOptionsAllowsUnboundedPinnedWithBoundedHost)
     EXPECT_EQ(br->memory_available(MemoryType::HOST), 4_MiB);
 }
 
-TEST(OptionsTest, BufferResourceFromOptionsWiresIndependentHostAndPinnedLimits) {
-    if (!is_pinned_memory_resources_supported()) {
-        GTEST_SKIP() << "Pinned memory not supported on this system";
-    }
-
-    std::unordered_map<std::string, std::string> strings = {
-        {"pinned_memory", "True"},
-        {"pinned_max_pool_size", "1MiB"},
-        {"spill_host_limit", "4MiB"},
-    };
-    rmm::mr::cuda_memory_resource cuda_mr;
-    auto br = BufferResource::from_options(cuda_mr, config::Options{strings});
-
-    EXPECT_EQ(br->memory_available(MemoryType::PINNED_HOST), 1_MiB);
-    EXPECT_EQ(br->memory_available(MemoryType::HOST), 4_MiB);
-}
-
 TEST(OptionsTest, BufferResourceFromOptionsKeepsUnboundedHostLimitsIndependent) {
     if (!is_pinned_memory_resources_supported()) {
         GTEST_SKIP() << "Pinned memory not supported on this system";
@@ -860,6 +843,27 @@ TEST(OptionsTest, BufferResourceFromOptionsKeepsUnboundedHostLimitsIndependent) 
     EXPECT_EQ(
         br->memory_available(MemoryType::HOST), std::numeric_limits<std::int64_t>::max()
     );
+}
+
+TEST(OptionsTest, BufferResourceFromOptionsDoesNotCrossValidateHostAndPinnedLimits) {
+    if (!is_pinned_memory_resources_supported()) {
+        GTEST_SKIP() << "Pinned memory not supported on this system";
+    }
+
+    // The limits are independent soft limits, so their sum may exceed host memory.
+    std::unordered_map<std::string, std::string> strings = {
+        {"pinned_memory", "True"},
+        {"pinned_max_pool_size", "80%"},
+        {"spill_host_limit", "80%"},
+    };
+    rmm::mr::cuda_memory_resource cuda_mr;
+    auto br = BufferResource::from_options(cuda_mr, config::Options{strings});
+
+    auto const expected = safe_cast<std::int64_t>(rmm::align_down(
+        parse_nbytes_or_percent("80%", static_cast<double>(get_host_memory_per_gpu())),
+        rmm::CUDA_ALLOCATION_ALIGNMENT
+    ));
+    EXPECT_EQ(br->memory_available(MemoryType::HOST), expected);
 }
 
 TEST(OptionsTest, ContextFromOptionsCreatesInstanceWithExplicitOptions) {
