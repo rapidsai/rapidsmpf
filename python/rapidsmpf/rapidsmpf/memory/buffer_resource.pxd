@@ -31,7 +31,7 @@ from rapidsmpf.utils.time cimport cpp_Duration
 
 cdef extern from "<filesystem>" nogil:
     cdef cppclass cpp_path "std::filesystem::path":
-        cpp_path() except +
+        cpp_path() noexcept
         cpp_path(string) except +
         string string() except +
 
