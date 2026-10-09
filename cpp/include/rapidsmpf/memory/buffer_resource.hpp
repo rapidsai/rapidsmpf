@@ -176,7 +176,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * host memory is not supported on this system.
      */
     [[nodiscard]] static std::shared_ptr<BufferResource> create(
-        cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
+        cuda::mr::any_device_resource device_mr,
         std::optional<PinnedPoolProperties> pinned_pool_properties = PinnedMemoryDisabled,
         std::unordered_map<MemoryType, std::int64_t> memory_limits = {},
         std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1},
@@ -199,7 +199,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * options.
      */
     static std::shared_ptr<BufferResource> from_options(
-        cuda::mr::any_resource<cuda::mr::device_accessible> mr,
+        cuda::mr::any_device_resource mr,
         config::Options options,
         std::shared_ptr<Statistics> statistics = Statistics::disabled()
     );
@@ -228,11 +228,11 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     /**
      * @brief Get the device memory resource.
      *
-     * @return `rmm::device_async_resource_ref` to the device memory resource.
+     * @return `cuda::mr::device_resource_ref` to the device memory resource.
      *
      * @par CCCL's lifetime semantic
      *
-     * The returned `rmm::device_async_resource_ref` is a non-owning
+     * The returned `cuda::mr::device_resource_ref` is a non-owning
      * `cuda::mr::resource_ref`, so callers must take care to avoid use-after-free issues.
      *
      * When working directly with the returned reference, the caller must ensure that this
@@ -248,7 +248,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * owning `cuda::mr::any_resource`:
      * @code
      * auto br = BufferResource::create(...);
-     * cuda::mr::any_resource<cuda::mr::device_accessible> mr = br->device_mr();
+     * cuda::mr::any_device_resource mr = br->device_mr();
      * br.reset();       // safe: `mr` keeps the BufferResource alive
      * mr.allocate(...); // safe
      * @endcode
@@ -266,7 +266,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * resource_ref points to that adaptor. See `device_mr_adaptor()` for a more
      * convenient way to access the adaptor.
      */
-    [[nodiscard]] rmm::device_async_resource_ref device_mr() noexcept;
+    [[nodiscard]] cuda::mr::device_resource_ref device_mr() noexcept;
 
     /**
      * @brief Access the concrete device memory resource adaptor.
@@ -292,10 +292,10 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * @note Lifetime semantics are identical to `device_mr()`. See its
      * `@par CCCL lifetime semantics` section for details. In brief, the returned
-     * `resource_ref` is non-owning. Promote it to a `any_host_resource` to extend the
-     * `BufferResource` lifetime.
+     * `resource_ref` is non-owning. Promote it to a `cuda::mr::any_host_resource` to
+     * extend the `BufferResource` lifetime.
      */
-    [[nodiscard]] rmm::host_async_resource_ref host_mr() noexcept;
+    [[nodiscard]] cuda::mr::host_resource_ref host_mr() noexcept;
 
     /**
      * @brief Get the RMM pinned host memory resource.
@@ -305,10 +305,10 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * @note Lifetime semantics are identical to `device_mr()`. See its
      * `@par CCCL lifetime semantics` section for details. In brief, the returned
-     * `resource_ref` is non-owning. Promote it to a `any_host_device_resource` to extend
-     * the `BufferResource` lifetime.
+     * `resource_ref` is non-owning. Promote it to a `cuda::mr::any_host_device_resource`
+     * to extend the `BufferResource` lifetime.
      */
-    [[nodiscard]] rmm::host_device_async_resource_ref pinned_mr();
+    [[nodiscard]] cuda::mr::host_device_resource_ref pinned_mr();
 
     /**
      * @brief Get the pinned host memory resource if available.
@@ -622,7 +622,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
   private:
     /** @brief Private constructor, use `create()` or `from_options()`. */
     BufferResource(
-        cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
+        cuda::mr::any_device_resource device_mr,
         std::optional<PinnedMemoryResource> pinned_mr,
         std::unordered_map<MemoryType, std::int64_t> memory_limits,
         std::optional<Duration> periodic_spill_check,

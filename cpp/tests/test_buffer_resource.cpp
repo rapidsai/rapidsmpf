@@ -17,12 +17,12 @@
 #include <rmm/mr/limiting_resource_adaptor.hpp>
 #include <rmm/mr/per_device_resource.hpp>
 #include <rmm/mr/pool_memory_resource.hpp>
-#include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
+#include <rapidsmpf/memory/resource_types.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/statistics.hpp>
@@ -930,11 +930,11 @@ TEST(BufferResource, PinnedMrKeepsBufferResourceAlive) {
 
 TEST(RmmResourceAdaptor, EqualityAcrossCopiesAndAccessPaths) {
     auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
-    any_device_resource copy1{br->device_mr()};
-    any_device_resource copy2 = copy1;
+    cuda::mr::any_device_resource copy1{br->device_mr()};
+    cuda::mr::any_device_resource copy2 = copy1;
 
     RmmResourceAdaptor owned_copy = br->device_mr_adaptor();
-    any_device_resource owned_any{br->device_mr_adaptor()};
+    cuda::mr::any_device_resource owned_any{br->device_mr_adaptor()};
 
     // RmmResourceAdaptor == RmmResourceAdaptor (custom operator==).
     EXPECT_EQ(owned_copy, br->device_mr_adaptor());

@@ -18,32 +18,35 @@ from rmm.pylibrmm.stream cimport Stream
 
 from rapidsmpf.utils.memory import check_reservation_size
 
-from rmm.librmm.memory_resource cimport (any_resource, device_accessible,
-                                         device_async_resource_ref)
+from rmm.librmm.memory_resource cimport device_async_resource_ref
 from rmm.pylibrmm.cuda_stream_pool cimport CudaStreamPool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
+from rapidsmpf._detail.memory_resource cimport (any_device_resource,
+                                                to_device_resource_ref)
 from rapidsmpf.memory.buffer cimport Buffer, cpp_Buffer
 
 
 cdef extern from *:
     """
+    #include <cuda/memory_resource>
+
     // Construct a device_async_resource_ref from an owning any_resource.
     // The free template in RMM only declares overloads for concrete RMM
     // types, this overload covers `cuda::mr::any_resource<device_accessible>`.
     std::optional<cython_device_async_resource_ref>
     cpp_make_device_async_resource_ref_from_any(
-        cuda::mr::any_resource<cuda::mr::device_accessible>& mr
+        cuda::mr::any_device_resource& mr
     ) {
         // `cython_device_async_resource_ref` is declared inline in RMM's
         // `librmm/memory_resource.pxd`.
         return std::optional<cython_device_async_resource_ref>(
-            rmm::device_async_resource_ref(mr)
+            cuda::mr::device_resource_ref(mr)
         );
     }
     """
     optional[device_async_resource_ref] cpp_make_device_async_resource_ref_from_any(
-        any_resource[device_accessible]&
+        any_device_resource&
     ) except +ex_handler
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
@@ -232,7 +235,7 @@ cdef class BufferResource:
             # TODO: Replace this RMM pool with a cuda-python stream pool once a suitable
             # one is available with all the necessary CCCL interop.
             self._handle = cpp_BufferResource.create(
-                any_resource[device_accessible](device_mr.get_mr()),
+                any_device_resource(to_device_resource_ref(device_mr.get_mr())),
                 cpp_pinned_pool,
                 move(_mem_limits),
                 period,
@@ -341,7 +344,7 @@ cdef class BufferResource:
         The tracked device memory resource.
         """
         return OwningDeviceMemoryResource._create(
-            any_resource[device_accessible](deref(self._handle).device_mr())
+            any_device_resource(deref(self._handle).device_mr())
         )
 
     cpdef RmmResourceAdaptor device_mr_adaptor(self):
@@ -760,7 +763,7 @@ cdef class OwningDeviceMemoryResource(DeviceMemoryResource):
     """
     @staticmethod
     cdef OwningDeviceMemoryResource _create(
-        any_resource[device_accessible] resource,
+        any_device_resource resource,
     ):
         cdef OwningDeviceMemoryResource self = (
             OwningDeviceMemoryResource.__new__(OwningDeviceMemoryResource)
