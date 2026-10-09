@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+import pathlib
 
 from cython cimport no_gc_clear
 from cython.operator cimport dereference as deref
