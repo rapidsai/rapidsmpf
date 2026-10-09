@@ -360,7 +360,7 @@ def test_spill_directory(tmp_path: pathlib.Path, *, as_str: bool) -> None:
 
 def test_spill_directory_from_options(tmp_path: pathlib.Path) -> None:
     options = Options({"disk_spill_dir": str(tmp_path)})
-    assert spill_dir_from_options(options) == str(tmp_path)
+    assert spill_dir_from_options(options) == tmp_path
     br = BufferResource.from_options(rmm.mr.CudaMemoryResource(), options)
     check_spill_directory(br, tmp_path)
 
