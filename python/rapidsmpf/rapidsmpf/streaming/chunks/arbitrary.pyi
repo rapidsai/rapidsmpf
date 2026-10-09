@@ -2,13 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Generic, Self, TypeVar
+from typing import TYPE_CHECKING, Any, Self, TypeVar
 
 from rapidsmpf.streaming.core.message import Message, Payload
 
 T = TypeVar("T")
 
-class ArbitraryChunk(Generic[T]):
+class ArbitraryChunk[T]:
     def __init__(self, obj: T) -> None: ...
     def release(self) -> T: ...
     @classmethod

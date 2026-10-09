@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Generic, Protocol, Self, TypeVar
+from typing import Protocol, Self, TypeVar
 
 from rapidsmpf.memory.content_description import ContentDescription
 from rapidsmpf.memory.memory_reservation import MemoryReservation
@@ -64,7 +64,7 @@ class Payload(Protocol):
         self: PayloadT, sequence_number: int, message: Message[PayloadT]
     ) -> None: ...
 
-class Message(Generic[PayloadT]):
+class Message[PayloadT]:
     def __init__(self, sequence_number: int, payload: PayloadT): ...
     def empty(self) -> bool: ...
     @property
