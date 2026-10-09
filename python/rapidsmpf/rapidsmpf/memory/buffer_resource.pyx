@@ -408,7 +408,7 @@ cdef class BufferResource:
         cdef shared_ptr[cpp_DiskResource] disk = deref(self._handle).disk_resource()
         if disk.get() == NULL:
             return None
-        return os.fsdecode(deref(disk).directory().string())
+        return pathlib.Path(os.fsdecode(deref(disk).directory().string()))
 
     def memory_available_for_reservation(self, MemoryType mem_type):
         """
@@ -735,7 +735,7 @@ def spill_dir_from_options(Options options not None):
         ret = cpp_spill_dir_from_options(options._handle)
     if not ret.has_value():
         return None
-    return os.fsdecode(ret.value().string())
+    return pathlib.Path(os.fsdecode(ret.value().string()))
 
 
 def stream_pool_from_options(Options options not None):
