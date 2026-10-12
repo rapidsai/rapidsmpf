@@ -145,9 +145,8 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * Available memory is computed per `MemoryType` as `limit - allocated`.
      *
-     * Device and pinned-host allocations routed through this `BufferResource` are tracked
-     * automatically. Host memory allocations are not tracked and therefore always report
-     * the configured limit as available memory.
+     * Device, pinned-host, and pageable-host allocations routed through this
+     * `BufferResource` are tracked automatically.
      *
      * If pinned-host memory is disabled, available pinned-host memory is always reported
      * as zero regardless of the configured limit.
@@ -163,7 +162,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * must be supported on the system (see `is_pinned_memory_resources_supported()`);
      * otherwise a `std::runtime_error` is thrown.
      * @param memory_limits Maximum allocation limits in bytes per `MemoryType`. Missing
-     * entries are treated as unlimited.
+     * entries are treated as unlimited. See `memory_limits_from_options()`.
      * @param periodic_spill_check Interval between periodic spill checks. `std::nullopt`
      * disables the dedicated spill-check thread.
      * @param stream_pool CUDA stream pool used for operations that do not take an
@@ -659,6 +658,19 @@ static_assert(StatisticsProvider<BufferResource>);
  * @return The device memory limit in bytes.
  */
 std::int64_t device_limit_from_options(config::Options options);
+
+/**
+ * @brief Build the per-`MemoryType` memory limits from configuration options.
+ *
+ * @param options Configuration options.
+ * @param pinned_pool_properties Pinned pool configuration, typically from
+ * `pinned_pool_properties_from_options()`, or `PinnedMemoryDisabled`.
+ * @return Memory limits in bytes, suitable for `BufferResource::create()`.
+ */
+std::unordered_map<MemoryType, std::int64_t> memory_limits_from_options(
+    config::Options options,
+    std::optional<PinnedPoolProperties> const& pinned_pool_properties
+);
 
 /**
  * @brief Get the `periodic_spill_check` parameter from configuration options.

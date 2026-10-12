@@ -20,7 +20,7 @@ RmmResourceAdaptor::RmmResourceAdaptor(
 rmm::device_async_resource_ref
 RmmResourceAdaptor::get_upstream_resource() const noexcept {
     return rmm::device_async_resource_ref{
-        const_cast<any_device_resource&>(get().get_upstream_resource())
+        const_cast<any_device_resource&>(get().upstream_resource())
     };
 }
 
