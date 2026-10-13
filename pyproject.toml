@@ -39,7 +39,7 @@ addopts = [
 [tool.ruff]
 line-length = 88
 indent-width = 4
-target-version = "py311"
+target-version = "py312"
 fix = true
 
 [tool.ruff.lint]
