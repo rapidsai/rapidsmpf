@@ -244,6 +244,26 @@ constexpr void expects_fatal_impl(
     detail::fatal_error(reason, loc);
 }
 
+/**
+ * @brief Get a human-readable message describing a captured exception.
+ *
+ * @param error The captured exception.
+ * @return The result of `what()` if the exception derives from `std::exception`,
+ * otherwise a generic message.
+ */
+inline std::string exception_message(std::exception_ptr const& error) {
+    if (!error) {
+        return "no exception";
+    }
+    try {
+        std::rethrow_exception(error);
+    } catch (std::exception const& e) {
+        return e.what();
+    } catch (...) {
+        return "unknown exception";
+    }
+}
+
 }  // namespace detail
 
 /**
