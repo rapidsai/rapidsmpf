@@ -3,10 +3,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <memory>
+#include <mutex>
+
 #include <cuda_runtime_api.h>
 
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/pausable_thread_loop.hpp>
+
+#include "pausable_thread_loop_internal.hpp"
 
 namespace rapidsmpf::detail {
 
@@ -17,152 +22,120 @@ using State = LoopState::State;
 /// @brief The loop owning the calling thread, if it is the thread of a loop.
 thread_local PausableThreadLoop const* current_loop = nullptr;
 
-std::optional<State> on_resume(State s) noexcept {
-    if (s == State::Paused || s == State::Pausing) {
-        return State::Running;
-    }
-    return std::nullopt;
-}
-
-std::optional<State> on_pause(State s) noexcept {
-    if (s == State::Running) {
-        return State::Pausing;
-    }
-    return std::nullopt;
-}
-
-std::optional<State> on_stop(State s) noexcept {
-    switch (s) {
-    case State::Running:
-    case State::Pausing:
-    case State::Paused:
-        return State::Stopping;
-    case State::Failed:
-        // A failed loop thread is idle, so the stop completes right away.
-        return State::Stopped;
-    default:
-        return std::nullopt;
-    }
-}
-
-std::optional<State> on_step(State s) noexcept {
-    switch (s) {
-    case State::Pausing:
-        return State::Paused;
-    case State::Stopping:
-        return State::Stopped;
-    default:
-        return std::nullopt;
-    }
-}
-
-std::optional<State> on_fail(State s) noexcept {
-    switch (s) {
-    case State::Running:
-    case State::Pausing:
-        return State::Failed;
-    case State::Stopping:
-        // Complete the stop, the `stop()` that moved the state to STOPPING joins.
-        return State::Stopped;
-    default:
-        return std::nullopt;
-    }
-}
-
 }  // namespace
 
-std::optional<State> LoopState::apply(Transition transition) noexcept {
-    State curr = state_.load(std::memory_order_acquire);
-    while (auto next = transition(curr)) {
-        // using CAS weak because we can tolerate a spurious failure on retry
-        if (state_.compare_exchange_weak(
-                curr, *next, std::memory_order_acq_rel, std::memory_order_acquire
-            ))
-        {
-            state_.notify_all();
-            return next;
-        }
-    }
-    return std::nullopt;
-}
-
 State LoopState::state() const noexcept {
-    return state_.load(std::memory_order_acquire);
+    std::lock_guard lock(mutex_);
+    return state_;
 }
 
 bool LoopState::is_running() const noexcept {
-    auto const s = state();
-    return s == State::Running || s == State::Pausing || s == State::Stopping;
+    std::lock_guard lock(mutex_);
+    return state_ == State::Running || state_ == State::Pausing
+           || state_ == State::Stopping;
 }
 
 bool LoopState::resume() noexcept {
-    return apply(on_resume).has_value();
+    std::lock_guard lock(mutex_);
+    if (state_ != State::Paused && state_ != State::Pausing) {
+        return false;
+    }
+    state_ = State::Running;
+    cv_.notify_all();
+    return true;
 }
 
 bool LoopState::pause_nb() noexcept {
-    return apply(on_pause).has_value();
+    std::lock_guard lock(mutex_);
+    if (state_ != State::Running) {
+        return false;
+    }
+    state_ = State::Pausing;
+    cv_.notify_all();
+    return true;
 }
 
-void LoopState::wait_while_pausing() const noexcept {
-    state_.wait(State::Pausing, std::memory_order_acquire);
+void LoopState::pause() noexcept {
+    std::unique_lock lock(mutex_);
+    if (state_ == State::Running) {
+        state_ = State::Pausing;
+        cv_.notify_all();
+    }
+    cv_.wait(lock, [this] { return state_ != State::Pausing; });
 }
 
 bool LoopState::stop() noexcept {
-    return apply(on_stop).has_value();
+    std::lock_guard lock(mutex_);
+    switch (state_) {
+    case State::Running:
+    case State::Pausing:
+    case State::Paused:
+        state_ = State::Stopping;
+        break;
+    case State::Failed:
+        // A failed loop thread is idle, so the stop completes right away.
+        state_ = State::Stopped;
+        break;
+    default:
+        return false;
+    }
+    cv_.notify_all();
+    return true;
 }
 
 void LoopState::fail(std::exception_ptr error) noexcept {
+    std::lock_guard lock(mutex_);
     error_ = std::move(error);
-    apply(on_fail);
-    // Publish `error_` only after leaving the running states. A thread observing
-    // `failed_` happens-after the transition, so it observes FAILED or STOPPED.
-    failed_.store(true, std::memory_order_release);
+    // While the loop function runs, the state is RUNNING, PAUSING or STOPPING.
+    if (state_ == State::Stopping) {
+        // Complete the stop, the `stop()` that moved the state to STOPPING joins.
+        state_ = State::Stopped;
+    } else {
+        state_ = State::Failed;
+    }
+    cv_.notify_all();
 }
 
 std::exception_ptr LoopState::error() const noexcept {
-    if (failed_.load(std::memory_order_acquire)) {
-        return error_;
-    }
-    return {};
+    std::lock_guard lock(mutex_);
+    return error_;
 }
 
-LoopState::Step LoopState::step() noexcept {
-    if (auto next = apply(on_step)) {
-        return *next == State::Stopped ? Step::Exit : Step::Wait;
-    }
-    switch (state()) {
-    case State::Running:
-        return Step::Run;
-    case State::Stopped:
-        return Step::Exit;
-    default:
-        return Step::Wait;
-    }
-}
-
-void LoopState::wait_while_idle() const noexcept {
-    for (auto s = state(); s == State::Paused || s == State::Failed; s = state()) {
-        state_.wait(s, std::memory_order_acquire);
+LoopState::Step LoopState::next_step() noexcept {
+    std::unique_lock lock(mutex_);
+    while (true) {
+        switch (state_) {
+        case State::Running:
+            return Step::Run;
+        case State::Pausing:
+            state_ = State::Paused;
+            cv_.notify_all();
+            break;
+        case State::Stopping:
+            state_ = State::Stopped;
+            cv_.notify_all();
+            return Step::Exit;
+        case State::Stopped:
+            return Step::Exit;
+        case State::Paused:
+        case State::Failed:
+            cv_.wait(lock);
+            break;
+        }
     }
 }
 
 PausableThreadLoop::PausableThreadLoop(
     std::function<void()> func, Duration sleep, ErrorHandler on_error
 )
-    : on_error_{std::move(on_error)} {
+    : on_error_{std::move(on_error)}, state_{std::make_unique<LoopState>()} {
     thread_ = std::thread([this, f = std::move(func), sleep]() {
         current_loop = this;
         bool is_thread_initialized = false;
 
         while (true) {
-            state_.wait_while_idle();
-            switch (state_.step()) {
-            case LoopState::Step::Wait:
-                continue;
-            case LoopState::Step::Exit:
+            if (state_->next_step() == LoopState::Step::Exit) {
                 return;
-            case LoopState::Step::Run:
-                break;
             }
 
             try {
@@ -187,7 +160,7 @@ PausableThreadLoop::PausableThreadLoop(
 
             // Skip the sleep if the loop was paused or stopped during the iteration, for
             // example by the loop function itself.
-            if (state_.state() != LoopState::State::Running) {
+            if (state_->state() != LoopState::State::Running) {
                 continue;
             }
             if (sleep > std::chrono::seconds{0}) {
@@ -221,7 +194,7 @@ void PausableThreadLoop::fail(std::exception_ptr error) noexcept {
             + detail::exception_message(error)
         );
     }
-    state_.fail(error);
+    state_->fail(error);
     try {
         on_error_(std::move(error));
     } catch (...) {
@@ -230,28 +203,27 @@ void PausableThreadLoop::fail(std::exception_ptr error) noexcept {
 }
 
 std::exception_ptr PausableThreadLoop::error() const noexcept {
-    return state_.error();
+    return state_->error();
 }
 
 bool PausableThreadLoop::is_running() const noexcept {
-    return state_.is_running();
+    return state_->is_running();
 }
 
 void PausableThreadLoop::pause_nb() noexcept {
-    state_.pause_nb();
+    state_->pause_nb();
 }
 
 void PausableThreadLoop::pause() noexcept {
-    state_.pause_nb();
-    state_.wait_while_pausing();
+    state_->pause();
 }
 
 bool PausableThreadLoop::resume() noexcept {
-    return state_.resume();
+    return state_->resume();
 }
 
 bool PausableThreadLoop::stop() noexcept {
-    if (!state_.stop()) {
+    if (!state_->stop()) {
         return false;
     }
     // A thread cannot join itself, the destructor joins it instead.

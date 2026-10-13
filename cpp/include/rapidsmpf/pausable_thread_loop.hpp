@@ -5,112 +5,17 @@
 
 #pragma once
 
-#include <atomic>
-#include <cstdint>
 #include <exception>
 #include <functional>
-#include <optional>
+#include <memory>
 #include <thread>
 
 #include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf::detail {
 
-/**
- * @brief The state machine of a `PausableThreadLoop`, without the thread.
- *
- * Every operation is a single atomic transition of the state, so concurrent operations
- * behave as if they were executed in some sequential order. This makes the state
- * machine testable by executing operations sequentially, in any order.
- *
- * Transitions:
- *  - `resume()`: PAUSED, PAUSING -> RUNNING
- *  - `pause_nb()`: RUNNING -> PAUSING
- *  - `stop()`: RUNNING, PAUSING, PAUSED -> STOPPING, FAILED -> STOPPED
- *  - `step()` (loop thread): PAUSING -> PAUSED, STOPPING -> STOPPED
- *  - `fail()` (loop thread): RUNNING, PAUSING -> FAILED, STOPPING -> STOPPED
- *
- * A failure is published, see `error()`, only after leaving the running states
- * (RUNNING, PAUSING, STOPPING), and a failed loop never returns to them.
- */
-class LoopState {
-  public:
-    /// @brief The state of the loop.
-    enum class State : std::uint8_t {
-        Stopped,  ///< Stopped (terminal).
-        Stopping,  ///< Stopping, the loop thread moves it to Stopped.
-        Paused,  ///< Paused, can be resumed.
-        Pausing,  ///< Pausing, the loop thread moves it to Paused.
-        Running,  ///< Running the loop function.
-        Failed,  ///< The loop function threw, can only be stopped.
-    };
-
-    /// @brief What the loop thread must do next, see `step()`.
-    enum class Step : std::uint8_t {
-        Wait,  ///< Wait for the state to change, see `wait_while_idle()`.
-        Run,  ///< Run the loop function.
-        Exit,  ///< Exit the loop thread.
-    };
-
-    /// @brief @return The current state.
-    [[nodiscard]] State state() const noexcept;
-
-    /// @brief @return True if RUNNING, PAUSING or STOPPING.
-    [[nodiscard]] bool is_running() const noexcept;
-
-    /// @brief @return True if the state changed to RUNNING.
-    bool resume() noexcept;
-
-    /// @brief @return True if the state changed to PAUSING.
-    bool pause_nb() noexcept;
-
-    /// @brief Block while PAUSING.
-    void wait_while_pausing() const noexcept;
-
-    /// @brief @return True if this call initiated the stop, so the caller must join the
-    /// loop thread.
-    bool stop() noexcept;
-
-    /**
-     * @brief Record a failure of the loop function and leave the running states.
-     *
-     * Called on the loop thread only, at most once.
-     *
-     * @param error The exception thrown by the loop function.
-     */
-    void fail(std::exception_ptr error) noexcept;
-
-    /// @brief @return The published failure, or null if the loop function has not thrown.
-    [[nodiscard]] std::exception_ptr error() const noexcept;
-
-    /**
-     * @brief Apply the loop thread transitions and decide what it must do next.
-     *
-     * Called on the loop thread only. Never blocks.
-     *
-     * @return The next step of the loop thread.
-     */
-    Step step() noexcept;
-
-    /// @brief Block while PAUSED or FAILED. Called on the loop thread only.
-    void wait_while_idle() const noexcept;
-
-  private:
-    /// @brief A transition: the next state, or nullopt if there is no transition.
-    using Transition = std::optional<State> (*)(State) noexcept;
-
-    /**
-     * @brief Atomically apply a transition to the current state.
-     *
-     * @param transition The transition to apply.
-     * @return The new state, or nullopt if `transition` doesn't apply to the state.
-     */
-    std::optional<State> apply(Transition transition) noexcept;
-
-    std::atomic<State> state_{State::Paused};
-    std::exception_ptr error_{};  ///< Written once by `fail()` before `failed_`.
-    std::atomic<bool> failed_{false};  ///< Whether `error_` has been published.
-};
+/// @brief The state machine of a `PausableThreadLoop`, internal to its implementation.
+class LoopState;
 
 /**
  * @brief A thread loop that can be paused, resumed, and stopped.
@@ -257,7 +162,7 @@ class PausableThreadLoop {
     void fail(std::exception_ptr error) noexcept;
 
     ErrorHandler on_error_;  ///< Handler for exceptions thrown by the loop function.
-    LoopState state_;
+    std::unique_ptr<LoopState> state_;  ///< Created before the thread starts.
     std::thread thread_;
 };
 

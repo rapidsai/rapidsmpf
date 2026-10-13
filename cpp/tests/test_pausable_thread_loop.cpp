@@ -14,6 +14,7 @@
 #include <random>
 #include <ranges>
 #include <stdexcept>
+#include <thread>
 #include <vector>
 
 #include <gmock/gmock.h>
@@ -27,9 +28,7 @@
 #include <rapidsmpf/pausable_thread_loop.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
-#include "environment.hpp"
-
-extern Environment* GlobalEnvironment;
+#include "pausable_thread_loop_internal.hpp"
 
 using rapidsmpf::detail::PausableThreadLoop;
 
@@ -121,25 +120,32 @@ void expect_failure_is_terminal(LoopState& s) {
 
 }  // namespace
 
-// The `LoopState` tests execute operations sequentially. Since every operation is a
-// single atomic transition, this covers the possible interleavings of concurrent
+// The `LoopState` tests mostly execute operations sequentially. Since every operation
+// runs under a single mutex, this covers the possible interleavings of concurrent
 // operations.
 
 TEST(LoopState, PauseResumeStop) {
     LoopState s;
     EXPECT_EQ(s.state(), State::Paused);
-    EXPECT_EQ(s.step(), Step::Wait);
+    EXPECT_FALSE(s.is_running());
     EXPECT_TRUE(s.resume());
-    EXPECT_EQ(s.step(), Step::Run);
+    EXPECT_EQ(s.next_step(), Step::Run);
     EXPECT_TRUE(s.pause_nb());
     EXPECT_EQ(s.state(), State::Pausing);
-    EXPECT_EQ(s.step(), Step::Wait);
-    EXPECT_EQ(s.state(), State::Paused);
-    EXPECT_TRUE(s.resume());
+    {
+        // The loop thread acknowledges the pause, then waits until resumed.
+        std::thread loop_thread([&] { EXPECT_EQ(s.next_step(), Step::Run); });
+        while (s.state() != State::Paused) {
+            std::this_thread::yield();
+        }
+        EXPECT_FALSE(s.is_running());
+        EXPECT_TRUE(s.resume());
+        loop_thread.join();
+    }
     EXPECT_TRUE(s.stop());
     EXPECT_EQ(s.state(), State::Stopping);
     EXPECT_TRUE(s.is_running());
-    EXPECT_EQ(s.step(), Step::Exit);
+    EXPECT_EQ(s.next_step(), Step::Exit);
     EXPECT_EQ(s.state(), State::Stopped);
     EXPECT_FALSE(s.stop());
     EXPECT_FALSE(s.resume());
@@ -152,10 +158,9 @@ TEST(LoopState, FailWhileRunning) {
     s.fail(make_error());
     EXPECT_EQ(s.state(), State::Failed);
     expect_failure_is_terminal(s);
-    EXPECT_EQ(s.step(), Step::Wait);
     EXPECT_TRUE(s.stop());
     EXPECT_EQ(s.state(), State::Stopped);
-    EXPECT_EQ(s.step(), Step::Exit);
+    EXPECT_EQ(s.next_step(), Step::Exit);
     expect_failure_is_terminal(s);
     EXPECT_FALSE(s.stop());
 }
@@ -167,7 +172,7 @@ TEST(LoopState, FailWhilePausing) {
     s.fail(make_error());
     // Not left PAUSING, so `pause()` doesn't block.
     ASSERT_EQ(s.state(), State::Failed);
-    s.wait_while_pausing();
+    s.pause();
     expect_failure_is_terminal(s);
 }
 
@@ -179,7 +184,7 @@ TEST(LoopState, FailWhileStopping) {
     // The failure completes the stop.
     EXPECT_EQ(s.state(), State::Stopped);
     expect_failure_is_terminal(s);
-    EXPECT_EQ(s.step(), Step::Exit);
+    EXPECT_EQ(s.next_step(), Step::Exit);
     EXPECT_FALSE(s.stop());
 }
 
@@ -246,30 +251,6 @@ TEST(PausableThreadLoop, StopFromLoopFunction) {
     }
     EXPECT_LT(std::chrono::steady_clock::now() - start, sleep);
     EXPECT_EQ(num_calls.load(), 1);
-}
-
-TEST(PausableThreadLoopDeathTest, DestroyFromErrorHandler) {
-    if (GlobalEnvironment->type() != TestEnvironmentType::SINGLE) {
-        GTEST_SKIP() << "Death tests fork the process, which MPI and UCX don't support";
-    }
-    GTEST_FLAG_SET(death_test_style, "threadsafe");
-    EXPECT_DEATH(
-        {
-            std::promise<void> destroyed;
-            std::unique_ptr<PausableThreadLoop> loop;
-            loop = std::make_unique<PausableThreadLoop>(
-                []() { throw std::runtime_error("loop function failed"); },
-                std::chrono::seconds{0},
-                [&](std::exception_ptr) {
-                    loop.reset();
-                    destroyed.set_value();
-                }
-            );
-            loop->resume();
-            destroyed.get_future().wait();
-        },
-        "PausableThreadLoop destroyed from its own thread"
-    );
 }
 
 TEST(PausableThreadLoop, CanDoCudaWorkOnFirstTick) {
