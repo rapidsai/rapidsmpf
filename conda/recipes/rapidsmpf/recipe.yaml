@@ -112,6 +112,7 @@ requirements:
     - python
     - rmm =${{ minor_version }}
     - libucxx ${{ ucxx_version }}
+    - ucx
     - ucxx ${{ ucxx_version }}
   ignore_run_exports:
     from_package:
