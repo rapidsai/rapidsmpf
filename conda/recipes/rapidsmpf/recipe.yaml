@@ -106,6 +106,7 @@ requirements:
     - cuda-cupti
     - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
     - librapidsmpf =${{ version }}
+    - librmm =${{ minor_version }}
     - mpi4py
     - openmpi >=5.0
     - python
