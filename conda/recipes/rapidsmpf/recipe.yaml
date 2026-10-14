@@ -111,6 +111,7 @@ requirements:
     - openmpi >=5.0
     - python
     - rmm =${{ minor_version }}
+    - libucxx ${{ ucxx_version }}
     - ucxx ${{ ucxx_version }}
   ignore_run_exports:
     from_package:
