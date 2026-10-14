@@ -59,7 +59,7 @@ jobs:
       id-token: write
       packages: read
       pull-requests: read
-    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-build.yaml@9ac257258ee48137e797fc3e122f992f9ab17b9c
+    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-build.yaml@45cb998acd60279c1af3d9ebe1ed98ab96369c04
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       build-datetime: ${{ needs.build-details.outputs.build-datetime }}
@@ -76,7 +76,7 @@ jobs:
       id-token: write
       packages: read
       pull-requests: read
-    uses: rapidsai/shared-workflows/.github/workflows/conda-python-build.yaml@9ac257258ee48137e797fc3e122f992f9ab17b9c
+    uses: rapidsai/shared-workflows/.github/workflows/conda-python-build.yaml@45cb998acd60279c1af3d9ebe1ed98ab96369c04
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       build-datetime: ${{ needs.build-details.outputs.build-datetime }}
@@ -95,7 +95,7 @@ jobs:
       id-token: write
       packages: read
       pull-requests: read
-    uses: rapidsai/shared-workflows/.github/workflows/conda-upload-packages.yaml@9ac257258ee48137e797fc3e122f992f9ab17b9c
+    uses: rapidsai/shared-workflows/.github/workflows/conda-upload-packages.yaml@45cb998acd60279c1af3d9ebe1ed98ab96369c04
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       branch: ${{ inputs.branch }}
@@ -110,7 +110,7 @@ jobs:
       id-token: write
       packages: read
       pull-requests: read
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@9ac257258ee48137e797fc3e122f992f9ab17b9c
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@45cb998acd60279c1af3d9ebe1ed98ab96369c04
     with:
       arch: "amd64"
       branch: ${{ inputs.branch }}
@@ -127,7 +127,7 @@ jobs:
       contents: read
       id-token: write
     secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/publish-api-docs.yaml@9ac257258ee48137e797fc3e122f992f9ab17b9c
+    uses: rapidsai/shared-workflows/.github/workflows/publish-api-docs.yaml@45cb998acd60279c1af3d9ebe1ed98ab96369c04
     with:
       docs-projects: rapidsmpf
       dry-run: false
@@ -139,7 +139,7 @@ jobs:
       id-token: write
       packages: read
       pull-requests: read
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@9ac257258ee48137e797fc3e122f992f9ab17b9c
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@45cb998acd60279c1af3d9ebe1ed98ab96369c04
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       build-datetime: ${{ needs.build-details.outputs.build-datetime }}
@@ -162,7 +162,7 @@ jobs:
       packages: read
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-publish.yaml@9ac257258ee48137e797fc3e122f992f9ab17b9c
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-publish.yaml@45cb998acd60279c1af3d9ebe1ed98ab96369c04
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       publish_to_pypi: false # PyPI publication is handled by Kitmaker.
@@ -180,7 +180,7 @@ jobs:
       id-token: write
       packages: read
       pull-requests: read
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@9ac257258ee48137e797fc3e122f992f9ab17b9c
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@45cb998acd60279c1af3d9ebe1ed98ab96369c04
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       build-datetime: ${{ needs.build-details.outputs.build-datetime }}
@@ -203,7 +203,7 @@ jobs:
       packages: read
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-publish.yaml@9ac257258ee48137e797fc3e122f992f9ab17b9c
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-publish.yaml@45cb998acd60279c1af3d9ebe1ed98ab96369c04
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       publish_to_pypi: false # PyPI publication is handled by Kitmaker.
@@ -221,7 +221,7 @@ jobs:
       id-token: write
       packages: read
       pull-requests: read
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@9ac257258ee48137e797fc3e122f992f9ab17b9c
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-build.yaml@45cb998acd60279c1af3d9ebe1ed98ab96369c04
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       build-datetime: ${{ needs.build-details.outputs.build-datetime }}
