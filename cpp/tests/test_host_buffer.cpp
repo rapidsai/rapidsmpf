@@ -269,6 +269,25 @@ TEST(PinnedResource, transient_mr) {
     EXPECT_NO_THROW(test_buffer(std::move(buffer), source_data));
 }
 
+TEST(HostBuffer, invalid_stream_throws) {
+    cuda::stream_ref const invalid{cuda::invalid_stream};
+    std::vector<std::uint8_t> const data(8);
+
+    EXPECT_THROW(
+        std::ignore = rapidsmpf::HostBuffer::from_owned_vector(
+            std::vector<std::uint8_t>(data), invalid
+        ),
+        std::invalid_argument
+    );
+    auto br =
+        rapidsmpf::BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    EXPECT_THROW(
+        std::ignore =
+            rapidsmpf::HostBuffer::from_uint8_vector(data, invalid, br->host_mr()),
+        std::invalid_argument
+    );
+}
+
 namespace {
 
 /// Discover the actual pool size the driver creates when a small max is requested.

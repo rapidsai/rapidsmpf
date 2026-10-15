@@ -42,6 +42,8 @@ class HostBuffer {
      * so the buffer shares ownership of the resource (e.g. bumps the refcount
      * when constructed from a shared-ownership resource); an implicit
      * conversion from `rmm::host_async_resource_ref` is also supported.
+     *
+     * @throws std::invalid_argument if @p stream is `cuda::invalid_stream`.
      */
     HostBuffer(
         std::size_t size,
@@ -155,6 +157,8 @@ class HostBuffer {
      * @param mr Host memory resource used to allocate the buffer.
      *
      * @return A new `HostBuffer` containing a copy of `data`.
+     *
+     * @throws std::invalid_argument if @p stream is `cuda::invalid_stream`.
      */
     static HostBuffer from_uint8_vector(
         std::vector<std::uint8_t> const& data,
@@ -173,6 +177,8 @@ class HostBuffer {
      * @param stream CUDA stream to associate with this buffer.
      *
      * @return A new `HostBuffer` owning the vector's memory.
+     *
+     * @throws std::invalid_argument if @p stream is `cuda::invalid_stream`.
      */
     static HostBuffer from_owned_vector(
         std::vector<std::uint8_t>&& data, cuda::stream_ref stream
@@ -185,6 +191,9 @@ class HostBuffer {
      * the device buffer contains host-accessible memory (e.g., pinned host memory
      * allocated via a managed or pinned memory resource).
      *
+     * @p stream is ordered after any work pending on the device buffer's stream, and
+     * the memory is deallocated on the `HostBuffer`'s stream.
+     *
      * @warning The caller is responsible for ensuring the device buffer's memory is
      * host-accessible. Using this with non-host-accessible device memory will result
      * in a std::invalid_argument exception.
@@ -194,7 +203,8 @@ class HostBuffer {
      *
      * @return A new `HostBuffer` owning the device buffer's memory.
      *
-     * @throws std::invalid_argument if @p pinned_host_buffer is null.
+     * @throws std::invalid_argument if @p pinned_host_buffer is null or @p stream is
+     * `cuda::invalid_stream`.
      * @throws std::logic_error if @p pinned_host_buffer is not of pinned memory host
      * memory type (see warning for details).
      *
@@ -214,6 +224,8 @@ class HostBuffer {
      * @param deallocate_fn Callable invoked with the current stream to release the
      * underlying memory. It captures all resources needed for deallocation (e.g.
      * memory resource, raw pointer, size).
+     *
+     * @throws std::invalid_argument if @p stream is `cuda::invalid_stream`.
      */
     HostBuffer(
         std::span<std::byte> span,
