@@ -23,6 +23,16 @@ export RAPIDS_PACKAGE_VERSION
 UCXX_PACKAGE_DEPENDENCY="$(sed -E -e 's/^([0-9]+\.[0-9]+)\.[0-9]+$/\1.*/' UCXX_VERSION)"
 export UCXX_PACKAGE_DEPENDENCY
 
+# Keep the temporary fixed-MPF artifacts compatible with cuDF's oldest dependencies.
+# Remove this UCXX snapshot after the independent compatibility fixes ship.
+UCXX_CHANNEL=$(mktemp -d)
+rapids-retry gh run download 38396368300 --repo rapidsai/ucxx \
+    --name "$(rapids-artifact-name conda_cpp libucxx ucxx --cuda "$RAPIDS_CUDA_VERSION")" \
+    --dir "$UCXX_CHANNEL"
+
+# shellcheck disable=SC2034
+RAPIDS_PREPENDED_CONDA_CHANNELS=("$UCXX_CHANNEL")
+
 # populates `RATTLER_CHANNELS` array and `RATTLER_ARGS` array
 source rapids-rattler-channel-string
 
