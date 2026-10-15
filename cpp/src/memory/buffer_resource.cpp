@@ -335,7 +335,7 @@ std::unique_ptr<Buffer> BufferResource::move(
     );
     cuda::stream_ref upstream = data->stream();
     if (upstream.get() != stream.get()) {
-        // Default-constructed and moved-from RMM buffers have no stream or work to join.
+        // Default-constructed RMM buffers have no stream or work to join.
         bool const empty_without_stream =
             data->capacity() == 0 && upstream == cuda::invalid_stream;
         if (!empty_without_stream) {

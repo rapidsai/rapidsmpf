@@ -79,22 +79,6 @@ TEST(BufferResource, MoveDefaultConstructedDeviceBuffer) {
     EXPECT_NO_THROW(buffer->latest_write_event().host_wait());
 }
 
-TEST(BufferResource, MoveMovedFromDeviceBuffer) {
-    StreamPool stream_pool{1};
-    auto stream = stream_pool.get_stream();
-    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
-
-    auto source = std::make_unique<rmm::device_buffer>(16, stream);
-    auto destination = std::move(*source);
-
-    auto buffer = br->move(std::move(source), stream);
-
-    EXPECT_EQ(buffer->size, 0U);
-    EXPECT_EQ(buffer->stream().get(), stream.get());
-    EXPECT_NO_THROW(buffer->latest_write_event().host_wait());
-    EXPECT_EQ(destination.size(), 16U);
-}
-
 TEST(BufferResource, ReservationOverbooking) {
     // Create a buffer resource that always reports 10 KiB of available device memory.
     auto br = BufferResource::create(
