@@ -516,6 +516,10 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *   - @p stream is synchronized with the device buffer's current stream, and
      *   - the device buffer's current stream is updated to @p stream.
      *
+     * If @p data is empty and has no stream (e.g. a default-constructed
+     * `rmm::device_buffer`), no synchronization is performed and its stream is set to
+     * @p stream.
+     *
      * @param data Unique pointer to the device or pinned host buffer.
      * @param stream CUDA stream associated with the new Buffer. Use or synchronize with
      * this stream when operating on the Buffer.
