@@ -17,6 +17,7 @@ from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import (
     BufferResource,
     device_limit_from_options,
+    host_limit_from_options,
     periodic_spill_check_from_options,
     stream_pool_from_options,
 )
@@ -441,6 +442,22 @@ def test_device_limit_from_options_returns_configured_limit() -> None:
     assert device_limit_from_options(opts) == 1024 * 1024 * 1024
 
 
+def test_host_limit_from_options_returns_configured_limit() -> None:
+    opts = Options({"spill_host_limit": "1GiB"})
+    assert host_limit_from_options(opts) == 1024 * 1024 * 1024
+
+
+def test_host_limit_from_options_disabled_is_unbounded() -> None:
+    assert host_limit_from_options(Options()) is None
+    assert host_limit_from_options(Options({"spill_host_limit": "disabled"})) is None
+
+
+@pytest.mark.parametrize("value", ["0", "0%"])
+def test_host_limit_from_options_rejects_zero(value: str) -> None:
+    with pytest.raises(ValueError, match="greater than zero"):
+        host_limit_from_options(Options({"spill_host_limit": value}))
+
+
 def test_device_limit_from_options_uses_default() -> None:
     opts = Options()
     # The default is 80% of total device memory, which we can't predict exactly;
@@ -493,6 +510,7 @@ def test_buffer_resource_from_options_creates_instance_with_explicit_options() -
             "statistics": "True",
             "pinned_memory": "False",
             "spill_device_limit": "1GiB",
+            "spill_host_limit": "2GiB",
             "periodic_spill_check": "5ms",
             "num_streams": "8",
         }
@@ -505,6 +523,7 @@ def test_buffer_resource_from_options_creates_instance_with_explicit_options() -
     assert br.stream_pool.get_pool_size() == 8
     mem_avail = br.memory_available(MemoryType.DEVICE)
     assert mem_avail == 1024**3
+    assert br.memory_available(MemoryType.HOST) == 2 * 1024**3
 
 
 def test_buffer_resource_from_options_uses_default_when_options_empty() -> None:
@@ -544,6 +563,32 @@ def test_buffer_resource_from_options_enables_pinned_memory_when_supported() -> 
     opts = Options({"pinned_memory": "True"})
     br = BufferResource.from_options(rmm.mr.CudaMemoryResource(), opts)
     assert br.pinned_mr is not None
+
+
+def test_buffer_resource_from_options_wires_pinned_limit() -> None:
+    if not is_pinned_memory_resources_supported():
+        pytest.skip("Pinned memory not supported on this system")
+
+    opts = Options({"pinned_memory": "True", "pinned_max_pool_size": "1MiB"})
+    br = BufferResource.from_options(rmm.mr.CudaMemoryResource(), opts)
+    assert br.memory_available(MemoryType.PINNED_HOST) == 1024**2
+
+
+def test_buffer_resource_from_options_keeps_host_limit_independent() -> None:
+    if not is_pinned_memory_resources_supported():
+        pytest.skip("Pinned memory not supported on this system")
+
+    opts = Options(
+        {
+            "pinned_memory": "True",
+            "pinned_max_pool_size": "1MiB",
+            "spill_host_limit": "4MiB",
+        }
+    )
+    br = BufferResource.from_options(rmm.mr.CudaMemoryResource(), opts)
+
+    assert br.memory_available(MemoryType.PINNED_HOST) == 1024**2
+    assert br.memory_available(MemoryType.HOST) == 4 * 1024**2
 
 
 def test_context_from_options_creates_instance_with_explicit_options() -> None:

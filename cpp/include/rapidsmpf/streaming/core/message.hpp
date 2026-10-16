@@ -41,24 +41,45 @@ class Message {
     using CopyCallback =
         std::function<Message(Message const&, MemoryReservation& reservation)>;
 
+    /**
+     * @brief Callback for moving a message into the memory of a reservation.
+     *
+     * Unlike `CopyCallback`, the source message is consumed, so its memory is released
+     * once the returned message has been built.
+     *
+     * @param msg Source message to move from.
+     * @param reservation Memory reservation to consume during allocation.
+     * @return A new `Message` instance holding the payload in the reserved memory.
+     */
+    using MoveCallback =
+        std::function<Message(Message&&, MemoryReservation& reservation)>;
+
+    /**
+     * @brief The callbacks a message supports.
+     *
+     * Either may be null, meaning the message does not support that operation.
+     */
+    struct Callbacks {
+        CopyCallback copy;  ///< Deep copies the message, see `copy()`.
+        MoveCallback move;  ///< Moves the message, see `move()`.
+    };
+
     /// @brief Create an empty message.
     Message() = default;
 
     /**
      * @brief Construct a new message from a unique pointer to its payload.
      *
-     * The message may optionally support deep-copy and spilling operations through a
-     * user-provided `CopyCallback`. If no callback is provided, copy and spill
-     * operations are disabled.
+     * The message may optionally support copy and move operations through
+     * user-provided callbacks. An operation whose callback is null is disabled.
      *
      * @tparam T Type of the payload to store inside the message.
      * @param sequence_number Ordering identifier for the message.
      * @param payload Non-null unique pointer to the payload.
-     * @param content_description Description of the payload's content. When a copy
+     * @param content_description Description of the payload's content. When a
      * callback is provided, this description must accurately reflect the content of the
      * payload (e.g., per-memory-type sizes and spillable status).
-     * @param copy_cb Optional callback used to perform deep copies of the message. If
-     * `nullptr`, copying and spilling are disabled.
+     * @param callbacks The copy and move callbacks. By default, neither is provided.
      *
      * @note Sequence numbers are used to ensure that when multiple producers send into
      * the same output channel, channel ordering is preserved. Specifically, the guarantee
@@ -77,11 +98,11 @@ class Message {
         std::uint64_t sequence_number,
         std::unique_ptr<T> payload,
         ContentDescription content_description,
-        CopyCallback copy_cb = nullptr
+        Callbacks callbacks = {}
     )
         : sequence_number_(sequence_number),
           content_description_{content_description},
-          copy_cb_{std::move(copy_cb)} {
+          callbacks_{std::move(callbacks)} {
         RAPIDSMPF_EXPECTS(
             payload != nullptr, "nullptr not allowed", std::invalid_argument
         );
@@ -187,12 +208,12 @@ class Message {
     }
 
     /**
-     * @brief Returns the copy callback associated with the message.
+     * @brief Returns the callbacks associated with the message.
      *
-     * @return The message's copy callback function.
+     * @return The message's copy and move callbacks.
      */
-    [[nodiscard]] constexpr CopyCallback const& copy_cb() const noexcept {
-        return copy_cb_;
+    [[nodiscard]] constexpr Callbacks const& callbacks() const noexcept {
+        return callbacks_;
     }
 
     /**
@@ -230,9 +251,40 @@ class Message {
      */
     [[nodiscard]] Message copy(MemoryReservation& reservation) const {
         RAPIDSMPF_EXPECTS(
-            copy_cb(), "message doesn't support `copy`", std::invalid_argument
+            callbacks_.copy, "message doesn't support `copy`", std::invalid_argument
         );
-        return copy_cb()(*this, reservation);
+        return callbacks_.copy(*this, reservation);
+    }
+
+    /**
+     * @brief Move this message into the memory of a reservation, leaving it empty.
+     *
+     * Invokes the registered `move` callback and resets this message afterwards, like
+     * `release()`.
+     *
+     * If the `move` callback throws, this message is still reset, so its payload is lost.
+     *
+     * @param reservation Memory reservation to consume for the move.
+     * @return A new `Message` instance holding the payload in the reserved memory.
+     *
+     * @throws std::invalid_argument if the message does not support moving.
+     */
+    [[nodiscard]] Message move(MemoryReservation& reservation) {
+        RAPIDSMPF_EXPECTS(
+            callbacks_.move, "message doesn't support `move`", std::invalid_argument
+        );
+        // A callback may move from or reassign `msg` as a whole, which takes this
+        // callback with it, so invoke a copy that outlives such changes.
+        auto cb = callbacks_.move;
+        Message ret;
+        try {
+            ret = cb(std::move(*this), reservation);
+        } catch (...) {
+            reset();
+            throw;
+        }
+        reset();
+        return ret;
     }
 
   private:
@@ -254,7 +306,7 @@ class Message {
     std::uint64_t sequence_number_{0};
     std::any payload_;
     ContentDescription content_description_;
-    CopyCallback copy_cb_;
+    Callbacks callbacks_;
 };
 
 }  // namespace rapidsmpf::streaming

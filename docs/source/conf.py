@@ -19,6 +19,7 @@ import xml.etree.ElementTree as ET
 from enum import IntEnum, IntFlag
 from typing import Any
 
+import breathe
 from packaging.version import Version
 from sphinx.ext.autodoc import ClassDocumenter
 from sphinx.ext.intersphinx import (
@@ -78,9 +79,38 @@ def clean_doxygen_xml(path: str) -> None:
         "rapidsmpf::safe_cast": "To",
     }
 
+    # Breathe 5 renders `constexpr` from the member's attribute and strips it from the
+    # type, but misses a type that is only `constexpr`, which is what Doxygen 1.18 gives
+    # a constexpr constructor, so it renders it twice. Earlier Breathe renders it from
+    # the type alone.
+    strip_constexpr_type = Version(breathe.__version__) >= Version("5")
+
     for filename in glob.glob(os.path.join(path, "*.xml")):
         tree = ET.parse(filename)
         changed = False
+
+        # Doxygen 1.18 adds untitled wrapper sections when documentation starts
+        # at a deeper Markdown heading level. Breathe assumes every section has
+        # a title, so unwrap wrappers whose only child is the real section.
+        section_tags = {f"sect{level}" for level in range(1, 7)}
+        while True:
+            unwrapped = False
+            for parent in tree.iter():
+                for index, section in enumerate(list(parent)):
+                    children = list(section)
+                    if (
+                        section.tag in section_tags
+                        and section.find("title") is None
+                        and len(children) == 1
+                        and children[0].tag in section_tags
+                    ):
+                        parent.remove(section)
+                        parent.insert(index, children[0])
+                        changed = True
+                        unwrapped = True
+            if not unwrapped:
+                break
+
         for section in tree.findall(".//sectiondef"):
             for member in list(section.findall("./memberdef")):
                 type_node = member.find("type")
@@ -89,6 +119,14 @@ def clean_doxygen_xml(path: str) -> None:
                     section.remove(member)
                     changed = True
                     continue
+
+                if (
+                    strip_constexpr_type
+                    and type_text.strip() == "constexpr"
+                    and member.get("constexpr") == "yes"
+                ):
+                    type_node.clear()
+                    changed = True
 
                 definition = member.find("definition")
                 if type_text.startswith("requires ") and definition is not None:

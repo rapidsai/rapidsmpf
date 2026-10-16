@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -30,17 +30,30 @@ inline ContentDescription get_content_description(PackedData const& obj) {
  * @param chunk The chunk to wrap into a message.
  * @return A `Message` encapsulating the provided chunk as its payload.
  */
-Message to_message(std::uint64_t sequence_number, std::unique_ptr<PackedData> chunk) {
+inline Message to_message(
+    std::uint64_t sequence_number, std::unique_ptr<PackedData> chunk
+) {
     auto cd = get_content_description(*chunk);
     return Message{
         sequence_number,
         std::move(chunk),
         cd,
-        [](Message const& msg, MemoryReservation& reservation) -> Message {
-            auto const& self = msg.get<PackedData>();
-            auto chunk = std::make_unique<PackedData>(self.copy(reservation));
-            auto cd = get_content_description(*chunk);
-            return Message{msg.sequence_number(), std::move(chunk), cd, msg.copy_cb()};
+        Message::Callbacks{
+            .copy = [](Message const& msg, MemoryReservation& reservation) -> Message {
+                auto const& self = msg.get<PackedData>();
+                auto chunk = std::make_unique<PackedData>(self.copy(reservation));
+                auto cd = get_content_description(*chunk);
+                return Message{
+                    msg.sequence_number(), std::move(chunk), cd, msg.callbacks()
+                };
+            },
+            .move = [](Message&& msg, MemoryReservation& reservation) -> Message {
+                auto callbacks = msg.callbacks();
+                auto chunk = std::make_unique<PackedData>(msg.release<PackedData>());
+                chunk->data = reservation.br()->move(std::move(chunk->data), reservation);
+                auto cd = get_content_description(*chunk);
+                return Message{msg.sequence_number(), std::move(chunk), cd, callbacks};
+            }
         }
     };
 }

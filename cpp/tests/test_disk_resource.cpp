@@ -25,7 +25,6 @@
 #include <rapidsmpf/disk/disk_buffer.hpp>
 #include <rapidsmpf/disk/disk_resource.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
-#include <rapidsmpf/memory/memory_type.hpp>
 
 #include "environment.hpp"
 #include "utils.hpp"
@@ -60,7 +59,7 @@ std::vector<std::byte> make_pattern(std::size_t size) {
 
 void check_file_contents(
     std::filesystem::path const& path,
-    std::size_t file_offset,
+    std::ptrdiff_t file_offset,
     std::vector<std::byte> const& expected
 ) {
     std::vector<std::byte> actual(expected.size());
@@ -95,6 +94,7 @@ class DiskResourceTest : public ::testing::Test {
 
     std::shared_ptr<DiskResource> disk_;
     std::shared_ptr<BufferResource> br_;
+    cuda::stream_ref stream_{cudaStreamLegacy};
 };
 
 TEST_F(DiskResourceTest, RoundTrip) {
@@ -102,14 +102,12 @@ TEST_F(DiskResourceTest, RoundTrip) {
     auto const pattern = make_pattern(64 * 1024);
 
     EXPECT_EQ(
-        disk_->write(path, pattern.data(), pattern.size(), MemoryType::HOST),
-        pattern.size()
+        disk_->write(path, pattern.data(), pattern.size(), stream_), pattern.size()
     );
 
     std::vector<std::byte> destination(pattern.size());
     EXPECT_EQ(
-        disk_->read(path, destination.data(), pattern.size(), MemoryType::HOST),
-        pattern.size()
+        disk_->read(path, destination.data(), pattern.size(), stream_), pattern.size()
     );
 
     EXPECT_EQ(destination, pattern);
@@ -120,18 +118,14 @@ TEST_F(DiskResourceTest, UnalignedOffsetRoundTrip) {
     auto const path = test_path("unaligned");
     auto const pattern = make_pattern(16 * 1024);
     auto const ptr_offset = std::size_t{1};
-    auto const file_offset = std::size_t{1};
+    auto const file_offset = std::ptrdiff_t{1};
 
     std::vector<std::byte> source(ptr_offset);
     source.insert(source.end(), pattern.begin(), pattern.end());
 
     EXPECT_EQ(
         disk_->write(
-            path,
-            source.data() + ptr_offset,
-            pattern.size(),
-            MemoryType::HOST,
-            file_offset
+            path, source.data() + ptr_offset, pattern.size(), stream_, file_offset
         ),
         pattern.size()
     );
@@ -142,11 +136,7 @@ TEST_F(DiskResourceTest, UnalignedOffsetRoundTrip) {
     std::vector<std::byte> destination(pattern.size() + ptr_offset);
     EXPECT_EQ(
         disk_->read(
-            path,
-            destination.data() + ptr_offset,
-            pattern.size(),
-            MemoryType::HOST,
-            file_offset
+            path, destination.data() + ptr_offset, pattern.size(), stream_, file_offset
         ),
         pattern.size()
     );
@@ -166,13 +156,11 @@ TEST_F(DiskResourceTest, SequentialOffsetWritesPreserveExistingBytes) {
     auto const path = test_path("two-ranges");
     auto const first = make_pattern(8 * 1024);
     auto const second = make_pattern(4 * 1024);
-    auto const second_offset = std::size_t{12 * 1024};
+    auto const second_offset = std::ptrdiff_t{12 * 1024};
 
+    EXPECT_EQ(disk_->write(path, first.data(), first.size(), stream_), first.size());
     EXPECT_EQ(
-        disk_->write(path, first.data(), first.size(), MemoryType::HOST), first.size()
-    );
-    EXPECT_EQ(
-        disk_->write(path, second.data(), second.size(), MemoryType::HOST, second_offset),
+        disk_->write(path, second.data(), second.size(), stream_, second_offset),
         second.size()
     );
 
@@ -187,8 +175,7 @@ TEST_F(DiskResourceTest, FlushDoesNotThrow) {
     auto const path = test_path("flush");
     auto const pattern = make_pattern(4096);
     EXPECT_EQ(
-        disk_->write(path, pattern.data(), pattern.size(), MemoryType::HOST),
-        pattern.size()
+        disk_->write(path, pattern.data(), pattern.size(), stream_), pattern.size()
     );
     EXPECT_NO_THROW(disk_->flush(path));
     ASSERT_TRUE(std::filesystem::remove(path));
@@ -252,27 +239,88 @@ TEST(DiskResource, SharedPtrKeepsDiskResourceAlive) {
     EXPECT_TRUE(weak_disk.expired()) << "DiskResource not destructed, refcount cycle?";
 }
 
+TEST(DiskResource, DestructorRemovesDirectory) {
+    if (GlobalEnvironment->type() != TestEnvironmentType::SINGLE) {
+        GTEST_SKIP() << "Disk I/O tests run only in the single-process environment";
+    }
+
+    TempDir disk_dir;
+    std::filesystem::path resource_dir;
+    {
+        auto br = BufferResource::create(
+            rmm::mr::get_current_device_resource_ref(),
+            PinnedMemoryDisabled,
+            {},
+            std::chrono::milliseconds{1},
+            std::make_shared<StreamPool>(16),
+            Statistics::disabled(),
+            disk_dir.path()
+        );
+        resource_dir = br->disk_resource()->directory();
+        EXPECT_EQ(resource_dir.parent_path(), disk_dir.path());
+    }
+    EXPECT_FALSE(std::filesystem::exists(resource_dir));
+}
+
+TEST(DiskResource, ResourcesOwnDistinctDirectories) {
+    if (GlobalEnvironment->type() != TestEnvironmentType::SINGLE) {
+        GTEST_SKIP() << "Disk I/O tests run only in the single-process environment";
+    }
+
+    TempDir disk_dir;
+    auto make_resource = [&] {
+        return BufferResource::create(
+            rmm::mr::get_current_device_resource_ref(),
+            PinnedMemoryDisabled,
+            {},
+            std::nullopt,
+            std::make_shared<StreamPool>(1),
+            Statistics::disabled(),
+            disk_dir.path()
+        );
+    };
+    auto first = make_resource();
+    auto second = make_resource();
+    auto const first_dir = first->disk_resource()->directory();
+    auto const second_dir = second->disk_resource()->directory();
+
+    EXPECT_NE(first_dir, second_dir);
+    EXPECT_EQ(first_dir.parent_path(), second_dir.parent_path());
+    EXPECT_EQ(first_dir.parent_path(), disk_dir.path());
+
+    first.reset();
+    EXPECT_FALSE(std::filesystem::exists(first_dir));
+    EXPECT_TRUE(std::filesystem::is_directory(second_dir));
+}
+
 TEST_F(DiskResourceTest, DiskBufferDestructorRemovesFile) {
     std::filesystem::path path{};
     {
-        DiskBuffer disk_buffer{disk_};
+        DiskBuffer disk_buffer{disk_, 0, stream_};
         path = disk_buffer.path();
         ASSERT_TRUE(std::filesystem::exists(path));
     }
     EXPECT_FALSE(std::filesystem::exists(path));
 }
 
+TEST_F(DiskResourceTest, DiskBufferTracksStream) {
+    DiskBuffer disk_buffer{disk_, 0, stream_};
+    EXPECT_EQ(disk_buffer.stream().get(), stream_.get());
+
+    auto const new_stream = cuda::stream_ref{cudaStreamPerThread};
+    disk_buffer.set_stream(new_stream);
+    EXPECT_EQ(disk_buffer.stream().get(), new_stream.get());
+}
+
 TEST_F(DiskResourceTest, DiskBufferReportsFileSize) {
-    DiskBuffer disk_buffer{disk_};
+    auto const pattern = make_pattern(1024);
+    DiskBuffer disk_buffer{disk_, pattern.size(), stream_};
+    EXPECT_EQ(disk_buffer.size(), pattern.size());
     EXPECT_EQ(disk_buffer.file_size(), 0U);
     EXPECT_TRUE(disk_buffer.copy_to_uint8_vector().empty());
 
-    auto const pattern = make_pattern(1024);
-
     EXPECT_EQ(
-        disk_->write(
-            disk_buffer.path(), pattern.data(), pattern.size(), MemoryType::HOST
-        ),
+        disk_->write(disk_buffer.path(), pattern.data(), pattern.size(), stream_),
         pattern.size()
     );
 
@@ -288,27 +336,6 @@ TEST_F(DiskResourceTest, DiskBufferReportsFileSize) {
     );
 }
 
-TEST(DiskBufferConfiguredDirectory, UsesBufferResourceDirectory) {
-    if (GlobalEnvironment->type() != TestEnvironmentType::SINGLE) {
-        GTEST_SKIP() << "Disk I/O tests run only in the single-process environment";
-    }
-
-    TempDir disk_dir;
-    auto br = BufferResource::create(
-        rmm::mr::get_current_device_resource_ref(),
-        PinnedMemoryDisabled,
-        {},
-        std::chrono::milliseconds{1},
-        std::make_shared<StreamPool>(16),
-        Statistics::disabled(),
-        disk_dir.path()
-    );
-
-    EXPECT_EQ(
-        br->disk_resource()->directory(), disk_dir.path() / std::to_string(::getpid())
-    );
-}
-
 TEST(DiskBufferFromOptions, UsesConfiguredDirectory) {
     if (GlobalEnvironment->type() != TestEnvironmentType::SINGLE) {
         GTEST_SKIP() << "Disk I/O tests run only in the single-process environment";
@@ -321,9 +348,7 @@ TEST(DiskBufferFromOptions, UsesConfiguredDirectory) {
     auto br = BufferResource::from_options(
         rmm::mr::get_current_device_resource_ref(), std::move(options)
     );
-    EXPECT_EQ(
-        br->disk_resource()->directory(), disk_dir.path() / std::to_string(::getpid())
-    );
+    EXPECT_EQ(br->disk_resource()->directory().parent_path(), disk_dir.path());
 }
 
 TEST(DiskBufferFromOptions, UnsetOptionHasNoDiskResource) {

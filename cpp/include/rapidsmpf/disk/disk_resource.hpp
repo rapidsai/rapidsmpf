@@ -8,31 +8,26 @@
 #include <filesystem>
 #include <optional>
 
+#include <cuda/stream>
+
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/memory/back_ref_mixin.hpp>
-#include <rapidsmpf/memory/memory_type.hpp>
 
 namespace rapidsmpf {
 
 class BufferResource;
 
 /**
- * @brief Non-stream-ordered disk I/O for host or device byte buffers.
+ * @brief Disk I/O for host or device byte buffers.
  *
  * Uses KvikIO with CompatMode::AUTO (GDS when available, POSIX/compat otherwise).
  *
- * Callers must synchronize any CUDA stream that produced or consumes a device
- * pointer before calling write() or read(). KvikIO is not asked to synchronize
- * the default stream (`sync_default_stream=false`).
- *
- * Disk I/O is intentionally outside the MemoryType / BufferResource taxonomy.
- * `BufferResource` owns a `std::shared_ptr<DiskResource>` when a spill
- * directory is configured; `DiskBuffer`s hold additional copies so the
- * resource outlives those buffers.
+ * Each resource atomically creates and exclusively owns its directory. The directory
+ * is removed when the resource is destroyed.
  */
 class DiskResource : public BackRefMixin<BufferResource> {
   public:
-    ~DiskResource() = default;
+    ~DiskResource() noexcept;
 
     DiskResource(DiskResource const&) = delete;
     DiskResource& operator=(DiskResource const&) = delete;
@@ -61,10 +56,9 @@ class DiskResource : public BackRefMixin<BufferResource> {
      * @brief Write bytes to a file and block until the transfer completes.
      *
      * @param path File path.
-     * @param data Host or device pointer to the source bytes. Must remain
-     *        valid until this call returns.
+     * @param data Host or device pointer to the source bytes.
      * @param size Number of bytes to write.
-     * @param mem_type Memory type of @p data.
+     * @param stream CUDA stream associated with @p data.
      * @param file_offset Byte offset within the file. Existing bytes outside
      *        the written range are preserved when the file already exists.
      *        A missing file is created.
@@ -75,8 +69,8 @@ class DiskResource : public BackRefMixin<BufferResource> {
         std::filesystem::path const& path,
         void const* data,
         std::size_t size,
-        MemoryType mem_type,
-        std::size_t file_offset = 0
+        cuda::stream_ref stream,
+        std::ptrdiff_t file_offset = 0
     ) const;
 
     /**
@@ -86,7 +80,7 @@ class DiskResource : public BackRefMixin<BufferResource> {
      * @param data Host or device pointer to the destination buffer. Must remain
      *        valid until this call returns.
      * @param size Number of bytes to read.
-     * @param mem_type Memory type of @p data.
+     * @param stream CUDA stream associated with @p data.
      * @param file_offset Byte offset within the file.
      * @return Number of bytes transferred. The caller must check this against
      *         @p size.
@@ -95,8 +89,8 @@ class DiskResource : public BackRefMixin<BufferResource> {
         std::filesystem::path const& path,
         void* data,
         std::size_t size,
-        MemoryType mem_type,
-        std::size_t file_offset = 0
+        cuda::stream_ref stream,
+        std::ptrdiff_t file_offset = 0
     ) const;
 
     /**
@@ -117,7 +111,7 @@ class DiskResource : public BackRefMixin<BufferResource> {
     [[nodiscard]] bool operator==(DiskResource const& other) const noexcept = default;
 
   private:
-    explicit DiskResource(std::filesystem::path dir) : dir_{std::move(dir)} {}
+    explicit DiskResource(std::filesystem::path dir_prefix);
 
     friend class BufferResource;
 

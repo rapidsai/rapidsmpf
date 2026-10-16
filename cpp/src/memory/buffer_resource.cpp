@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
 #include <limits>
 #include <optional>
 #include <stdexcept>
@@ -77,6 +78,12 @@ std::shared_ptr<BufferResource> BufferResource::create(
             "may apply. Pass `PinnedMemoryDisabled` to disable pinned host memory.",
             std::runtime_error
         );
+        RAPIDSMPF_EXPECTS(
+            !pinned_pool_properties->max_pool_size.has_value()
+                || *pinned_pool_properties->max_pool_size > 0,
+            "PinnedPoolProperties::max_pool_size must be greater than zero",
+            std::invalid_argument
+        );
         pinned_mr = PinnedMemoryResource{*pinned_pool_properties};
     }
 
@@ -117,12 +124,11 @@ std::shared_ptr<BufferResource> BufferResource::from_options(
     config::Options options,
     std::shared_ptr<Statistics> statistics
 ) {
-    std::unordered_map<MemoryType, std::int64_t> memory_limits{
-        {MemoryType::DEVICE, device_limit_from_options(options)}
-    };
+    auto pinned_pool_properties = pinned_pool_properties_from_options(options);
+    auto memory_limits = memory_limits_from_options(options, pinned_pool_properties);
     return create(
         std::move(mr),
-        pinned_pool_properties_from_options(options),
+        std::move(pinned_pool_properties),
         std::move(memory_limits),
         periodic_spill_check_from_options(options),
         stream_pool_from_options(options),
@@ -145,7 +151,7 @@ std::int64_t BufferResource::memory_available(MemoryType mem_type) const noexcep
             return limit - pinned_mr_->current_allocated();
         }
     case MemoryType::HOST:
-        return limit;
+        return limit - host_mr_.current_allocated();
     case MemoryType::DISK:
         return disk_resource_ != nullptr ? limit : 0;
     }
@@ -229,21 +235,26 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
 MemoryReservation BufferResource::reserve_device_memory_and_spill(
     std::size_t size, AllowOverbooking allow_overbooking
 ) {
-    // reserve device memory with overbooking
-    auto [reservation, ob] = reserve(MemoryType::DEVICE, size, AllowOverbooking::YES);
+    auto [reservation, total_overbooking] =
+        reserve(MemoryType::DEVICE, size, AllowOverbooking::YES);
 
-    // ask the spill manager to make room for overbooking
-    if (ob > 0) {
-        auto spilled = spill_manager_.spill(ob);
+    // `reserve()` reports the total overbooking, other callers' included, so clamp to
+    // `size` for the part this reservation added.
+    if (total_overbooking > 0) {
+        auto const own_overbooking = std::min(size, total_overbooking);
+        // With a headroom of zero, `deficit` is the overbooking still outstanding once
+        // the spill lock is held. All of it is spilled, but this call is judged only on
+        // its own share.
+        auto const [deficit, spilled] = spill_manager_.spill_to_make_headroom();
         RAPIDSMPF_EXPECTS(
-            allow_overbooking == AllowOverbooking::YES || spilled >= ob,
+            allow_overbooking == AllowOverbooking::YES
+                || spilled >= std::min(own_overbooking, deficit),
             "failed to spill enough memory (reserved: " + format_nbytes(size)
-                + ", overbooking: " + format_nbytes(ob)
+                + ", overbooking: " + format_nbytes(own_overbooking)
                 + ", spilled: " + format_nbytes(spilled) + ")",
             rapidsmpf::reservation_error
         );
     }
-
     return std::move(reservation);
 }
 
@@ -266,7 +277,8 @@ std::unique_ptr<Buffer> BufferResource::make_buffer(
     std::size_t size, cuda::stream_ref stream, MemoryReservation& reservation
 ) {
     auto const mem_type = reservation.mem_type_;
-    // disk buffer creation is not stream ordered, so we disable statistics for it
+    // A disk buffer is created with mkstemp, which never touches the stream, so a
+    // stream-ordered timing would measure stream backlog rather than the creation.
     StreamOrderedTiming timing{
         stream, mem_type == MemoryType::DISK ? Statistics::disabled() : statistics_
     };
@@ -294,7 +306,7 @@ std::unique_ptr<Buffer> BufferResource::make_buffer(
         break;
     case MemoryType::DISK:
         ret = std::unique_ptr<Buffer>(
-            new Buffer(std::make_unique<DiskBuffer>(disk_resource_), size, stream)
+            new Buffer(std::make_unique<DiskBuffer>(disk_resource_, size, stream), stream)
         );
         break;
     default:
@@ -312,11 +324,23 @@ std::unique_ptr<Buffer> BufferResource::make_buffer(
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
-    std::unique_ptr<rmm::device_buffer> data, cuda::stream_ref stream
+    std::unique_ptr<rmm::device_buffer> data,
+    cuda::stream_ref stream,
+    std::shared_ptr<SpillTrackToken> spill_token
 ) {
+    RAPIDSMPF_EXPECTS(
+        spill_token == nullptr || is_host_accessible(data->memory_resource()),
+        "a spill token cannot be attached to device memory",
+        std::invalid_argument
+    );
     cuda::stream_ref upstream = data->stream();
     if (upstream.get() != stream.get()) {
-        cuda_stream_join(stream, upstream);
+        // Default-constructed RMM buffers have no stream or work to join.
+        bool const empty_without_stream =
+            data->capacity() == 0 && upstream == cuda::invalid_stream;
+        if (!empty_without_stream) {
+            cuda_stream_join(stream, upstream);
+        }
         data->set_stream(stream);
     }
 
@@ -324,9 +348,11 @@ std::unique_ptr<Buffer> BufferResource::move(
         auto pinned_host_buffer = std::make_unique<HostBuffer>(
             HostBuffer::from_rmm_device_buffer(std::move(data), stream)
         );
-        return std::unique_ptr<Buffer>(
+        auto ret = std::unique_ptr<Buffer>(
             new Buffer(std::move(pinned_host_buffer), stream, MemoryType::PINNED_HOST)
         );
+        ret->spill_track_token_ = std::move(spill_token);
+        return ret;
     }
     return std::unique_ptr<Buffer>(new Buffer(std::move(data), MemoryType::DEVICE));
 }
@@ -334,13 +360,41 @@ std::unique_ptr<Buffer> BufferResource::move(
 std::unique_ptr<Buffer> BufferResource::move(
     std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
 ) {
-    if (reservation.mem_type_ != buffer->mem_type()) {
-        auto const nbytes = buffer->size;
-        auto ret = make_buffer(nbytes, buffer->stream(), reservation);
-        buffer_copy(statistics_, *ret, *buffer, nbytes);
-        return ret;
+    if (reservation.mem_type_ == buffer->mem_type()) {
+        return buffer;
     }
-    return buffer;
+    auto const nbytes = buffer->size;
+    // An empty buffer holds no capacity, so relocating it is not a spill.
+    bool const tracked = nbytes > 0;
+    auto const from = buffer->mem_type();
+    auto token = std::move(buffer->spill_track_token_);
+
+    // Closes the spill: `make_buffer` takes the capacity back here. A token can arrive
+    // while statistics are disabled, through the device-buffer overload of `move()`, so
+    // this does not check `enabled()`. `add_duration_stat` is a no-op when disabled.
+    auto ret = make_buffer(nbytes, buffer->stream(), reservation);
+    if (tracked && reservation.mem_type_ == MemoryType::DEVICE && token != nullptr) {
+        statistics_->add_duration_stat(
+            "buffer-spilled-time", Duration{Clock::now() - token->since}
+        );
+        token.reset();
+    }
+
+    buffer_copy(statistics_, *ret, *buffer, nbytes);
+
+    // Opens the spill: releasing the source gives the capacity back. `buffer_copy` has
+    // made the source's stream wait for the copy, so destroying it here is safe.
+    buffer.reset();
+    if (from == MemoryType::DEVICE) {
+        // Not opened while disabled, since enabling later would close an interval
+        // whose start was never observed.
+        if (tracked && statistics_->enabled()) {
+            ret->spill_track_token_ = std::make_shared<SpillTrackToken>();
+        }
+    } else {
+        ret->spill_track_token_ = std::move(token);
+    }
+    return ret;
 }
 
 std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
@@ -391,6 +445,25 @@ std::int64_t device_limit_from_options(config::Options options) {
             parse_nbytes_or_percent(s, total_mem), rmm::CUDA_ALLOCATION_ALIGNMENT
         );
     });
+}
+
+std::unordered_map<MemoryType, std::int64_t> memory_limits_from_options(
+    config::Options options,
+    std::optional<PinnedPoolProperties> const& pinned_pool_properties
+) {
+    std::unordered_map<MemoryType, std::int64_t> ret{
+        {MemoryType::DEVICE, device_limit_from_options(options)},
+    };
+    if (auto const host_limit = host_limit_from_options(options); host_limit) {
+        ret[MemoryType::HOST] = *host_limit;
+    }
+    if (pinned_pool_properties.has_value()
+        && pinned_pool_properties->max_pool_size.has_value())
+    {
+        ret[MemoryType::PINNED_HOST] =
+            safe_cast<std::int64_t>(*pinned_pool_properties->max_pool_size);
+    }
+    return ret;
 }
 
 std::optional<Duration> periodic_spill_check_from_options(config::Options options) {

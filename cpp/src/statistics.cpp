@@ -221,6 +221,11 @@ std::shared_ptr<Statistics> Statistics::from_options(config::Options options) {
     return create(enabled ? Mode::Enabled : Mode::Disabled);
 }
 
+bool Statistics::has_stat(std::string const& name) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return stats_.contains(name);
+}
+
 Statistics::Stat Statistics::get_stat(std::string const& name) const {
     std::lock_guard<std::mutex> lock(mutex_);
     return stats_.at(name);
@@ -408,6 +413,8 @@ std::string Statistics::report(ReportArgs report_args) const {
     auto* dev_adaptor = get_optional_resource_as<RmmResourceAdaptor>(report_args.mr);
     auto* pinned_adaptor =
         get_optional_resource_as<PinnedMemoryResource>(report_args.pinned_mr);
+    auto* host_adaptor =
+        get_optional_resource_as<HostMemoryResource>(report_args.host_mr);
     if (!dev_adaptor) {
         ss << "Disabled";
         return ss.str();
@@ -435,6 +442,16 @@ std::string Statistics::report(ReportArgs report_args) const {
                 .scoped = pinned_record,
                 .global_peak = pinned_record.peak(),
                 .num_calls = 1
+            }
+        );
+    }
+
+    if (host_adaptor) {
+        auto const host_record = host_adaptor->get_main_memory_record();
+        sorted_records.emplace_back(
+            "main (all allocations using HostMemoryResource)",
+            MemoryRecord{
+                .scoped = host_record, .global_peak = host_record.peak(), .num_calls = 1
             }
         );
     }
@@ -742,26 +759,14 @@ void Statistics::record_copy(
     );
 }
 
-void Statistics::record_copy(
-    MemoryType src, MemoryType dst, std::size_t nbytes, Duration duration
-) {
-    auto const& names = copy_names(src, dst);
-
-    add_stat(names.nbytes, static_cast<double>(nbytes));
-    add_stat(names.time, duration.count());
-    add_stat(names.stream_delay, 0);
-    add_report_entry(
-        names.base,
-        {names.nbytes, names.time, names.stream_delay},
-        Formatter::MemoryThroughput
-    );
-}
-
 void Statistics::record_alloc(
     MemoryType mem_type, std::size_t nbytes, StreamOrderedTiming&& timing
 ) {
     if (mem_type == MemoryType::DISK) {
-        return;  // disk allocation are not stream ordered
+        // Creating a disk buffer is a host-side mkstemp, so there is no stream-ordered
+        // duration to pair with the byte count. Skip the whole record rather than
+        // registering a MemoryThroughput entry with no time.
+        return;
     }
 
     auto const& names = alloc_names(mem_type);

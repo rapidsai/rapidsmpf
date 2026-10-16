@@ -6,6 +6,7 @@
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
+#include <iostream>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -19,19 +20,45 @@
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/disk/disk_resource.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
 namespace rapidsmpf {
 
-std::filesystem::path DiskResource::create_unique_path() const {
-    std::error_code ec;
-    std::filesystem::create_directories(dir_, ec);
+DiskResource::DiskResource(std::filesystem::path dir_prefix) {
+    auto const parent = dir_prefix.parent_path();
+    if (!parent.empty()) {
+        std::error_code ec;
+        std::filesystem::create_directories(parent, ec);
+        RAPIDSMPF_EXPECTS(
+            !ec,
+            "failed to create directory " + parent.string() + ": " + ec.message(),
+            std::runtime_error
+        );
+    }
+
+    auto path_template = dir_prefix.string() + "-XXXXXX";
+    auto const* path = ::mkdtemp(path_template.data());
+    auto const create_error = errno;
     RAPIDSMPF_EXPECTS(
-        !ec,
-        "failed to create directory " + dir_.string() + ": " + ec.message(),
+        path != nullptr,
+        "failed to create a unique directory from " + path_template + ": "
+            + std::string{std::strerror(create_error)},
         std::runtime_error
     );
+    dir_ = path;
+}
 
+DiskResource::~DiskResource() noexcept {
+    std::error_code ec;
+    std::filesystem::remove(dir_, ec);
+    if (ec) {
+        std::cerr << "Error removing DiskResource directory '" << dir_
+                  << "': " << ec.message() << '\n';
+    }
+}
+
+std::filesystem::path DiskResource::create_unique_path() const {
     auto path_template = (dir_ / "XXXXXX").string();
     auto const fd = ::mkstemp(path_template.data());
     auto const open_error = errno;
@@ -57,8 +84,8 @@ std::size_t DiskResource::write(
     std::filesystem::path const& path,
     void const* data,
     std::size_t size,
-    [[maybe_unused]] MemoryType mem_type,
-    std::size_t file_offset
+    cuda::stream_ref stream,
+    std::ptrdiff_t file_offset
 ) const {
     kvikio::FileHandle file{
         path.string(),
@@ -66,11 +93,12 @@ std::size_t DiskResource::write(
         kvikio::FileHandle::m644,
         kvikio::CompatMode::AUTO
     };
+    stream.sync();
     return file
         .pwrite(
             data,
             size,
-            file_offset,
+            safe_cast<std::size_t>(file_offset),
             kvikio::defaults::task_size(),
             kvikio::defaults::gds_threshold(),
             false  // sync_default_stream
@@ -82,17 +110,18 @@ std::size_t DiskResource::read(
     std::filesystem::path const& path,
     void* data,
     std::size_t size,
-    [[maybe_unused]] MemoryType mem_type,
-    std::size_t file_offset
+    cuda::stream_ref stream,
+    std::ptrdiff_t file_offset
 ) const {
     kvikio::FileHandle file{
         path.string(), "r", kvikio::FileHandle::m644, kvikio::CompatMode::AUTO
     };
+    stream.sync();
     return file
         .pread(
             data,
             size,
-            file_offset,
+            safe_cast<std::size_t>(file_offset),
             kvikio::defaults::task_size(),
             kvikio::defaults::gds_threshold(),
             false  // sync_default_stream

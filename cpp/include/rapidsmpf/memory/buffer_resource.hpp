@@ -145,9 +145,8 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * Available memory is computed per `MemoryType` as `limit - allocated`.
      *
-     * Device and pinned-host allocations routed through this `BufferResource` are tracked
-     * automatically. Host memory allocations are not tracked and therefore always report
-     * the configured limit as available memory.
+     * Device, pinned-host, and pageable-host allocations routed through this
+     * `BufferResource` are tracked automatically.
      *
      * If pinned-host memory is disabled, available pinned-host memory is always reported
      * as zero regardless of the configured limit.
@@ -163,15 +162,15 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * must be supported on the system (see `is_pinned_memory_resources_supported()`);
      * otherwise a `std::runtime_error` is thrown.
      * @param memory_limits Maximum allocation limits in bytes per `MemoryType`. Missing
-     * entries are treated as unlimited.
+     * entries are treated as unlimited. See `memory_limits_from_options()`.
      * @param periodic_spill_check Interval between periodic spill checks. `std::nullopt`
      * disables the dedicated spill-check thread.
      * @param stream_pool CUDA stream pool used for operations that do not take an
      * explicit CUDA stream.
      * @param statistics Statistics instance used for runtime metrics.
      * @param spill_directory Directory for disk files. When set, a
-     * `DiskResource` is created and a per-process subdirectory named after the
-     * PID is used under this path. `std::nullopt` disables disk I/O.
+     * `DiskResource` is created with an exclusively owned subdirectory under this
+     * path. `std::nullopt` disables disk I/O.
      * @return A newly constructed `BufferResource` owned by `std::shared_ptr`.
      * @throws std::runtime_error if `pinned_pool_properties` has a value but pinned
      * host memory is not supported on this system.
@@ -624,13 +623,24 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *   - @p stream is synchronized with the device buffer's current stream, and
      *   - the device buffer's current stream is updated to @p stream.
      *
+     * If @p data is empty and has no stream (e.g. a default-constructed
+     * `rmm::device_buffer`), no synchronization is performed and its stream is set to
+     * @p stream.
+     *
      * @param data Unique pointer to the device or pinned host buffer.
      * @param stream CUDA stream associated with the new Buffer. Use or synchronize with
      * this stream when operating on the Buffer.
+     * @param spill_token The spill token the new Buffer adopts, for a caller that
+     * spilled the data. Must be null for device memory.
      * @return Unique pointer to the resulting Buffer.
+     *
+     * @throws std::invalid_argument If @p spill_token is set and @p data is not
+     * host-accessible.
      */
     std::unique_ptr<Buffer> move(
-        std::unique_ptr<rmm::device_buffer> data, cuda::stream_ref stream
+        std::unique_ptr<rmm::device_buffer> data,
+        cuda::stream_ref stream,
+        std::shared_ptr<SpillTrackToken> spill_token = nullptr
     );
 
     /**
@@ -716,7 +726,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @return Shared pointer to the disk resource, or `nullptr` if no spill
      * directory was configured.
      */
-    [[nodiscard]] std::shared_ptr<DiskResource> disk_resource() const {
+    [[nodiscard]] constexpr std::shared_ptr<DiskResource> const& disk_resource() const {
         return disk_resource_;
     }
 
@@ -759,6 +769,19 @@ static_assert(StatisticsProvider<BufferResource>);
  * @return The device memory limit in bytes.
  */
 std::int64_t device_limit_from_options(config::Options options);
+
+/**
+ * @brief Build the per-`MemoryType` memory limits from configuration options.
+ *
+ * @param options Configuration options.
+ * @param pinned_pool_properties Pinned pool configuration, typically from
+ * `pinned_pool_properties_from_options()`, or `PinnedMemoryDisabled`.
+ * @return Memory limits in bytes, suitable for `BufferResource::create()`.
+ */
+std::unordered_map<MemoryType, std::int64_t> memory_limits_from_options(
+    config::Options options,
+    std::optional<PinnedPoolProperties> const& pinned_pool_properties
+);
 
 /**
  * @brief Get the `periodic_spill_check` parameter from configuration options.

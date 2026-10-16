@@ -167,10 +167,10 @@ class Buffer {
         auto* ptr = const_cast<std::byte*>(data());
         if constexpr (std::is_void_v<R>) {
             std::invoke(std::forward<F>(f), ptr, stream_);
-            latest_write_event_.record(stream_);
+            record_write_event();
         } else {
             auto ret = std::invoke(std::forward<F>(f), ptr, stream_);
-            latest_write_event_.record(stream_);
+            record_write_event();
             return ret;
         }
     }
@@ -202,7 +202,7 @@ class Buffer {
      * @throws std::logic_error If the buffer is already locked.
      * @throws std::logic_error If `is_latest_write_done() != true`.
      *
-     * @see write_access(), is_locked(), unlock(), ExclusiveDataAccess
+     * @see write_access(), is_locked(), unlock()
      */
     std::byte* exclusive_data_access();
 
@@ -368,12 +368,9 @@ class Buffer {
      * @brief Construct a stream-ordered Buffer from a disk-backed handle.
      *
      * @param disk_buffer Unique pointer to a disk buffer. Must be non-null.
-     * @param size Logical buffer size in bytes.
      * @param stream CUDA stream associated with subsequent in-memory operations.
      */
-    Buffer(
-        std::unique_ptr<DiskBuffer> disk_buffer, std::size_t size, cuda::stream_ref stream
-    );
+    Buffer(std::unique_ptr<DiskBuffer> disk_buffer, cuda::stream_ref stream);
 
     /**
      * @brief Throws if the buffer is currently locked by `exclusive_data_access()`.
@@ -412,11 +409,15 @@ class Buffer {
      */
     [[nodiscard]] DiskBufferT release_disk_buffer();
 
+    /// @brief Record a write on the buffer's associated CUDA stream.
+    void record_write_event();
+
   public:
     std::size_t const size;  ///< The size of the buffer in bytes.
 
   private:
     MemoryType const mem_type_;
+    mutable std::shared_ptr<SpillTrackToken> spill_track_token_;
     std::variant<DeviceBufferT, HostBufferT, DiskBufferT> storage_;
     cuda::stream_ref stream_{cudaStreamLegacy};
     CudaEvent latest_write_event_;
@@ -424,53 +425,10 @@ class Buffer {
 };
 
 /**
- * @brief RAII exclusive access to a `Buffer`'s memory.
- *
- * @see Buffer::exclusive_data_access(), Buffer::unlock()
- */
-class ExclusiveDataAccess {
-  public:
-    /**
-     * @brief Lock @p buffer and expose its storage pointer.
-     *
-     * @param buffer Buffer to lock.
-     *
-     * @throws std::logic_error If the buffer is already locked.
-     * @throws std::logic_error If `buffer.is_latest_write_done() != true`.
-     */
-    explicit ExclusiveDataAccess(Buffer& buffer)
-        : buffer_{buffer}, data_{buffer.exclusive_data_access()} {}
-
-    ExclusiveDataAccess(ExclusiveDataAccess const&) = delete;
-    ExclusiveDataAccess& operator=(ExclusiveDataAccess const&) = delete;
-    ExclusiveDataAccess(ExclusiveDataAccess&&) = delete;
-    ExclusiveDataAccess& operator=(ExclusiveDataAccess&&) = delete;
-
-    ~ExclusiveDataAccess() {
-        buffer_.unlock();
-    }
-
-    /**
-     * @brief Pointer to the locked buffer's storage.
-     *
-     * @return Pointer valid for the lifetime of this object.
-     */
-    [[nodiscard]] constexpr std::byte* data() const noexcept {
-        return data_;
-    }
-
-  private:
-    Buffer& buffer_;
-    std::byte* data_;
-};
-
-/**
  * @brief Copy data between buffers.
  *
- * @note Copies between in-memory buffers are stream-ordered on @p dst's stream with
- * automatic cross-stream ordering between @p src and @p dst. Copies involving disk
- * storage are synchronous and block until the transfer completes; neither @p src nor
- * @p dst is consumed.
+ * @note The copy is stream-ordered on @p dst's stream, correct cross-stream ordering
+ * between @p src's stream and @p dst's stream is provided automatically.
  *
  * Copies @p size bytes from @p src, starting at @p src_offset, into @p dst at
  * @p dst_offset.

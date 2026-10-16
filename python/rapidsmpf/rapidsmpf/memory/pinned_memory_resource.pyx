@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from libcpp.optional cimport optional
 from rmm.pylibrmm.stream cimport Stream
 
-from rapidsmpf._detail.cuda_stream_ref cimport stream_ref
 from rapidsmpf._detail.exception_handling cimport ex_handler
 
 
@@ -69,7 +68,8 @@ class PinnedPoolProperties:
         allocation. Defaults to ``0``.
     max_pool_size
         Maximum size of the pinned host memory pool in bytes, or ``None`` for no
-        limit. Defaults to ``None``.
+        explicit cap (CUDA's system-dependent default). Must be greater than
+        zero when set. Defaults to ``None``.
     numa_id
         NUMA node from which pinned host memory should be allocated, or ``None``
         to use the NUMA node of the calling thread. Defaults to ``None``.
@@ -77,6 +77,10 @@ class PinnedPoolProperties:
     initial_pool_size: int = 0
     max_pool_size: object = None
     numa_id: object = None
+
+    def __post_init__(self):
+        if self.max_pool_size is not None and int(self.max_pool_size) <= 0:
+            raise ValueError("max_pool_size must be greater than zero")
 
 
 cdef object create_pinned_pool_properties_from_cpp(cpp_PinnedPoolProperties props):
@@ -146,7 +150,7 @@ cdef class PinnedMemoryResource:
         """
         cdef void* ptr
         with nogil:
-            ptr = self._handle.value().allocate(stream_ref(stream.view().get()), nbytes)
+            ptr = self._handle.value().allocate(stream.view(), nbytes)
         return <size_t>ptr
 
     def deallocate(self, size_t ptr, size_t nbytes, Stream stream not None) -> None:
@@ -163,7 +167,7 @@ cdef class PinnedMemoryResource:
             CUDA stream associated with the allocation.
         """
         with nogil:
-            self._handle.value().deallocate(stream_ref(stream.view().get()), <void*>ptr, nbytes)
+            self._handle.value().deallocate(stream.view(), <void*>ptr, nbytes)
 
     @staticmethod
     cdef PinnedMemoryResource from_handle(

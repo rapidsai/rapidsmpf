@@ -19,6 +19,11 @@
 namespace rapidsmpf {
 
 /**
+ * @defgroup errors Error handling
+ * @brief Exception types used by RAPIDS MPF.
+ */
+
+/**
  * @brief Exception thrown when a CUDA error is encountered.
  *
  * @ingroup errors

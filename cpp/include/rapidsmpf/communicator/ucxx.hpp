@@ -145,6 +145,7 @@ class UCXX final : public Communicator {
         )
             : req_{std::move(req)}, synced_host_data_{std::move(synced_host_data)} {}
 
+        /// @brief Destructor.
         ~Future() noexcept override = default;
 
       private:
@@ -246,13 +247,14 @@ class UCXX final : public Communicator {
         std::vector<std::size_t>>
     test_some(std::vector<std::unique_ptr<Communicator::Future>>& future_vector) override;
 
-    // clang-format off
     /**
-     * @copydoc Communicator::test_some(std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> const& future_map)
+     * @brief Tests for completion of multiple futures in a map.
+     *
+     * @param future_map Map of futures identified by keys.
+     * @return Keys of completed futures.
      *
      * @throws ucxx::Error if any completed futures did not complete successfully.
      */
-    // clang-format on
     std::vector<std::size_t> test_some(
         std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> const&
             future_map

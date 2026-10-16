@@ -58,10 +58,8 @@ Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, MemoryType mem
     latest_write_event_.record(stream_);
 }
 
-Buffer::Buffer(
-    std::unique_ptr<DiskBuffer> disk_buffer, std::size_t size, cuda::stream_ref stream
-)
-    : size{size},
+Buffer::Buffer(std::unique_ptr<DiskBuffer> disk_buffer, cuda::stream_ref stream)
+    : size{disk_buffer ? disk_buffer->size() : 0},
       mem_type_{MemoryType::DISK},
       storage_{std::move(disk_buffer)},
       stream_{stream} {
@@ -160,62 +158,10 @@ void Buffer::rebind_stream(cuda::stream_ref new_stream) {
     std::visit([&](auto&& storage) { storage->set_stream(new_stream); }, storage_);
 }
 
-namespace {
-
-Duration copy_from_disk(
-    Buffer& dst,
-    DiskBuffer const& src,
-    std::size_t size,
-    std::ptrdiff_t dst_offset,
-    std::ptrdiff_t src_offset
-) {
-    RAPIDSMPF_EXPECTS(src.disk_resource() != nullptr, "DiskBuffer has no DiskResrc");
-
-    auto const start = Clock::now();
-    ExclusiveDataAccess dest_access{dst};
-    auto const transferred = src.disk_resource()->read(
-        src.path(),
-        dest_access.data() + dst_offset,
-        size,
-        dst.mem_type(),
-        static_cast<std::size_t>(src_offset)
-    );
-    RAPIDSMPF_EXPECTS(
-        transferred == size,
-        "disk read transferred " + format_nbytes(transferred) + " of "
-            + format_nbytes(size),
-        std::runtime_error
-    );
-    return Clock::now() - start;
+void Buffer::record_write_event() {
+    throw_if_locked();
+    latest_write_event_.record(stream_);
 }
-
-Duration copy_to_disk(
-    DiskBuffer const& dst,
-    Buffer const& src,
-    std::size_t size,
-    std::ptrdiff_t dst_offset,
-    std::ptrdiff_t src_offset
-) {
-    RAPIDSMPF_EXPECTS(dst.disk_resource() != nullptr, "DiskBuffer has no DiskResrc");
-
-    auto const start = Clock::now();
-    auto const transferred = dst.disk_resource()->write(
-        dst.path(),
-        src.data() + src_offset,
-        size,
-        src.mem_type(),
-        static_cast<std::size_t>(dst_offset)
-    );
-    RAPIDSMPF_EXPECTS(
-        transferred == size,
-        "disk write transferred " + format_nbytes(transferred) + " of "
-            + format_nbytes(size),
-        std::runtime_error
-    );
-    return Clock::now() - start;
-}
-
-}  // namespace
 
 void buffer_copy(
     std::shared_ptr<Statistics> statistics,
@@ -251,34 +197,53 @@ void buffer_copy(
     if (src_is_disk && dst_is_disk) {
         RAPIDSMPF_FAIL("disk-to-disk copy is not supported", std::invalid_argument);
     }
-    if (dst_is_disk) {
-        src.latest_write_event().host_wait();
-        auto const duration = copy_to_disk(
-            *dst.get_storage<Buffer::DiskBufferT>(), src, size, dst_offset, src_offset
-        );
-        statistics->record_copy(src.mem_type(), dst.mem_type(), size, duration);
-        return;
-    }
-    if (src_is_disk) {
-        dst.latest_write_event().host_wait();
-        auto const duration = copy_from_disk(
-            dst, *src.get_storage<Buffer::DiskBufferT>(), size, dst_offset, src_offset
-        );
-        statistics->record_copy(src.mem_type(), dst.mem_type(), size, duration);
-        return;
-    }
 
     src.latest_write_event().stream_wait(dst.stream());
     StreamOrderedTiming timing{dst.stream(), statistics};
-    dst.write_access([&](std::byte* dst_data, cuda::stream_ref stream) {
-        RAPIDSMPF_CUDA_TRY(cuda_memcpy_async(
-            dst_data + dst_offset, src.data() + src_offset, size, stream
-        ));
-    });
-    // after the dst.write_access(), its last_write_event is recorded on dst.stream(). So,
-    // we need the src.stream() to wait for that event.
-    dst.latest_write_event().stream_wait(src.stream());
+    if (dst_is_disk) {
+        auto const& disk_dst = *dst.get_storage<Buffer::DiskBufferT>();
+        auto const transferred = disk_dst.disk_resource()->write(
+            disk_dst.path(), src.data() + src_offset, size, dst.stream(), dst_offset
+        );
+        RAPIDSMPF_EXPECTS(
+            transferred == size,
+            "disk write transferred " + format_nbytes(transferred) + " of "
+                + format_nbytes(size),
+            std::runtime_error
+        );
+        dst.record_write_event();
+    } else if (src_is_disk) {
+        auto const& disk_src = *src.get_storage<Buffer::DiskBufferT>();
+        auto const file_size = disk_src.file_size();
+        auto const offset = static_cast<std::size_t>(src_offset);
+        RAPIDSMPF_EXPECTS(
+            offset <= file_size && size <= file_size - offset,
+            "src_offset + size can't be greater than the backing file size",
+            std::invalid_argument
+        );
+
+        dst.write_access([&](std::byte* dst_data, cuda::stream_ref stream) {
+            auto const transferred = disk_src.disk_resource()->read(
+                disk_src.path(), dst_data + dst_offset, size, stream, src_offset
+            );
+            RAPIDSMPF_EXPECTS(
+                transferred == size,
+                "disk read transferred " + format_nbytes(transferred) + " of "
+                    + format_nbytes(size),
+                std::runtime_error
+            );
+        });
+    } else {
+        dst.write_access([&](std::byte* dst_data, cuda::stream_ref stream) {
+            RAPIDSMPF_CUDA_TRY(cuda_memcpy_async(
+                dst_data + dst_offset, src.data() + src_offset, size, stream
+            ));
+        });
+    }
     statistics->record_copy(src.mem_type(), dst.mem_type(), size, std::move(timing));
+    // Every branch above records dst's latest-write event on dst.stream(). Make
+    // src.stream() wait for it, so src is not reused before the copy completes.
+    dst.latest_write_event().stream_wait(src.stream());
 }
 
 }  // namespace rapidsmpf

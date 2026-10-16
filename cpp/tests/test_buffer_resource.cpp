@@ -5,19 +5,18 @@
 
 
 #include <cstdint>
-#include <filesystem>
 #include <limits>
 #include <span>
 #include <sstream>
 #include <vector>
 
 #include <gtest/gtest.h>
-#include <unistd.h>
 
 #include <cuda/stream>
 
 #include <rmm/mr/limiting_resource_adaptor.hpp>
 #include <rmm/mr/per_device_resource.hpp>
+#include <rmm/mr/pool_memory_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/communicator/mpi.hpp>
@@ -66,6 +65,18 @@ std::unique_ptr<Buffer> zeros(
  */
 std::int64_t reserved_bytes(BufferResource const& br, MemoryType mem_type) {
     return br.memory_available(mem_type) - br.memory_available_for_reservation(mem_type);
+}
+
+TEST(BufferResource, MoveDefaultConstructedDeviceBuffer) {
+    StreamPool stream_pool{1};
+    auto stream = stream_pool.get_stream();
+    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
+
+    auto buffer = br->move(std::make_unique<rmm::device_buffer>(), stream);
+
+    EXPECT_EQ(buffer->size, 0U);
+    EXPECT_EQ(buffer->stream().get(), stream.get());
+    EXPECT_NO_THROW(buffer->latest_write_event().host_wait());
 }
 
 TEST(BufferResource, ReservationOverbooking) {
@@ -255,6 +266,34 @@ TEST(BufferResource, MemoryLimit) {
     EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 10_KiB);
 }
 
+TEST(BufferResource, HostMemoryAvailabilityTracksLiveAllocations) {
+    auto br = BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        PinnedMemoryDisabled,
+        {{MemoryType::HOST, 10_KiB}},
+        std::nullopt
+    );
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+
+    auto reservation = br->reserve_or_fail(4_KiB, MemoryType::HOST);
+    auto buffer = br->make_buffer(4_KiB, stream, reservation);
+    EXPECT_EQ(br->memory_available(MemoryType::HOST), 6_KiB);
+    EXPECT_EQ(br->memory_available_for_reservation(MemoryType::HOST), 6_KiB);
+
+    buffer.reset();
+    EXPECT_EQ(br->memory_available(MemoryType::HOST), 10_KiB);
+}
+
+TEST(BufferResource, RejectsZeroPinnedMaxPoolSize) {
+    rmm::mr::cuda_memory_resource cuda_mr;
+    EXPECT_THROW(
+        std::ignore = BufferResource::create(
+            cuda_mr, PinnedPoolProperties{.max_pool_size = 0}, {}, std::nullopt, nullptr
+        ),
+        std::invalid_argument
+    );
+}
+
 class PinnedMaxPoolSizeReservationLimitTest
     : public ::testing::TestWithParam<std::optional<std::size_t>> {};
 
@@ -264,15 +303,14 @@ TEST_P(PinnedMaxPoolSizeReservationLimitTest, TwoReservations) {
     }
 
     auto const max_pool_size = GetParam();
-    // if max_pool_size is not set or 0, the pool is unbounded.
-    auto const expect_second_succeeds = [&] { return max_pool_size.value_or(0) == 0; };
+    auto const expect_second_succeeds = [&] { return !max_pool_size.has_value(); };
 
     rmm::mr::cuda_memory_resource cuda_mr;
 
     // Wire the PINNED_HOST limit to the pool's max_pool_size (or unlimited if the
     // pool is unbounded) so reservations respect the same ceiling as allocations.
     std::unordered_map<MemoryType, std::int64_t> memory_limits;
-    if (max_pool_size.has_value() && *max_pool_size > 0) {
+    if (max_pool_size.has_value()) {
         memory_limits[MemoryType::PINNED_HOST] = safe_cast<std::int64_t>(*max_pool_size);
     }
     auto br = BufferResource::create(
@@ -297,9 +335,7 @@ INSTANTIATE_TEST_SUITE_P(
     PinnedMaxPoolSize,
     PinnedMaxPoolSizeReservationLimitTest,
     ::testing::Values(
-        std::optional<std::size_t>{std::nullopt},
-        std::optional<std::size_t>{0},
-        std::optional<std::size_t>{1_KiB}
+        std::optional<std::size_t>{std::nullopt}, std::optional<std::size_t>{1_KiB}
     )
 );
 
@@ -1042,15 +1078,7 @@ TEST(RmmResourceAdaptor, EqualityAcrossCopiesAndAccessPaths) {
 // RmmResourceAdaptor and used by the memory recorder.
 namespace {
 
-std::filesystem::path disk_test_dir() {
-    auto const base = std::filesystem::temp_directory_path()
-                      / ("rapidsmpf-br-disk-" + std::to_string(::getpid()));
-    std::error_code ec;
-    std::filesystem::create_directories(base, ec);
-    return base;
-}
-
-std::shared_ptr<BufferResource> make_br_with_disk() {
+std::shared_ptr<BufferResource> make_br_with_disk(TempDir const& disk_dir) {
     return BufferResource::create(
         rmm::mr::get_current_device_resource_ref(),
         PinnedMemoryDisabled,
@@ -1058,7 +1086,7 @@ std::shared_ptr<BufferResource> make_br_with_disk() {
         std::nullopt,
         std::make_shared<StreamPool>(4),
         Statistics::disabled(),
-        disk_test_dir()
+        disk_dir.path()
     );
 }
 
@@ -1084,7 +1112,8 @@ TEST(BufferResourceDisk, ReserveDiskWithoutResourceThrows) {
 }
 
 TEST(BufferResourceDisk, ReserveDiskIsUnlimited) {
-    auto br = make_br_with_disk();
+    TempDir disk_dir;
+    auto br = make_br_with_disk(disk_dir);
     EXPECT_EQ(
         br->memory_available(MemoryType::DISK), std::numeric_limits<std::int64_t>::max()
     );
@@ -1102,7 +1131,8 @@ TEST(BufferResourceDisk, ReserveDiskIsUnlimited) {
 }
 
 TEST(BufferResourceDisk, MoveThroughDiskReservation) {
-    auto br = make_br_with_disk();
+    TempDir disk_dir;
+    auto br = make_br_with_disk(disk_dir);
     auto stream = cuda::stream_ref{cudaStreamLegacy};
     auto host_buf = br->make_buffer(stream, br->reserve_or_fail(256, MemoryType::HOST));
     auto const expected = fill_pattern(*host_buf, 256);
@@ -1123,7 +1153,8 @@ TEST(BufferResourceDisk, MoveThroughDiskReservation) {
 }
 
 TEST(BufferResourceDisk, BufferCopyRejectsDiskToDisk) {
-    auto br = make_br_with_disk();
+    TempDir disk_dir;
+    auto br = make_br_with_disk(disk_dir);
     auto stream = cuda::stream_ref{cudaStreamLegacy};
     auto disk_a = br->make_buffer(stream, br->reserve_or_fail(64, MemoryType::DISK));
     auto disk_b = br->make_buffer(stream, br->reserve_or_fail(64, MemoryType::DISK));
@@ -1170,24 +1201,19 @@ class BufferResourceDiskCopyTest : public ::testing::TestWithParam<MemoryType> {
             rmm::mr::get_current_device_resource_ref(),
             std::move(pinned_pool_properties),
             {},
-            std::chrono::milliseconds{1},
+            std::nullopt,
             std::make_shared<StreamPool>(16),
             Statistics::disabled(),
-            disk_test_dir()
+            disk_dir_.path()
         );
     }
 
     std::unique_ptr<Buffer> make_buffer(std::size_t size) {
-        return br_->make_buffer(
-            cuda::stream_ref{cudaStreamLegacy}, br_->reserve_or_fail(size, GetParam())
-        );
+        return br_->make_buffer(stream_, br_->reserve_or_fail(size, GetParam()));
     }
 
     std::unique_ptr<Buffer> make_disk_backed_buffer(std::size_t size) {
-        return br_->make_buffer(
-            cuda::stream_ref{cudaStreamLegacy},
-            br_->reserve_or_fail(size, MemoryType::DISK)
-        );
+        return br_->make_buffer(stream_, br_->reserve_or_fail(size, MemoryType::DISK));
     }
 
     std::vector<std::uint8_t> copy_to_uint8_vector(Buffer const& buffer) {
@@ -1201,6 +1227,8 @@ class BufferResourceDiskCopyTest : public ::testing::TestWithParam<MemoryType> {
         return ret;
     }
 
+    cuda::stream_ref stream_{cudaStreamLegacy};
+    TempDir disk_dir_;
     std::shared_ptr<BufferResource> br_;
 };
 
@@ -1223,6 +1251,46 @@ TEST_P(BufferResourceDiskCopyTest, DiskBufferCopyRoundTrip) {
     auto destination = make_buffer(expected.size());
     buffer_copy(br_->statistics(), *destination, *disk_buffer, disk_buffer->size);
     EXPECT_EQ(copy_to_uint8_vector(*destination), expected);
+}
+
+TEST_P(BufferResourceDiskCopyTest, DiskBufferCopyRoundTripWithOffsets) {
+    constexpr std::size_t offset = 17;
+    auto source = make_buffer(1024);
+    auto const expected = fill_pattern(*source, source->size);
+
+    auto disk_buffer = make_disk_backed_buffer(source->size + offset);
+    buffer_copy(br_->statistics(), *disk_buffer, *source, source->size, offset, 0);
+
+    auto destination = make_buffer(source->size);
+    buffer_copy(br_->statistics(), *destination, *disk_buffer, source->size, 0, offset);
+    EXPECT_EQ(copy_to_uint8_vector(*destination), expected);
+}
+
+TEST_P(BufferResourceDiskCopyTest, DiskBufferCopyRejectsOutOfBoundsOffsets) {
+    constexpr std::size_t size = 1024;
+    auto source = make_buffer(size);
+    fill_pattern(*source, source->size);
+    auto disk_buffer = make_disk_backed_buffer(size);
+
+    EXPECT_THROW(
+        buffer_copy(br_->statistics(), *disk_buffer, *source, 2, size - 1, 0),
+        std::invalid_argument
+    );
+
+    auto destination = make_buffer(size);
+    EXPECT_THROW(
+        buffer_copy(br_->statistics(), *destination, *disk_buffer, 2, 0, size - 1),
+        std::invalid_argument
+    );
+}
+
+TEST_P(BufferResourceDiskCopyTest, DiskBufferCopyRejectsReadPastFileSize) {
+    auto disk_buffer = make_disk_backed_buffer(1);  // 1 byte backing, but no data written
+    auto destination = make_buffer(1);
+    EXPECT_THROW(
+        buffer_copy(br_->statistics(), *destination, *disk_buffer, destination->size),
+        std::invalid_argument
+    );
 }
 
 TEST_P(BufferResourceDiskCopyTest, DiskBufferZeroSizeRoundTrip) {
@@ -1266,5 +1334,178 @@ TEST_P(BufferResourceDiskCopyTest, DiskBufferCopyRejectsUndersizedDestination) {
     EXPECT_THROW(
         buffer_copy(br_->statistics(), *destination, *disk_buffer, disk_buffer->size),
         std::invalid_argument
+    );
+}
+
+// buffer-spilled-time
+
+class BufferSpillStatistics : public ::testing::Test {
+  public:
+    void SetUp() override {
+        pinned_available = is_pinned_memory_resources_supported();
+        br = BufferResource::create(
+            mr_pool,
+            pinned_available ? std::optional<PinnedPoolProperties>{PinnedPoolProperties{}}
+                             : PinnedMemoryDisabled,
+            {},
+            std::nullopt,
+            std::make_shared<StreamPool>(1),
+            stats
+        );
+    }
+
+    void TearDown() override {
+        stream.sync();
+    }
+
+    /// @brief Allocate a buffer of `nbytes` bytes in `mem_type`.
+    std::unique_ptr<Buffer> allocate(MemoryType mem_type, std::size_t nbytes = size) {
+        auto [res, _] = br->reserve(mem_type, nbytes, AllowOverbooking::YES);
+        return br->make_buffer(nbytes, stream, res);
+    }
+
+    /// @brief Move `buffer` into `mem_type`.
+    std::unique_ptr<Buffer> move(std::unique_ptr<Buffer> buffer, MemoryType mem_type) {
+        auto [res, _] = br->reserve(mem_type, buffer->size, AllowOverbooking::YES);
+        return br->move(std::move(buffer), res);
+    }
+
+    /// @brief A second resource whose statistics are disabled.
+    std::pair<std::shared_ptr<BufferResource>, std::shared_ptr<Statistics>>
+    disabled_resource() {
+        auto disabled = Statistics::create(Statistics::Mode::Disabled);
+        return {
+            BufferResource::create(
+                mr_cuda,
+                PinnedMemoryDisabled,
+                {},
+                std::nullopt,
+                std::make_shared<StreamPool>(1),
+                disabled
+            ),
+            disabled
+        };
+    }
+
+    /// @brief The number of samples recorded under `name`.
+    [[nodiscard]] std::size_t samples(
+        std::string const& name = "buffer-spilled-time"
+    ) const {
+        return stats->has_stat(name) ? stats->get_stat(name).count() : 0;
+    }
+
+    static constexpr std::size_t size = 4_KiB;
+    rmm::mr::cuda_memory_resource mr_cuda;
+    // Pooled, as in production.
+    rmm::mr::pool_memory_resource mr_pool{mr_cuda, 256_MiB, 512_MiB};
+    std::shared_ptr<Statistics> stats = Statistics::create();
+    std::shared_ptr<BufferResource> br;
+    cuda::stream_ref stream{cudaStreamLegacy};
+    bool pinned_available = false;
+};
+
+TEST_F(BufferSpillStatistics, RecordedOnTheReturnTrip) {
+    auto buffer = allocate(MemoryType::DEVICE);
+    buffer = move(std::move(buffer), MemoryType::HOST);
+    EXPECT_EQ(samples(), 0u);  // Still away, so there is nothing to record yet.
+
+    buffer = move(std::move(buffer), MemoryType::DEVICE);
+    EXPECT_EQ(samples(), 1u);
+}
+
+TEST_F(BufferSpillStatistics, RecordSurvivesADemotion) {
+    if (!pinned_available) {
+        GTEST_SKIP() << "Pinned memory not supported on this system";
+    }
+    // `spill_partitions` demotes an already spilled buffer when the pinned pool is
+    // exhausted, which must not drop the spill.
+    auto buffer = allocate(MemoryType::DEVICE);
+    buffer = move(std::move(buffer), MemoryType::PINNED_HOST);
+    buffer = move(std::move(buffer), MemoryType::HOST);
+    buffer = move(std::move(buffer), MemoryType::DEVICE);
+
+    EXPECT_EQ(samples(), 1u);
+}
+
+TEST_F(BufferSpillStatistics, DeviceMemoryCannotAdoptARecord) {
+    // A record belongs to data that is off device, so attaching one to a device buffer
+    // would lose it silently.
+    auto device_buffer =
+        std::make_unique<rmm::device_buffer>(size, stream, br->device_mr());
+    EXPECT_THROW(
+        std::ignore = br->move(
+            std::move(device_buffer), stream, std::make_shared<SpillTrackToken>()
+        ),
+        std::invalid_argument
+    );
+}
+
+TEST_F(BufferSpillStatistics, NotRecordedForBuffersBornOffDevice) {
+    // Nothing observed this data leaving device memory, because it never did, so
+    // there is no residence to measure.
+    auto buffer = allocate(MemoryType::HOST);
+    buffer = move(std::move(buffer), MemoryType::DEVICE);
+    EXPECT_EQ(samples(), 0u);
+}
+
+TEST_F(BufferSpillStatistics, ACopyThatKeepsItsSourceIsNotASpill) {
+    // `buffer_copy` leaves the device source allocated, as `PackedData::copy` relies
+    // on, so no capacity was released and there is nothing to measure. Only a
+    // relocation through `move()` is a spill.
+    auto device_buffer = allocate(MemoryType::DEVICE);
+    auto host_buffer = allocate(MemoryType::HOST);
+    buffer_copy(stats, *host_buffer, *device_buffer, size);
+
+    auto returned = allocate(MemoryType::DEVICE, size);
+    buffer_copy(stats, *returned, *host_buffer, size);
+
+    EXPECT_EQ(samples(), 0u);
+}
+
+TEST_F(BufferSpillStatistics, AnEmptyBufferIsNotASpill) {
+    // Zero bytes is no capacity, so relocating an empty buffer has nothing to measure.
+    // Empty partitions make these common in a shuffle.
+    auto buffer = allocate(MemoryType::DEVICE, 0);
+    buffer = move(std::move(buffer), MemoryType::HOST);
+    buffer = move(std::move(buffer), MemoryType::DEVICE);
+
+    EXPECT_EQ(samples(), 0u);
+}
+
+TEST_F(BufferSpillStatistics, NotRecordedWithoutATransition) {
+    // `move()` returns the buffer untouched when the memory type already matches.
+    auto buffer = allocate(MemoryType::DEVICE);
+    buffer = move(std::move(buffer), MemoryType::DEVICE);
+    EXPECT_EQ(samples(), 0u);
+}
+
+TEST_F(BufferSpillStatistics, NotRecordedWhenFreedOffDevice) {
+    // A buffer that is never needed on device again records nothing. Such a spill was
+    // never paid back, which this statistic does not count.
+    auto buffer = allocate(MemoryType::DEVICE);
+    buffer = move(std::move(buffer), MemoryType::HOST);
+    buffer.reset();
+    EXPECT_EQ(samples(), 0u);
+}
+
+TEST_F(BufferSpillStatistics, NotRecordedWhenEnabledMidInterval) {
+    // The spill happened while statistics were disabled, so enabling them before the
+    // unspill must not report a spill whose start was never observed.
+    auto [disabled_br, disabled_stats] = disabled_resource();
+    auto [device_res, _] =
+        disabled_br->reserve(MemoryType::DEVICE, size, AllowOverbooking::YES);
+    auto buffer = disabled_br->make_buffer(size, stream, device_res);
+
+    auto [host_res, __] =
+        disabled_br->reserve(MemoryType::HOST, size, AllowOverbooking::YES);
+    buffer = disabled_br->move(std::move(buffer), host_res);
+
+    disabled_stats->enable();
+    auto [back_res, ___] =
+        disabled_br->reserve(MemoryType::DEVICE, size, AllowOverbooking::YES);
+    buffer = disabled_br->move(std::move(buffer), back_res);
+
+    EXPECT_THROW(
+        std::ignore = disabled_stats->get_stat("buffer-spilled-time"), std::out_of_range
     );
 }
