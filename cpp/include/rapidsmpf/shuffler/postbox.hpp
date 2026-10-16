@@ -5,6 +5,7 @@
 #pragma once
 
 #include <mutex>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -36,6 +37,20 @@ class ChunksToSend {
      * @return Vector of chunks ready to send.
      */
     [[nodiscard]] std::vector<Chunk> extract_ready();
+
+    /**
+     * @brief Extract ready chunks and restore disk-backed data to addressable memory.
+     *
+     * Extracts ready chunks in order through the first disk-backed chunk, restores that
+     * chunk, and leaves all subsequent chunks queued.
+     *
+     * @param br The buffer resource used to restore disk-backed data.
+     * @param memory_types Addressable memory types to try in preference order.
+     * @return Vector of chunks ready to send.
+     */
+    [[nodiscard]] std::vector<Chunk> extract_and_restore(
+        BufferResource* br, std::span<MemoryType const> memory_types
+    );
 
     /**
      * @brief @return Whether the container is empty.
@@ -126,15 +141,21 @@ class ReceivedChunks {
     [[nodiscard]] std::string str() const;
 
     /**
-     * @brief Spill device data.
+     * @brief Spill received device payloads.
      *
-     * The spilling is stream ordered by the spilled buffers' CUDA streams.
+     * Moves device buffers to the first immediately available destination in
+     * @p spillable_memory_types.
      *
-     * @param br The buffer resource for host and device allocations.
-     * @param amount Requested amount of data to spill in bytes.
-     * @return Actual amount of data spilled in bytes.
+     * @param br The buffer resource for memory and disk allocations.
+     * @param amount Requested amount of device data to spill in bytes.
+     * @param spillable_memory_types Non-device spill destinations in preference order.
+     * @return Actual amount of device data spilled in bytes.
      */
-    [[nodiscard]] std::size_t spill(BufferResource* br, std::size_t amount);
+    [[nodiscard]] std::size_t spill(
+        BufferResource* br,
+        std::size_t amount,
+        std::span<MemoryType const> spillable_memory_types
+    );
 
   private:
     // TODO: more fine-grained locking e.g. by locking each partition individually.

@@ -21,7 +21,8 @@ TagMetadataPayloadExchange::TagMetadataPayloadExchange(
     std::shared_ptr<Communicator> comm,
     OpID op_id,
     std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn,
-    std::shared_ptr<Statistics> statistics
+    std::shared_ptr<Statistics> statistics,
+    Duration allocation_timeout
 )
     : comm_(std::move(comm)),
       nranks_(comm_->nranks()),
@@ -29,11 +30,40 @@ TagMetadataPayloadExchange::TagMetadataPayloadExchange(
       metadata_tag_{op_id, 0},
       gpu_data_tag_{op_id, 1},
       allocate_buffer_fn_(std::move(allocate_buffer_fn)),
+      allocation_timeout_(allocation_timeout),
       messages_sent_to_(safe_cast<std::size_t>(nranks_), 0),
       peer_received_(safe_cast<std::size_t>(nranks_), 0),
       peer_expected_(safe_cast<std::size_t>(nranks_), 0),
       peer_terminated_(safe_cast<std::size_t>(nranks_), false),
       statistics_{std::move(statistics)} {}
+
+TagMetadataPayloadExchange::TagMessage::TagMessage(
+    std::unique_ptr<Message> msg, std::uint64_t id, std::size_t size
+)
+    : message(std::move(msg)), message_id(id), expected_payload_size(size) {}
+
+bool TagMetadataPayloadExchange::TagMessage::set_buffer(
+    std::unique_ptr<Buffer> buffer, Duration timeout
+) {
+    RAPIDSMPF_EXPECTS(
+        !is_buffer_set(), "message data buffer is already set", std::logic_error
+    );
+    if (buffer != nullptr) {
+        message->set_data(std::move(buffer));
+        return true;
+    }
+    auto const now = Clock::now();
+    if (!first_allocation_failure.has_value()) {
+        first_allocation_failure = now;
+    } else {
+        RAPIDSMPF_EXPECTS(
+            now - *first_allocation_failure < timeout,
+            "receive buffer allocation timed out",
+            std::runtime_error
+        );
+    }
+    return false;
+}
 
 void TagMetadataPayloadExchange::send(
     std::unique_ptr<MetadataPayloadExchange::Message> message
@@ -245,8 +275,11 @@ void TagMetadataPayloadExchange::receive_metadata() {
                 msg->begin() + safe_cast<std::ptrdiff_t>(original_metadata_size)
             );
 
+            // A failed allocation here does not start the message's allocation
+            // timer; it starts once the message reaches the front of the queue in
+            // setup_data_receives().
             std::unique_ptr<Buffer> buffer = nullptr;
-            if (payload_size > 0) {
+            if (payload_size > 0 && !is_allocation_deferred(peer)) {
                 buffer = allocate_buffer_fn_(payload_size);
             }
 
@@ -293,11 +326,16 @@ TagMetadataPayloadExchange::setup_data_receives() {
             std::size_t payload_size = tag_msg.expected_payload_size;
 
             if (payload_size > 0) {
-                // Check if the buffer is ready for use, if not, break for this rank
-                // and wait for the buffer to be ready. This is necessary to ensure
-                // messages are received in the order they are sent from this rank.
-                if (tag_msg.message->data()
-                    && !tag_msg.message->data()->is_latest_write_done())
+                if (!tag_msg.is_buffer_set()) {
+                    tag_msg.set_buffer(allocate_buffer_fn_(payload_size), allocation_timeout_);
+                }
+
+                // Check if the buffer is allocated and ready for use, if not, break
+                // for this rank and wait for the buffer to be ready. This is
+                // necessary to ensure messages are received in the order they are
+                // sent from this rank.
+                if (!tag_msg.is_buffer_set()
+                    || !tag_msg.message->data()->is_latest_write_done())
                 {
                     break;
                 }
@@ -415,6 +453,14 @@ void TagMetadataPayloadExchange::cleanup_completed_operations() {
     if (!fire_and_forget_.empty()) {
         std::ignore = comm_->test_some(fire_and_forget_);
     }
+}
+
+bool TagMetadataPayloadExchange::is_allocation_deferred(Rank peer) const {
+    auto const it = incoming_messages_.find(peer);
+    if (it == incoming_messages_.end()) {
+        return false;
+    }
+    return !std::ranges::all_of(it->second, &TagMessage::is_buffer_set);
 }
 
 
