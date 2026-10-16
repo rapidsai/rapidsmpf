@@ -21,9 +21,9 @@
 #include <rmm/aligned.hpp>
 #include <rmm/cuda_stream.hpp>
 #include <rmm/error.hpp>
-#include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/memory/resource_types.hpp>
 #include <rapidsmpf/memory/scoped_memory_record.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 

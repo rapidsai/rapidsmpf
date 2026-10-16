@@ -9,13 +9,13 @@
 #include <cuda/stream>
 
 #include <rmm/mr/cuda_memory_resource.hpp>
-#include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/communicator/metadata_payload_exchange/core.hpp>
 #include <rapidsmpf/communicator/metadata_payload_exchange/tag.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
+#include <rapidsmpf/memory/resource_types.hpp>
 #include <rapidsmpf/statistics.hpp>
 
 #include "environment.hpp"

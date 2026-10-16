@@ -104,7 +104,7 @@ class Context {
      * thread.
      */
     static std::shared_ptr<Context> from_options(
-        any_device_resource mr,
+        cuda::mr::any_device_resource mr,
         std::shared_ptr<Logger> logger,
         config::Options options,
         std::shared_ptr<Statistics> statistics = Statistics::disabled()

@@ -21,14 +21,14 @@
 
 namespace {
 
-std::vector<cuda::mr::any_resource<cuda::mr::host_accessible>> make_host_resources() {
+std::vector<cuda::mr::any_host_resource> make_host_resources() {
     auto pinned_pool_properties = rapidsmpf::is_pinned_memory_resources_supported()
                                       ? rapidsmpf::PinnedPoolProperties{}
                                       : rapidsmpf::PinnedMemoryDisabled;
     auto br = rapidsmpf::BufferResource::create(
         rmm::mr::get_current_device_resource_ref(), std::move(pinned_pool_properties)
     );
-    std::vector<cuda::mr::any_resource<cuda::mr::host_accessible>> resources;
+    std::vector<cuda::mr::any_host_resource> resources;
     resources.emplace_back(br->host_mr());
     if (auto pinned = br->try_pinned_mr(); pinned.has_value()) {
         resources.emplace_back(*pinned);
@@ -36,14 +36,14 @@ std::vector<cuda::mr::any_resource<cuda::mr::host_accessible>> make_host_resourc
     return resources;
 }
 
-std::vector<cuda::mr::any_resource<cuda::mr::device_accessible>> make_device_resources() {
+std::vector<cuda::mr::any_device_resource> make_device_resources() {
     auto pinned_pool_properties = rapidsmpf::is_pinned_memory_resources_supported()
                                       ? rapidsmpf::PinnedPoolProperties{}
                                       : rapidsmpf::PinnedMemoryDisabled;
     auto br = rapidsmpf::BufferResource::create(
         rmm::mr::get_current_device_resource_ref(), std::move(pinned_pool_properties)
     );
-    std::vector<cuda::mr::any_resource<cuda::mr::device_accessible>> resources;
+    std::vector<cuda::mr::any_device_resource> resources;
     resources.emplace_back(rmm::mr::cuda_memory_resource{});
     resources.emplace_back(rmm::mr::cuda_async_memory_resource{});
     if (auto pinned = br->try_pinned_mr(); pinned.has_value()) {
@@ -57,7 +57,7 @@ std::vector<cuda::mr::any_resource<cuda::mr::device_accessible>> make_device_res
 TEST(MemoryResourceAccessibility, IsHostAccessible) {
     auto resources = make_host_resources();
     for (auto& mr : resources) {
-        cuda::mr::resource_ref<cuda::mr::host_accessible> ref{mr};
+        cuda::mr::host_resource_ref ref{mr};
         EXPECT_TRUE(rapidsmpf::is_host_accessible(ref));
         // PinnedMemoryResource is host- and device-accessible; the rest are host-only.
         if (cuda::mr::resource_cast<rapidsmpf::PinnedMemoryResource>(&mr) == nullptr) {
@@ -69,7 +69,7 @@ TEST(MemoryResourceAccessibility, IsHostAccessible) {
 TEST(MemoryResourceAccessibility, IsDeviceAccessible) {
     auto resources = make_device_resources();
     for (auto& mr : resources) {
-        cuda::mr::resource_ref<cuda::mr::device_accessible> ref{mr};
+        cuda::mr::device_resource_ref ref{mr};
         EXPECT_TRUE(rapidsmpf::is_device_accessible(ref));
         // PinnedMemoryResource is host- and device-accessible; the rest are device-only.
         if (cuda::mr::resource_cast<rapidsmpf::PinnedMemoryResource>(&mr) == nullptr) {

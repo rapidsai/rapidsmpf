@@ -219,13 +219,13 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
         /// Optional RMM resource adaptor used for memory profiling. When provided,
         /// a memory profiling section is included in the report. When `std::nullopt`,
         /// the memory profiling section shows "Disabled".
-        std::optional<any_device_resource> mr = std::nullopt;
+        std::optional<cuda::mr::any_device_resource> mr = std::nullopt;
         /// Optional pinned memory resource. When provided, a pinned memory section
         /// is included in the report.
-        std::optional<any_host_device_resource> pinned_mr = std::nullopt;
+        std::optional<cuda::mr::any_host_device_resource> pinned_mr = std::nullopt;
         /// Optional pageable-host memory resource. When provided, a host-memory
         /// main record is included in the report.
-        std::optional<any_host_resource> host_mr = std::nullopt;
+        std::optional<cuda::mr::any_host_resource> host_mr = std::nullopt;
         /// Header line prepended to the report.
         std::string_view header = "Statistics:";
     };
@@ -650,7 +650,9 @@ class Statistics : public std::enable_shared_from_this<Statistics> {
      * @return A MemoryRecorder instance. If `!enabled()` or @p mr is not backed by an
      * `RmmResourceAdaptor`, returns a no-op recorder.
      */
-    MemoryRecorder create_memory_recorder(any_device_resource mr, std::string name);
+    MemoryRecorder create_memory_recorder(
+        cuda::mr::any_device_resource mr, std::string name
+    );
 
     /**
      * @brief Retrieves all memory profiling records stored by this instance.

@@ -15,9 +15,7 @@
 namespace rapidsmpf {
 
 HostBuffer::HostBuffer(
-    std::size_t size,
-    cuda::stream_ref stream,
-    cuda::mr::any_resource<cuda::mr::host_accessible> mr
+    std::size_t size, cuda::stream_ref stream, cuda::mr::any_host_resource mr
 )
     : stream_{stream} {
     if (size > 0) {
@@ -106,7 +104,7 @@ std::vector<std::uint8_t> HostBuffer::copy_to_uint8_vector() const {
 HostBuffer HostBuffer::from_uint8_vector(
     std::vector<std::uint8_t> const& data,
     cuda::stream_ref stream,
-    rmm::host_async_resource_ref mr
+    cuda::mr::host_resource_ref mr
 ) {
     HostBuffer ret(data.size(), stream, mr);
     if (!ret.empty()) {
