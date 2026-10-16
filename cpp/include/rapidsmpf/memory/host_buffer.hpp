@@ -143,6 +143,8 @@ class HostBuffer {
      * or is otherwise properly synchronized before switching streams.
      *
      * @param stream The new CUDA stream.
+     *
+     * @throws std::invalid_argument if @p stream is `cuda::invalid_stream`.
      */
     void set_stream(cuda::stream_ref stream);
 

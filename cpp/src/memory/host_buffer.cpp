@@ -98,6 +98,9 @@ std::byte const* HostBuffer::data() const noexcept {
 }
 
 void HostBuffer::set_stream(cuda::stream_ref new_stream) {
+    RAPIDSMPF_EXPECTS(
+        new_stream != cuda::invalid_stream, "stream must be valid", std::invalid_argument
+    );
     stream_ = new_stream;
 }
 

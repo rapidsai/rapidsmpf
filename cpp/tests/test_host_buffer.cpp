@@ -270,6 +270,7 @@ TEST(PinnedResource, transient_mr) {
 }
 
 TEST(HostBuffer, invalid_stream_throws) {
+    cuda::stream_ref const valid{cudaStreamLegacy};
     cuda::stream_ref const invalid{cuda::invalid_stream};
     std::vector<std::uint8_t> const data(8);
 
@@ -284,6 +285,23 @@ TEST(HostBuffer, invalid_stream_throws) {
     EXPECT_THROW(
         std::ignore =
             rapidsmpf::HostBuffer::from_uint8_vector(data, invalid, br->host_mr()),
+        std::invalid_argument
+    );
+    EXPECT_THROW(
+        rapidsmpf::HostBuffer(data.size(), invalid, br->host_mr()), std::invalid_argument
+    );
+
+    auto buffer =
+        rapidsmpf::HostBuffer::from_owned_vector(std::vector<std::uint8_t>(data), valid);
+    EXPECT_THROW(buffer.set_stream(invalid), std::invalid_argument);
+
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        GTEST_SKIP() << "PinnedMemoryResource is not supported";
+    }
+    EXPECT_THROW(
+        std::ignore = rapidsmpf::HostBuffer::from_rmm_device_buffer(
+            std::make_unique<rmm::device_buffer>(8, valid, br->pinned_mr()), invalid
+        ),
         std::invalid_argument
     );
 }
