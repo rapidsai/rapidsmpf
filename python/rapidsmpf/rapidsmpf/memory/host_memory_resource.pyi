@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-License-Identifier: Apache-2.0
+
+from rmm.pylibrmm.stream import Stream
+
+from rapidsmpf.memory.scoped_memory_record import ScopedMemoryRecord
+
+class HostMemoryResource:
+    def allocate(self, nbytes: int, stream: Stream) -> int: ...
+    def deallocate(self, ptr: int, nbytes: int, stream: Stream) -> None: ...
+    @property
+    def current_allocated(self) -> int: ...
+    def get_main_memory_record(self) -> ScopedMemoryRecord: ...

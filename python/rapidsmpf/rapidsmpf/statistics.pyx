@@ -17,6 +17,8 @@ from dataclasses import dataclass
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.config cimport Options, cpp_Options
+from rapidsmpf.memory.host_memory_resource cimport (HostMemoryResource,
+                                                    cpp_HostMemoryResource)
 from rapidsmpf.memory.pinned_memory_resource cimport (PinnedMemoryResource,
                                                       cpp_PinnedMemoryResource)
 from rapidsmpf.memory.scoped_memory_record cimport ScopedMemoryRecord
@@ -53,22 +55,26 @@ cdef extern from *:
     std::string cpp_report(
         rapidsmpf::Statistics const& stats,
         rapidsmpf::RmmResourceAdaptor* mr_ptr,
-        std::optional<rapidsmpf::PinnedMemoryResource> const& pinned_mr
+        std::optional<rapidsmpf::PinnedMemoryResource> const& pinned_mr,
+        std::optional<rapidsmpf::HostMemoryResource> const& host_mr
     ) {
         std::optional<rapidsmpf::RmmResourceAdaptor> mr =
             mr_ptr ? std::make_optional(*mr_ptr) : std::nullopt;
-        return stats.report({.mr = std::move(mr), .pinned_mr = pinned_mr});
+        return stats.report(
+            {.mr = std::move(mr), .pinned_mr = pinned_mr, .host_mr = host_mr}
+        );
     }
     std::string cpp_report(
         rapidsmpf::Statistics const& stats,
         rapidsmpf::RmmResourceAdaptor* mr_ptr,
         std::optional<rapidsmpf::PinnedMemoryResource> const& pinned_mr,
+        std::optional<rapidsmpf::HostMemoryResource> const& host_mr,
         std::string const& header
     ) {
         std::optional<rapidsmpf::RmmResourceAdaptor> mr =
             mr_ptr ? std::make_optional(*mr_ptr) : std::nullopt;
         return stats.report({.mr = std::move(mr), .pinned_mr = pinned_mr,
-            .header = header});
+            .host_mr = host_mr, .header = header});
     }
     std::size_t cpp_get_statistic_count(
         rapidsmpf::Statistics const& stats, std::string const& name
@@ -126,11 +132,13 @@ cdef extern from *:
         cpp_Statistics stats,
         cpp_RmmResourceAdaptor* mr_ptr,
         optional[cpp_PinnedMemoryResource] pinned_mr,
+        optional[cpp_HostMemoryResource] host_mr,
     ) except +ex_handler nogil
     string cpp_report(
         cpp_Statistics stats,
         cpp_RmmResourceAdaptor* mr_ptr,
         optional[cpp_PinnedMemoryResource] pinned_mr,
+        optional[cpp_HostMemoryResource] host_mr,
         string header,
     ) except +ex_handler nogil
     size_t cpp_get_statistic_count(cpp_Statistics stats, string name) \
@@ -240,6 +248,7 @@ cdef class Statistics:
         *,
         RmmResourceAdaptor mr = None,
         PinnedMemoryResource pinned_mr = None,
+        HostMemoryResource host_mr = None,
         header = None,
     ):
         """
@@ -257,6 +266,10 @@ cdef class Statistics:
             When provided, a pinned memory section is included in the
             report. Obtain the handle from
             :attr:`rapidsmpf.memory.buffer_resource.BufferResource.pinned_mr`.
+        host_mr
+            When provided, a pageable-host memory main record is included in
+            the report. Obtain the handle from
+            :attr:`rapidsmpf.memory.buffer_resource.BufferResource.host_mr`.
         header
             Header line prepended to the report. When ``None``, the C++
             default is used.
@@ -268,18 +281,25 @@ cdef class Statistics:
         cdef string ret
         cdef cpp_RmmResourceAdaptor* mr_ptr = NULL
         cdef optional[cpp_PinnedMemoryResource] cpp_pinned
+        cdef optional[cpp_HostMemoryResource] cpp_host
         cdef string cpp_header
         if mr is not None:
             mr_ptr = mr.get_handle()
         if pinned_mr is not None:
             cpp_pinned = pinned_mr._handle
+        if host_mr is not None:
+            cpp_host = host_mr._handle
         if header is None:
             with nogil:
-                ret = cpp_report(deref(self._handle), mr_ptr, cpp_pinned)
+                ret = cpp_report(
+                    deref(self._handle), mr_ptr, cpp_pinned, cpp_host
+                )
         else:
             cpp_header = header.encode()
             with nogil:
-                ret = cpp_report(deref(self._handle), mr_ptr, cpp_pinned, cpp_header)
+                ret = cpp_report(
+                    deref(self._handle), mr_ptr, cpp_pinned, cpp_host, cpp_header
+                )
         return ret.decode('UTF-8')
 
     def get_stat(self, name):
