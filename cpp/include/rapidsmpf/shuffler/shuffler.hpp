@@ -225,6 +225,11 @@ class Shuffler {
      * To ensure the partition is complete, use `wait()`
      * or another appropriate synchronization mechanism beforehand.
      *
+     * The returned chunks are grouped by source rank (in increasing rank order), and
+     * the chunks from each source rank are in the order they were inserted on that rank.
+     * This order holds within a single call only: a chunk returned by a later call may
+     * have been inserted before a chunk returned by an earlier call.
+     *
      * @param pid The ID of the partition to extract.
      * @return A vector of PackedData chunks associated with the partition.
      */
