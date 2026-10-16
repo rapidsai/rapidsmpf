@@ -37,13 +37,13 @@ def test_tracks_allocations() -> None:
     state = {"bytes": 0}
     track: list[int] = []
 
-    def alloc_cb(stream: Stream, size: int, alignment: int) -> int:
+    def alloc_cb(size: int, stream: Stream) -> int:
         ptr: int = base.allocate(size, stream)
         state["bytes"] += size
         track.append(ptr)
         return ptr
 
-    def dealloc_cb(stream: Stream, ptr: int, size: int, alignment: int) -> None:
+    def dealloc_cb(ptr: int, size: int, stream: Stream) -> None:
         base.deallocate(ptr, size, stream)
         state["bytes"] -= size
         track.append(ptr)
@@ -69,10 +69,10 @@ def test_tracks_allocations() -> None:
 
 
 def test_except_type() -> None:
-    def alloc_cb(stream: Stream, size: int, alignment: int) -> int:
+    def alloc_cb(size: int, stream: Stream) -> int:
         raise RuntimeError("not a MemoryError")
 
-    def dealloc_cb(stream: Stream, ptr: int, size: int, alignment: int) -> None:
+    def dealloc_cb(ptr: int, size: int, stream: Stream) -> None:
         return None
 
     br = BufferResource(rmm.mr.CallbackMemoryResource(alloc_cb, dealloc_cb))
