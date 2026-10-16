@@ -72,6 +72,75 @@ TEST(ReceivedChunks, spill_respects_amount) {
     EXPECT_EQ(received.spill(br.get(), chunk_size), chunk_size);
 }
 
+TEST(ReceivedChunks, data_size_tracks_memory_types) {
+    using rapidsmpf::MemoryType;
+    auto mr = rmm::mr::get_current_device_resource_ref();
+    auto br = rapidsmpf::BufferResource::create(mr);
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+
+    rapidsmpf::shuffler::detail::ReceivedChunks received;
+    constexpr std::size_t chunk_size = 100;
+
+    for (rapidsmpf::shuffler::PartID pid = 0; pid < 2; ++pid) {
+        auto metadata =
+            std::make_unique<std::vector<std::uint8_t>>(std::size_t{1}, std::uint8_t{0});
+        auto res = br->reserve_or_fail(chunk_size, MemoryType::DEVICE);
+        auto data = br->make_buffer(chunk_size, stream, res);
+        received.insert(
+            rapidsmpf::shuffler::detail::Chunk::from_packed_data(
+                0, pid, rapidsmpf::PackedData{std::move(metadata), std::move(data)}
+            )
+        );
+    }
+    EXPECT_EQ(received.data_size(MemoryType::DEVICE), 2 * chunk_size);
+
+    // Spilling one chunk moves its size from DEVICE to the spill target memory type.
+    EXPECT_EQ(received.spill(br.get(), chunk_size), chunk_size);
+    EXPECT_EQ(received.data_size(MemoryType::DEVICE), chunk_size);
+    EXPECT_EQ(
+        received.data_size(MemoryType::PINNED_HOST)
+            + received.data_size(MemoryType::HOST),
+        chunk_size
+    );
+
+    // Extracting all partitions resets the accounting.
+    std::ignore = received.extract(0);
+    std::ignore = received.extract(1);
+    for (auto mem_type : rapidsmpf::MEMORY_TYPES) {
+        EXPECT_EQ(received.data_size(mem_type), 0UL) << mem_type;
+    }
+}
+
+TEST(ReceivedChunks, spill_returns_early_without_device_data) {
+    using rapidsmpf::MemoryType;
+    auto mr = rmm::mr::get_current_device_resource_ref();
+    auto br = rapidsmpf::BufferResource::create(mr);
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+
+    rapidsmpf::shuffler::detail::ReceivedChunks received;
+    constexpr std::size_t chunk_size = 100;
+
+    // A host-resident chunk and a control message; neither contributes device data.
+    auto metadata =
+        std::make_unique<std::vector<std::uint8_t>>(std::size_t{1}, std::uint8_t{0});
+    auto res = br->reserve_or_fail(chunk_size, MemoryType::HOST);
+    auto data = br->make_buffer(chunk_size, stream, res);
+    received.insert(
+        rapidsmpf::shuffler::detail::Chunk::from_packed_data(
+            0, 0, rapidsmpf::PackedData{std::move(metadata), std::move(data)}
+        )
+    );
+    received.insert(
+        rapidsmpf::shuffler::detail::Chunk::from_finished_partition(
+            /*chunk_id=*/1, /*part_id=*/1, /*expected_num_chunks=*/1
+        )
+    );
+
+    EXPECT_EQ(received.spill(br.get(), /*amount=*/1024), 0UL);
+    EXPECT_EQ(received.data_size(MemoryType::DEVICE), 0UL);
+    EXPECT_EQ(received.data_size(MemoryType::HOST), chunk_size);
+}
+
 TEST(MetadataMessage, round_trip) {
     auto stream = cuda::stream_ref{cudaStreamLegacy};
     auto mr = rmm::mr::get_current_device_resource_ref();
