@@ -4,9 +4,11 @@
  */
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -14,6 +16,7 @@
 #include <rapidsmpf/communicator/metadata_payload_exchange/core.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/statistics.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf::communicator {
 
@@ -32,14 +35,17 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      * @param op_id The operation ID for tagging messages.
      * @param allocate_buffer_fn Function to allocate buffers for incoming data. May
      * return `nullptr` when allocation is temporarily unavailable; allocation is
-     * retried by subsequent calls to `progress()` up to the allocation retry limit.
+     * retried by subsequent calls to `progress()` until `allocation_timeout` expires.
      * @param statistics The statistics to use for tracking communication operations.
+     * @param allocation_timeout How long receive-buffer allocation for a message may
+     * keep failing before `progress()` throws.
      */
     TagMetadataPayloadExchange(
         std::shared_ptr<Communicator> comm,
         OpID op_id,
         std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn,
-        std::shared_ptr<Statistics> statistics
+        std::shared_ptr<Statistics> statistics,
+        Duration allocation_timeout = std::chrono::seconds{30}
     );
 
     /**
@@ -69,7 +75,7 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      * - Handling completed data transfers
      * - Cleaning up completed operations
      *
-     * @throws std::runtime_error if receive-buffer allocation retries are exhausted.
+     * @throws std::runtime_error if receive-buffer allocation times out.
      */
     void progress() override;
 
@@ -97,20 +103,51 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      * through the public interface.
      */
     struct TagMessage {
-        static constexpr std::int8_t allocation_retry_limit{8};
-
         std::unique_ptr<Message> message;
         std::uint64_t message_id{0};
         std::size_t expected_payload_size{0};
-        std::int8_t allocation_retries_remaining{allocation_retry_limit};
+        /// Time of the first failed buffer allocation, used to time out retries.
+        std::optional<Clock::time_point> first_allocation_failure;
 
+        /**
+         * @brief Construct a TagMessage.
+         *
+         * @param msg The wrapped message.
+         * @param id The message ID.
+         * @param size The expected payload size in bytes.
+         */
         TagMessage(
             std::unique_ptr<Message> msg, std::uint64_t id = 0, std::size_t size = 0
-        )
-            : message(std::move(msg)), message_id(id), expected_payload_size(size) {
-            if (expected_payload_size > 0 && message->data() == nullptr) {
-                --allocation_retries_remaining;
-            }
+        );
+
+        /**
+         * @brief Set the receive buffer of the message.
+         *
+         * The message's data buffer must not already be set. A `nullptr` buffer
+         * marks a failed allocation attempt. The first failed attempt starts the
+         * allocation timer; subsequent failed attempts throw once `timeout` has
+         * elapsed.
+         *
+         * @param buffer The allocated buffer, or `nullptr` if allocation failed.
+         * @param timeout How long allocation may keep failing before throwing.
+         * @return `true` if the buffer was set, `false` if allocation failed.
+         *
+         * @throw std::logic_error if the message's data buffer is already set.
+         * @throw std::runtime_error if `buffer` is `nullptr` and the allocation
+         * timeout has elapsed.
+         */
+        bool set_buffer(std::unique_ptr<Buffer> buffer, Duration timeout);
+
+        /**
+         * @brief Whether the message's data buffer is set.
+         *
+         * A message without a payload never needs a buffer, so it is considered set.
+         *
+         * @return True if the message has no payload or its data buffer is set,
+         * false otherwise.
+         */
+        [[nodiscard]] bool is_buffer_set() const {
+            return expected_payload_size == 0 || message->data() != nullptr;
         }
     };
 
@@ -121,6 +158,7 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
     Tag const metadata_tag_;
     Tag const gpu_data_tag_;
     std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn_;
+    Duration const allocation_timeout_;
 
     // Per-peer tracking for op_id reuse (see rapidsai/rapidsmpf#927).
     // After finish() is called, termination markers are exchanged so each peer
@@ -135,8 +173,6 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
         peer_expected_;  ///< Expected application messages per peer (0 = unknown).
     std::vector<bool>
         peer_terminated_;  ///< Whether we received the termination marker from each peer.
-    std::vector<bool>
-        peer_allocation_deferred_;  ///< Whether payload allocation is deferred per peer.
 
     /// Sentinel message_id value used to identify protocol-level termination markers.
     static constexpr std::uint64_t termination_sentinel_ = UINT64_MAX;
@@ -172,7 +208,7 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      * @return A vector of completed metadata-only messages.
      *
      * @throw std::runtime_error if an in-transit message or future is not found, or
-     * receive-buffer allocation retries are exhausted.
+     * receive-buffer allocation times out.
      */
     std::vector<std::unique_ptr<Message>> setup_data_receives();
 
@@ -190,6 +226,17 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      * @brief Cleanup completed operations (fire-and-forget sends and receives).
      */
     void cleanup_completed_operations();
+
+    /**
+     * @brief Whether payload allocation is deferred for a peer.
+     *
+     * Payload buffers are allocated in message order, so allocation is deferred
+     * while any incoming message from the peer is still waiting for a buffer.
+     *
+     * @param peer The source rank.
+     * @return True if new messages from `peer` must not allocate a payload buffer.
+     */
+    [[nodiscard]] bool is_allocation_deferred(Rank peer) const;
 };
 
 

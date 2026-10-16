@@ -161,13 +161,13 @@ TEST_F(MetadataPayloadExchangeTest, DefersReceiveBufferAllocation) {
     wait_for_communication_complete();
 }
 
-TEST_F(MetadataPayloadExchangeTest, ThrowsWhenReceiveBufferAllocationRetriesExhausted) {
+TEST_F(MetadataPayloadExchangeTest, ThrowsWhenReceiveBufferAllocationTimesOut) {
     if (comm->nranks() < 2) {
         GTEST_SKIP() << "Test requires at least 2 ranks";
     }
 
     constexpr std::size_t data_size = 1024;
-    constexpr std::size_t expected_allocation_attempts = 8;
+    constexpr auto allocation_timeout = std::chrono::milliseconds{100};
     constexpr auto timeout = std::chrono::seconds{30};
     std::size_t allocation_attempts = 0;
     bool fail_allocation = true;
@@ -178,13 +178,14 @@ TEST_F(MetadataPayloadExchangeTest, ThrowsWhenReceiveBufferAllocationRetriesExha
         return fail_allocation ? nullptr : allocate_receive_buffer(size);
     };
     comm_interface = std::make_unique<TagMetadataPayloadExchange>(
-        GlobalEnvironment->comm_, OpID{42}, allocate_fn, statistics
+        GlobalEnvironment->comm_, OpID{42}, allocate_fn, statistics, allocation_timeout
     );
 
     Rank const next_rank = (comm->rank() + 1) % comm->nranks();
     comm_interface->send(create_test_message(next_rank, {0x01}, data_size));
 
     std::string allocation_error;
+    auto const start = std::chrono::steady_clock::now();
     auto const deadline = std::chrono::steady_clock::now() + timeout;
     while (allocation_error.empty() && std::chrono::steady_clock::now() < deadline) {
         try {
@@ -195,9 +196,10 @@ TEST_F(MetadataPayloadExchangeTest, ThrowsWhenReceiveBufferAllocationRetriesExha
         std::this_thread::yield();
     }
 
-    ASSERT_THAT(allocation_error, testing::HasSubstr("allocation retries exhausted"))
+    ASSERT_THAT(allocation_error, testing::HasSubstr("allocation timed out"))
         << "allocation attempts: " << allocation_attempts;
-    EXPECT_EQ(allocation_attempts, expected_allocation_attempts);
+    EXPECT_GE(std::chrono::steady_clock::now() - start, allocation_timeout);
+    EXPECT_GT(allocation_attempts, 1);
 
     // Let the pending receive complete so no messages leak into subsequent tests.
     fail_allocation = false;
