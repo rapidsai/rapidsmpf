@@ -3,7 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <atomic>
+#include <condition_variable>
 #include <future>
+#include <mutex>
+#include <stdexcept>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -112,6 +116,67 @@ TEST(ProgressThreadTests, RemoveFunctionWithDelayedPause) {
     progress_thread.remove_function(id);
 
     future.get();
+}
+
+TEST(ProgressThreadTests, FunctionErrorIsReportedToCallback) {
+    ProgressThread progress_thread;
+    std::mutex mutex;
+    std::condition_variable cv;
+    int num_errors{0};
+    std::exception_ptr reported;
+    std::atomic<int> num_failing_calls{0};
+    std::atomic<int> num_healthy_calls{0};
+    std::atomic<bool> healthy_done{false};
+
+    auto failing = progress_thread.add_function(
+        [&]() -> ProgressThread::ProgressState {
+            ++num_failing_calls;
+            throw std::runtime_error("progress function failed");
+        },
+        [&](std::exception_ptr error) {
+            {
+                std::lock_guard lock(mutex);
+                ++num_errors;
+                reported = std::move(error);
+            }
+            cv.notify_all();
+        }
+    );
+    auto healthy = progress_thread.add_function([&]() {
+        ++num_healthy_calls;
+        return healthy_done.load() ? ProgressThread::ProgressState::Done
+                                   : ProgressThread::ProgressState::InProgress;
+    });
+
+    {
+        std::unique_lock lock(mutex);
+        cv.wait(lock, [&] { return num_errors > 0; });
+    }
+    EXPECT_THAT(
+        [&] { std::rethrow_exception(reported); },
+        ::testing::ThrowsMessage<std::runtime_error>(
+            ::testing::StrEq("progress function failed")
+        )
+    );
+
+    // Removing a failed function neither blocks nor throws.
+    EXPECT_NO_THROW(progress_thread.remove_function(failing));
+
+    // The other functions keep being progressed, and new functions can be added.
+    auto const healthy_calls = num_healthy_calls.load();
+    while (num_healthy_calls.load() < healthy_calls + 10) {
+        std::this_thread::yield();
+    }
+    auto another =
+        progress_thread.add_function([] { return ProgressThread::ProgressState::Done; });
+    progress_thread.remove_function(another);
+    healthy_done.store(true);
+    progress_thread.remove_function(healthy);
+
+    // The failed function was never called again and the error reported only once.
+    EXPECT_EQ(num_failing_calls.load(), 1);
+    std::lock_guard lock(mutex);
+    EXPECT_EQ(num_errors, 1);
 }
 
 TEST(ProgressThreadTests, CanDoCudaWorkOnFirstCallback) {

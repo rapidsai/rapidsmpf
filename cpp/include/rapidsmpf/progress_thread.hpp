@@ -7,6 +7,8 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <exception>
+#include <functional>
 #include <mutex>
 #include <unordered_map>
 
@@ -22,6 +24,13 @@ namespace rapidsmpf {
  * functions are executed in the order they were registered, and a newly registered
  * function will only execute for the first time in the next iteration of the
  * progress thread.
+ *
+ * Exceptions never escape the progress thread. If a function throws, it is marked as
+ * done, it is never called again, and the exception is passed to the function's error
+ * callback (see `add_function()`). The other functions are not affected. If the
+ * progress thread itself fails, outside of any function (e.g., if it cannot initialize
+ * its CUDA context), every registered function fails with that exception and no new
+ * function can be added.
  */
 class ProgressThread {
   public:
@@ -92,6 +101,18 @@ class ProgressThread {
     using Function = std::function<ProgressState()>;
 
     /**
+     * @typedef ErrorCallback
+     * @brief Callback invoked on the progress thread with the exception that made a
+     * function fail.
+     *
+     * The callback is typically used to store the exception and wake up the threads
+     * waiting on the function, so that they can rethrow it. It is called while the
+     * progress thread holds its internal lock, so it must not call back into the
+     * `ProgressThread`. It must not throw; if it does, the process is terminated.
+     */
+    using ErrorCallback = std::function<void(std::exception_ptr)>;
+
+    /**
      * @brief Store state of a function.
      */
     class FunctionState {
@@ -100,8 +121,9 @@ class ProgressThread {
          * @brief Construct state of a function.
          *
          * @param function The function to execute.
+         * @param on_error The callback to invoke if the function fails.
          */
-        explicit FunctionState(Function&& function);
+        FunctionState(Function&& function, ErrorCallback&& on_error);
 
         /**
          * @brief Execute the function.
@@ -110,8 +132,18 @@ class ProgressThread {
          */
         void operator()();
 
+        /**
+         * @brief Mark the function as failed and report `error` to `on_error`.
+         *
+         * If `on_error` is empty, the failure is fatal.
+         *
+         * @param error The exception that made the function fail.
+         */
+        void fail(std::exception_ptr error) noexcept;
+
         Function function;  ///< The function to execute.
-        bool is_done{false};  ///< Whether the function has completed
+        ErrorCallback on_error;  ///< The callback to invoke if the function fails.
+        bool is_done{false};  ///< Whether the function has completed (or failed)
     };
 
     /**
@@ -142,15 +174,23 @@ class ProgressThread {
      * multiple progress threads.
      *
      * @param function The function to register.
+     * @param on_error The callback invoked on the progress thread if `function` throws,
+     * or if the progress thread itself fails, after which `function` is considered done
+     * and is never called again. See `ErrorCallback`. If empty, an exception thrown by
+     * `function` is fatal and terminates the process.
      *
      * @return The unique ID of the function that was registered.
+     *
+     * @throws Rethrows the exception that made the progress thread fail, if any.
      */
-    FunctionID add_function(Function&& function);
+    FunctionID add_function(Function&& function, ErrorCallback&& on_error = nullptr);
 
     /**
      * @brief Remove a function and stop processing it as part of the event loop.
      *
-     * This function blocks until the function is done (returning `ProgressState::Done`).
+     * This function blocks until the function is done (returning `ProgressState::Done`)
+     * or has failed. The exception of a failed function is not rethrown, it is reported
+     * to the function's error callback instead.
      *
      * @param function_id The unique function ID returned by `add_function`.
      *
@@ -192,7 +232,17 @@ class ProgressThread {
      */
     void event_loop();
 
+    /**
+     * @brief Fail all registered functions after the progress thread itself failed.
+     *
+     * Called on the progress thread by the underlying thread loop.
+     *
+     * @param error The exception that made the progress thread fail.
+     */
+    void handle_thread_error(std::exception_ptr error) noexcept;
+
     std::shared_ptr<Statistics> statistics_;
+    std::exception_ptr thread_error_{};  ///< Set if the progress thread itself failed.
     bool active_{false};
     mutable std::mutex mutex_;
     std::condition_variable cv_;

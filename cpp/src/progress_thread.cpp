@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <tuple>
 #include <utility>
 
 #include <rapidsmpf/error.hpp>
@@ -11,21 +12,49 @@
 
 namespace rapidsmpf {
 
-ProgressThread::FunctionState::FunctionState(Function&& function)
-    : function(std::move(function)) {}
+ProgressThread::FunctionState::FunctionState(
+    Function&& function, ErrorCallback&& on_error
+)
+    : function(std::move(function)), on_error(std::move(on_error)) {}
 
 void ProgressThread::FunctionState::operator()() {
     // Only call `function()` if it isn't done yet.
     // Note: ProgressThread::mutex_ is currently locked by the progress thread. So, we can
     // safely update is_done bool.
-    if (!is_done && function() == ProgressState::Done) {
-        is_done = true;
+    if (is_done) {
+        return;
+    }
+    try {
+        if (function() == ProgressState::Done) {
+            is_done = true;
+        }
+    } catch (...) {
+        fail(std::current_exception());
+    }
+}
+
+void ProgressThread::FunctionState::fail(std::exception_ptr error) noexcept {
+    is_done = true;
+    if (!on_error) {
+        RAPIDSMPF_FATAL(
+            "unhandled exception in ProgressThread function: "
+            + detail::exception_message(error)
+        );
+    }
+    try {
+        on_error(std::move(error));
+    } catch (...) {
+        RAPIDSMPF_FATAL("ProgressThread error callback threw an exception");
     }
 }
 
 ProgressThread::ProgressThread(std::shared_ptr<Statistics> statistics, Duration sleep)
     : statistics_(std::move(statistics)),
-      thread_([this]() { return event_loop(); }, sleep) {
+      thread_(
+          [this]() { return event_loop(); },
+          sleep,
+          [this](std::exception_ptr error) { handle_thread_error(std::move(error)); }
+      ) {
     RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
 }
 
@@ -37,13 +66,22 @@ void ProgressThread::stop() {
     thread_.stop();
 }
 
-ProgressThread::FunctionID ProgressThread::add_function(Function&& function) {
+ProgressThread::FunctionID ProgressThread::add_function(
+    Function&& function, ErrorCallback&& on_error
+) {
     std::lock_guard lock(mutex_);
+    if (thread_error_) {
+        std::rethrow_exception(thread_error_);
+    }
     // We can use `this` as the thread address only because `ProgressThread` isn't
     // moveable or copyable.
     auto id =
         FunctionID(reinterpret_cast<ProgressThreadAddress>(this), next_function_id_++);
-    functions_.emplace(id.function_index, std::move(function));
+    functions_.emplace(
+        std::piecewise_construct,
+        std::forward_as_tuple(id.function_index),
+        std::forward_as_tuple(std::move(function), std::move(on_error))
+    );
     thread_.resume();
     active_ = true;
     return id;
@@ -94,7 +132,8 @@ void ProgressThread::resume() {
     thread_.resume();
     {
         std::lock_guard lock(mutex_);
-        active_ = true;
+        // A failed thread loop cannot be resumed.
+        active_ = thread_error_ == nullptr;
     }
     cv_.notify_all();
 }
@@ -121,6 +160,21 @@ void ProgressThread::event_loop() {
     cv_.notify_all();
 
     statistics_->add_duration_stat("event-loop-total", Clock::now() - t0_event_loop);
+}
+
+void ProgressThread::handle_thread_error(std::exception_ptr error) noexcept {
+    {
+        std::lock_guard lock(mutex_);
+        thread_error_ = error;
+        for (auto& [id, function] : functions_) {
+            if (!function.is_done) {
+                function.fail(error);
+            }
+        }
+        // The underlying thread loop has failed and will not run again.
+        active_ = false;
+    }
+    cv_.notify_all();
 }
 
 }  // namespace rapidsmpf
