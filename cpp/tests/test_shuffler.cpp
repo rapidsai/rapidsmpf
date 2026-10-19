@@ -111,7 +111,7 @@ TEST(ReceivedChunks, data_size_tracks_memory_types) {
     }
 }
 
-TEST(ReceivedChunks, spill_returns_early_without_device_data) {
+TEST(ReceivedChunks, data_size_ignores_control_and_repeated_spill) {
     using rapidsmpf::MemoryType;
     auto mr = rmm::mr::get_current_device_resource_ref();
     auto br = rapidsmpf::BufferResource::create(mr);
@@ -120,10 +120,10 @@ TEST(ReceivedChunks, spill_returns_early_without_device_data) {
     rapidsmpf::shuffler::detail::ReceivedChunks received;
     constexpr std::size_t chunk_size = 100;
 
-    // A host-resident chunk and a control message; neither contributes device data.
+    // A device-resident chunk and a control message; only the former holds data.
     auto metadata =
         std::make_unique<std::vector<std::uint8_t>>(std::size_t{1}, std::uint8_t{0});
-    auto res = br->reserve_or_fail(chunk_size, MemoryType::HOST);
+    auto res = br->reserve_or_fail(chunk_size, MemoryType::DEVICE);
     auto data = br->make_buffer(chunk_size, stream, res);
     received.insert(
         rapidsmpf::shuffler::detail::Chunk::from_packed_data(
@@ -136,9 +136,21 @@ TEST(ReceivedChunks, spill_returns_early_without_device_data) {
         )
     );
 
+    EXPECT_EQ(received.data_size(MemoryType::DEVICE), chunk_size);
+
+    auto check_data_sizes = [&]() {
+        EXPECT_EQ(received.data_size(MemoryType::DEVICE), 0UL);
+        EXPECT_EQ(received.data_size(MemoryType::PINNED_HOST), 0UL);
+        EXPECT_EQ(received.data_size(MemoryType::HOST), chunk_size);
+    };
+    // The first spill moves the device chunk off the device; the control message is
+    // skipped.
+    EXPECT_EQ(received.spill(br.get(), /*amount=*/1024), chunk_size);
+    check_data_sizes();
+
+    // Nothing is left on the device, so a second spill is a no-op.
     EXPECT_EQ(received.spill(br.get(), /*amount=*/1024), 0UL);
-    EXPECT_EQ(received.data_size(MemoryType::DEVICE), 0UL);
-    EXPECT_EQ(received.data_size(MemoryType::HOST), chunk_size);
+    check_data_sizes();
 }
 
 TEST(MetadataMessage, round_trip) {
