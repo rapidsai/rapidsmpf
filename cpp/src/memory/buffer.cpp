@@ -146,6 +146,11 @@ Buffer::DiskBufferT Buffer::release_disk_buffer() {
 
 void Buffer::rebind_stream(cuda::stream_ref new_stream) {
     throw_if_locked();
+    RAPIDSMPF_EXPECTS(
+        new_stream != cuda::invalid_stream,
+        "new_stream must be valid",
+        std::invalid_argument
+    );
     if (new_stream.get() == stream_.get()) {
         return;
     }

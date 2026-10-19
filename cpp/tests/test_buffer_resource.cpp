@@ -67,6 +67,32 @@ std::int64_t reserved_bytes(BufferResource const& br, MemoryType mem_type) {
     return br.memory_available(mem_type) - br.memory_available_for_reservation(mem_type);
 }
 
+TEST(BufferResource, MoveDefaultConstructedDeviceBuffer) {
+    StreamPool stream_pool{1};
+    auto stream = stream_pool.get_stream();
+    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
+
+    auto buffer = br->move(std::make_unique<rmm::device_buffer>(), stream);
+
+    EXPECT_EQ(buffer->size, 0U);
+    EXPECT_EQ(buffer->stream().get(), stream.get());
+    EXPECT_NO_THROW(buffer->latest_write_event().host_wait());
+}
+
+TEST(BufferResource, InvalidStreamThrows) {
+    cuda::stream_ref const invalid{cuda::invalid_stream};
+    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
+
+    auto [reservation, _] = br->reserve(MemoryType::DEVICE, 0, AllowOverbooking::YES);
+    EXPECT_THROW(
+        std::ignore = br->make_buffer(0, invalid, reservation), std::invalid_argument
+    );
+    EXPECT_THROW(
+        std::ignore = br->move(std::make_unique<rmm::device_buffer>(), invalid),
+        std::invalid_argument
+    );
+}
+
 TEST(BufferResource, ReservationOverbooking) {
     // Create a buffer resource that always reports 10 KiB of available device memory.
     auto br = BufferResource::create(
