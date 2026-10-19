@@ -79,6 +79,20 @@ TEST(BufferResource, MoveDefaultConstructedDeviceBuffer) {
     EXPECT_NO_THROW(buffer->latest_write_event().host_wait());
 }
 
+TEST(BufferResource, InvalidStreamThrows) {
+    cuda::stream_ref const invalid{cuda::invalid_stream};
+    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
+
+    auto [reservation, _] = br->reserve(MemoryType::DEVICE, 0, AllowOverbooking::YES);
+    EXPECT_THROW(
+        std::ignore = br->make_buffer(0, invalid, reservation), std::invalid_argument
+    );
+    EXPECT_THROW(
+        std::ignore = br->move(std::make_unique<rmm::device_buffer>(), invalid),
+        std::invalid_argument
+    );
+}
+
 TEST(BufferResource, ReservationOverbooking) {
     // Create a buffer resource that always reports 10 KiB of available device memory.
     auto br = BufferResource::create(
