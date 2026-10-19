@@ -402,5 +402,5 @@ jobs:
           -DBUILD_TESTS=OFF \
           -DBUILD_BENCHMARKS=ON \
           -DBUILD_NUMA_SUPPORT=OFF \
-          2>&1 | tee telemetry-artifacts/build.log;
-        sccache --show-adv-stats | tee telemetry-artifacts/sccache-stats.txt;
+         ;
+        sccache --show-adv-stats;
