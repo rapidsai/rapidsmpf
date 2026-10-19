@@ -67,6 +67,32 @@ std::int64_t reserved_bytes(BufferResource const& br, MemoryType mem_type) {
     return br.memory_available(mem_type) - br.memory_available_for_reservation(mem_type);
 }
 
+TEST(BufferResource, MoveDefaultConstructedDeviceBuffer) {
+    StreamPool stream_pool{1};
+    auto stream = stream_pool.get_stream();
+    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
+
+    auto buffer = br->move(std::make_unique<rmm::device_buffer>(), stream);
+
+    EXPECT_EQ(buffer->size, 0U);
+    EXPECT_EQ(buffer->stream().get(), stream.get());
+    EXPECT_NO_THROW(buffer->latest_write_event().host_wait());
+}
+
+TEST(BufferResource, InvalidStreamThrows) {
+    cuda::stream_ref const invalid{cuda::invalid_stream};
+    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
+
+    auto [reservation, _] = br->reserve(MemoryType::DEVICE, 0, AllowOverbooking::YES);
+    EXPECT_THROW(
+        std::ignore = br->make_buffer(0, invalid, reservation), std::invalid_argument
+    );
+    EXPECT_THROW(
+        std::ignore = br->move(std::make_unique<rmm::device_buffer>(), invalid),
+        std::invalid_argument
+    );
+}
+
 TEST(BufferResource, ReservationOverbooking) {
     // Create a buffer resource that always reports 10 KiB of available device memory.
     auto br = BufferResource::create(
@@ -254,6 +280,34 @@ TEST(BufferResource, MemoryLimit) {
     EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 10_KiB);
 }
 
+TEST(BufferResource, HostMemoryAvailabilityTracksLiveAllocations) {
+    auto br = BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        PinnedMemoryDisabled,
+        {{MemoryType::HOST, 10_KiB}},
+        std::nullopt
+    );
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+
+    auto reservation = br->reserve_or_fail(4_KiB, MemoryType::HOST);
+    auto buffer = br->make_buffer(4_KiB, stream, reservation);
+    EXPECT_EQ(br->memory_available(MemoryType::HOST), 6_KiB);
+    EXPECT_EQ(br->memory_available_for_reservation(MemoryType::HOST), 6_KiB);
+
+    buffer.reset();
+    EXPECT_EQ(br->memory_available(MemoryType::HOST), 10_KiB);
+}
+
+TEST(BufferResource, RejectsZeroPinnedMaxPoolSize) {
+    rmm::mr::cuda_memory_resource cuda_mr;
+    EXPECT_THROW(
+        std::ignore = BufferResource::create(
+            cuda_mr, PinnedPoolProperties{.max_pool_size = 0}, {}, std::nullopt, nullptr
+        ),
+        std::invalid_argument
+    );
+}
+
 class PinnedMaxPoolSizeReservationLimitTest
     : public ::testing::TestWithParam<std::optional<std::size_t>> {};
 
@@ -263,15 +317,14 @@ TEST_P(PinnedMaxPoolSizeReservationLimitTest, TwoReservations) {
     }
 
     auto const max_pool_size = GetParam();
-    // if max_pool_size is not set or 0, the pool is unbounded.
-    auto const expect_second_succeeds = [&] { return max_pool_size.value_or(0) == 0; };
+    auto const expect_second_succeeds = [&] { return !max_pool_size.has_value(); };
 
     rmm::mr::cuda_memory_resource cuda_mr;
 
     // Wire the PINNED_HOST limit to the pool's max_pool_size (or unlimited if the
     // pool is unbounded) so reservations respect the same ceiling as allocations.
     std::unordered_map<MemoryType, std::int64_t> memory_limits;
-    if (max_pool_size.has_value() && *max_pool_size > 0) {
+    if (max_pool_size.has_value()) {
         memory_limits[MemoryType::PINNED_HOST] = safe_cast<std::int64_t>(*max_pool_size);
     }
     auto br = BufferResource::create(
@@ -296,9 +349,7 @@ INSTANTIATE_TEST_SUITE_P(
     PinnedMaxPoolSize,
     PinnedMaxPoolSizeReservationLimitTest,
     ::testing::Values(
-        std::optional<std::size_t>{std::nullopt},
-        std::optional<std::size_t>{0},
-        std::optional<std::size_t>{1_KiB}
+        std::optional<std::size_t>{std::nullopt}, std::optional<std::size_t>{1_KiB}
     )
 );
 

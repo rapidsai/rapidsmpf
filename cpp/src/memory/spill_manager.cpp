@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cstdint>
 #include <mutex>
 #include <optional>
 #include <utility>
@@ -68,6 +69,25 @@ void SpillManager::remove_spill_function(SpillFunctionID fid) {
 }
 
 std::size_t SpillManager::spill_unsafe(std::size_t amount) {
+    if (amount == 0) {
+        return 0;
+    }
+
+    // Marks a spill as in flight for the duration of this call, even if a spill
+    // function throws. On exit, the generation is bumped before the in-flight count
+    // drops, so an observer that sees no spill in flight also sees the new generation.
+    struct InFlightGuard {
+        SpillManager* self;
+
+        ~InFlightGuard() {
+            self->spill_generation_.fetch_add(1, std::memory_order_release);
+            self->spills_in_flight_.fetch_sub(1, std::memory_order_release);
+        }
+    };
+
+    spills_in_flight_.fetch_add(1, std::memory_order_release);
+    InFlightGuard const in_flight{this};
+
     std::size_t spilled{0};
     for (auto const [_, fid] : spill_function_priorities_) {
         if (spilled >= amount) {
@@ -76,6 +96,14 @@ std::size_t SpillManager::spill_unsafe(std::size_t amount) {
         spilled += spill_functions_.at(fid)(amount - spilled);
     }
     return spilled;
+}
+
+bool SpillManager::spilling_now() const noexcept {
+    return spills_in_flight_.load(std::memory_order_acquire) > 0;
+}
+
+std::uint64_t SpillManager::spill_generation() const noexcept {
+    return spill_generation_.load(std::memory_order_acquire);
 }
 
 std::size_t SpillManager::spill(std::size_t amount) {

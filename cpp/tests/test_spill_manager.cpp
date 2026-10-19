@@ -5,9 +5,11 @@
 
 
 #include <condition_variable>
+#include <cstdint>
 #include <mutex>
 #include <optional>
 #include <ostream>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
@@ -281,4 +283,64 @@ TEST(SpillManager, ReserveAndSpillIgnoresAnEarlierCallersOverbooking) {
     );
 
     br->spill_manager().remove_spill_function(fid);
+}
+
+TEST(SpillManager, ProgressCountersTrackSpillExecution) {
+    auto br = br_at_device_limit().first;
+    auto& manager = br->spill_manager();
+
+    EXPECT_FALSE(manager.spilling_now());
+    EXPECT_EQ(manager.spill_generation(), 0u);
+
+    // Observed from inside the spill function, which is the window a waiter needs to
+    // see. The generation only moves once the function has returned.
+    bool seen_in_flight{false};
+    std::uint64_t seen_generation{0};
+    auto const fid = manager.add_spill_function(
+        [&](std::size_t) -> std::size_t {
+            seen_in_flight = manager.spilling_now();
+            seen_generation = manager.spill_generation();
+            return 0;
+        },
+        /* priority = */ 0
+    );
+
+    std::ignore = manager.spill(1_KiB);
+    EXPECT_TRUE(seen_in_flight);
+    EXPECT_EQ(seen_generation, 0u);
+    EXPECT_FALSE(manager.spilling_now());
+    EXPECT_EQ(manager.spill_generation(), 1u);
+
+    // A zero-byte ask runs no spill function, so there is nothing for a waiter to wait
+    // for and the generation must not move.
+    seen_in_flight = false;
+    std::ignore = manager.spill(0);
+    EXPECT_FALSE(seen_in_flight);
+    EXPECT_EQ(manager.spill_generation(), 1u);
+
+    // `spill_to_make_headroom()` returns before spilling when the headroom is already
+    // available, which is a different early exit from the zero-byte ask above.
+    std::ignore = manager.spill_to_make_headroom(0);
+    EXPECT_EQ(manager.spill_generation(), 1u);
+
+    manager.remove_spill_function(fid);
+}
+
+TEST(SpillManager, ProgressCountersSurviveAThrowingSpillFunction) {
+    auto br = br_at_device_limit().first;
+    auto& manager = br->spill_manager();
+
+    auto const fid = manager.add_spill_function(
+        [](std::size_t) -> std::size_t { throw std::runtime_error("boom"); },
+        /* priority = */ 0
+    );
+
+    EXPECT_THROW(std::ignore = manager.spill(1_KiB), std::runtime_error);
+
+    // A throwing spill function must not leave the manager looking permanently busy,
+    // which would make every waiter extend its deadline forever.
+    EXPECT_FALSE(manager.spilling_now());
+    EXPECT_EQ(manager.spill_generation(), 1u);
+
+    manager.remove_spill_function(fid);
 }

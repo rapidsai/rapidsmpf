@@ -73,6 +73,14 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
     This option ensures forward progress under memory pressure and prevents the
     system from stalling indefinitely when memory availability fluctuates.
 
+    A spill frees memory in whole buffers and can take longer than this timeout.
+    So when the timeout expires while a spill is executing, the request keeps
+    waiting for as long as spilling keeps increasing the memory available, then
+    takes one more admission attempt before forcing progress. This extra wait is
+    capped at ten times this timeout, which only matters if a spill never finishes.
+    Nothing is spilled on behalf of the request, so a workload that does not
+    spill sees the timeout unchanged.
+
 - **`allow_overbooking_by_default`**
   - **Environment Variable**: `RAPIDSMPF_ALLOW_OVERBOOKING_BY_DEFAULT`
   - **Default**: `true`
@@ -114,7 +122,10 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
   - **Description**: Maximum size of the pinned host memory pool when `pinned_memory` is
     enabled. When unset or empty, the pool is capped at 80% of total host memory
     available in the current NUMA node divided by the number of GPUs in that NUMA node.
-    Accepts byte counts or percentage (e.g. `"4GiB"`, `"2048MiB"`).
+    Accepts positive byte counts or percentages (e.g. `"4GiB"`, `"2048MiB"`).
+    Use `"disabled"` for an unbounded pool; zero is not valid. The value cannot exceed the host memory of the
+    current NUMA node. See also `spill_host_limit`, which limits pageable host memory
+    separately and shares the same percentage base.
 
 - **`spill_device_limit`**
   - **Environment Variable**: `RAPIDSMPF_SPILL_DEVICE_LIMIT`
@@ -124,6 +135,19 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
     not always be enforceable. The value can be specified either as an absolute byte
     count (e.g. `"10GiB"`, `"512MB"`) or as a percentage of the total memory of the
     current device (e.g. `"80%"`).
+
+- **`spill_host_limit`**
+  - **Environment Variable**: `RAPIDSMPF_SPILL_HOST_LIMIT`
+  - **Default**: disabled (unbounded)
+  - **Description**: Soft upper limit on pageable host memory used by RapidsMPF
+    for spilling. Accepts byte counts (e.g. `"10GiB"`, `"512MB"`) or a percentage
+    of the host memory available per GPU, the same base as `pinned_max_pool_size`
+    (e.g. `"40%"`). Use `"disabled"` for an unbounded limit; zero is not valid. This limit is
+    independent of `pinned_max_pool_size` and is not validated against it. Keep the
+    two at or below 80% combined (e.g. `pinned_max_pool_size=40%` and
+    `spill_host_limit=40%`), leaving 20% of the host memory available per GPU for the
+    OS and any other untracked host allocations. Since `pinned_max_pool_size`
+    defaults to 80%, lower it when setting this limit with `pinned_memory` enabled.
 
 - **`periodic_spill_check`**
   - **Environment Variable**: `RAPIDSMPF_PERIODIC_SPILL_CHECK`

@@ -146,9 +146,8 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * Available memory is computed per `MemoryType` as `limit - allocated`.
      *
-     * Device and pinned-host allocations routed through this `BufferResource` are tracked
-     * automatically. Host memory allocations are not tracked and therefore always report
-     * the configured limit as available memory.
+     * Device, pinned-host, and pageable-host allocations routed through this
+     * `BufferResource` are tracked automatically.
      *
      * If pinned-host memory is disabled, available pinned-host memory is always reported
      * as zero regardless of the configured limit.
@@ -164,7 +163,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * must be supported on the system (see `is_pinned_memory_resources_supported()`);
      * otherwise a `std::runtime_error` is thrown.
      * @param memory_limits Maximum allocation limits in bytes per `MemoryType`. Missing
-     * entries are treated as unlimited.
+     * entries are treated as unlimited. See `memory_limits_from_options()`.
      * @param periodic_spill_check Interval between periodic spill checks. `std::nullopt`
      * disables the dedicated spill-check thread.
      * @param stream_pool CUDA stream pool used for operations that do not take an
@@ -598,6 +597,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * @throws std::invalid_argument if the memory type does not match the reservation.
      * @throws rapidsmpf::reservation_error if `size` exceeds the size of the reservation.
+     * @throws std::invalid_argument if @p stream is `cuda::invalid_stream`.
      */
     std::unique_ptr<Buffer> make_buffer(
         std::size_t size, cuda::stream_ref stream, MemoryReservation& reservation
@@ -612,6 +612,8 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @param stream CUDA stream to use for device allocations.
      * @param reservation The memory reservation to consume for the allocation.
      * @return A unique pointer to the allocated Buffer.
+     *
+     * @throws std::invalid_argument if @p stream is `cuda::invalid_stream`.
      */
     std::unique_ptr<Buffer> make_buffer(
         cuda::stream_ref stream, MemoryReservation&& reservation
@@ -627,9 +629,10 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * the Buffer is created with `MemoryType::PINNED_HOST`; otherwise it is
      * created with `MemoryType::DEVICE`.
      *
-     * If @p stream differs from the device buffer's current stream:
-     *   - @p stream is synchronized with the device buffer's current stream, and
-     *   - the device buffer's current stream is updated to @p stream.
+     * @p stream is ordered after any work pending on the device buffer's current
+     * stream, and the device buffer's stream is updated to @p stream. If @p data is
+     * empty (e.g. a default-constructed `rmm::device_buffer`, which has no stream), it
+     * owns no memory, so no synchronization is performed.
      *
      * @param data Unique pointer to the device or pinned host buffer.
      * @param stream CUDA stream associated with the new Buffer. Use or synchronize with
@@ -639,7 +642,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @return Unique pointer to the resulting Buffer.
      *
      * @throws std::invalid_argument If @p spill_token is set and @p data is not
-     * host-accessible.
+     * host-accessible, or if @p stream is `cuda::invalid_stream`.
      */
     std::unique_ptr<Buffer> move(
         std::unique_ptr<rmm::device_buffer> data,
@@ -773,6 +776,19 @@ static_assert(StatisticsProvider<BufferResource>);
  * @return The device memory limit in bytes.
  */
 std::int64_t device_limit_from_options(config::Options options);
+
+/**
+ * @brief Build the per-`MemoryType` memory limits from configuration options.
+ *
+ * @param options Configuration options.
+ * @param pinned_pool_properties Pinned pool configuration, typically from
+ * `pinned_pool_properties_from_options()`, or `PinnedMemoryDisabled`.
+ * @return Memory limits in bytes, suitable for `BufferResource::create()`.
+ */
+std::unordered_map<MemoryType, std::int64_t> memory_limits_from_options(
+    config::Options options,
+    std::optional<PinnedPoolProperties> const& pinned_pool_properties
+);
 
 /**
  * @brief Get the `periodic_spill_check` parameter from configuration options.

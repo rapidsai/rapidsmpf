@@ -4,7 +4,9 @@
  */
 
 
+#include <limits>
 #include <memory>
+#include <stdexcept>
 
 #include <sys/mman.h>
 #include <unistd.h>
@@ -12,6 +14,9 @@
 #include <cuda/stream>
 
 #include <rapidsmpf/memory/host_memory_resource.hpp>
+#include <rapidsmpf/system_info.hpp>
+#include <rapidsmpf/utils/misc.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 namespace rapidsmpf {
 namespace {
@@ -42,7 +47,7 @@ void enable_hugepage_for_region(void* ptr, std::size_t size) {
 
 }  // namespace
 
-void* HostMemoryResource::allocate(
+void* detail::HostMemoryResourceImpl::allocate(
     cuda::stream_ref, std::size_t size, std::size_t alignment
 ) {
     void* ret = ::operator new(size, std::align_val_t{alignment});
@@ -50,10 +55,31 @@ void* HostMemoryResource::allocate(
     return ret;
 }
 
-void HostMemoryResource::deallocate(
+void detail::HostMemoryResourceImpl::deallocate(
     cuda::stream_ref stream, void* ptr, std::size_t, std::size_t alignment
 ) noexcept {
     stream.sync();
     ::operator delete(ptr, std::align_val_t{alignment});
+}
+
+std::optional<std::int64_t> host_limit_from_options(config::Options options) {
+    return options.get<std::optional<std::int64_t>>(
+        "spill_host_limit", [](auto const& s) -> std::optional<std::int64_t> {
+            auto const value = parse_optional(s);
+            if (!value.has_value()) {
+                return std::nullopt;
+            }
+            auto const total = safe_cast<double>(get_host_memory_per_gpu());
+            auto const limit = safe_cast<std::int64_t>(rmm::align_down(
+                parse_nbytes_or_percent(*value, total), rmm::CUDA_ALLOCATION_ALIGNMENT
+            ));
+            RAPIDSMPF_EXPECTS(
+                limit > 0,
+                "spill_host_limit must be greater than zero",
+                std::invalid_argument
+            );
+            return limit;
+        }
+    );
 }
 }  // namespace rapidsmpf

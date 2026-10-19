@@ -119,21 +119,24 @@ const auto& get_topology() {
 }  // namespace
 
 std::uint64_t get_host_memory_per_gpu() {
-    auto const current_numa_node = get_current_numa_node();
-    auto const& gpus = get_topology().gpus;
-    // gpu.numa_node == -1 means the kernel has no NUMA affinity info for the
-    // device (common in VMs and single-socket machines without ACPI SRAT/SLIT
-    // entries for PCIe).  Treat those GPUs as local to every NUMA node.
-    auto const num_local_gpus = std::ranges::count_if(gpus, [&](auto const& gpu) {
-        return gpu.numa_node == current_numa_node || gpu.numa_node == -1;
-    });
-    RAPIDSMPF_EXPECTS(
-        num_local_gpus > 0,
-        "No GPUs found on current NUMA node " + std::to_string(current_numa_node),
-        std::runtime_error
-    );
-    return get_numa_node_host_memory(current_numa_node)
-           / safe_cast<std::uint64_t>(num_local_gpus);
+    static const std::uint64_t ret = [] {
+        auto const current_numa_node = get_current_numa_node();
+        auto const& gpus = get_topology().gpus;
+        // gpu.numa_node == -1 means the kernel has no NUMA affinity info for the
+        // device (common in VMs and single-socket machines without ACPI SRAT/SLIT
+        // entries for PCIe).  Treat those GPUs as local to every NUMA node.
+        auto const num_local_gpus = std::ranges::count_if(gpus, [&](auto const& gpu) {
+            return gpu.numa_node == current_numa_node || gpu.numa_node == -1;
+        });
+        RAPIDSMPF_EXPECTS(
+            num_local_gpus > 0,
+            "No GPUs found on current NUMA node " + std::to_string(current_numa_node),
+            std::runtime_error
+        );
+        return get_numa_node_host_memory(current_numa_node)
+               / safe_cast<std::uint64_t>(num_local_gpus);
+    }();
+    return ret;
 }
 
 }  // namespace rapidsmpf
