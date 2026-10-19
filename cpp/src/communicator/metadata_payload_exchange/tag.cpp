@@ -327,7 +327,9 @@ TagMetadataPayloadExchange::setup_data_receives() {
 
             if (payload_size > 0) {
                 if (!tag_msg.is_buffer_set()) {
-                    tag_msg.set_buffer(allocate_buffer_fn_(payload_size), allocation_timeout_);
+                    tag_msg.set_buffer(
+                        allocate_buffer_fn_(payload_size), allocation_timeout_
+                    );
                 }
 
                 // Check if the buffer is allocated and ready for use, if not, break
