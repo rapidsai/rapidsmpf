@@ -137,7 +137,8 @@ class Shuffler {
      * @brief Construct a new shuffler for a single shuffle.
      *
      * @param comm The communicator to use.
-     * @param op_id The operation ID of the shuffle.
+     * @param op_id The operation ID of the shuffle. This ID is unique for this operation,
+     * and should not be reused until all nodes has called `Shuffler::shutdown()`.
      * @param total_num_partitions Total number of partitions in the shuffle.
      * @param br Buffer resource used to allocate temporary and the shuffle result.
      * @param partition_owner Function to determine partition ownership.
@@ -194,6 +195,16 @@ class Shuffler {
      */
     [[nodiscard]] std::shared_ptr<Communicator> const& comm() const noexcept {
         return comm_;
+    }
+
+    /**
+     * @brief Whether spilling is enabled, i.e., at least one spillable memory type was
+     * configured.
+     *
+     * @return True if `spillable_memory_types` is non-empty, otherwise false.
+     */
+    [[nodiscard]] constexpr bool is_spilling_enabled() const noexcept {
+        return !spillable_memory_types_.empty();
     }
 
     Shuffler(Shuffler const&) = delete;

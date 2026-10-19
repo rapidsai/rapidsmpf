@@ -44,9 +44,7 @@ constexpr std::array ADDRESSABLE_MEMORY_TYPES{
  * insufficient. The ordering reflects the policy of spilling in RapidsMPF, where
  * earlier entries are considered more desirable spill destinations.
  */
-constexpr std::array SPILL_TARGET_MEMORY_TYPES{
-    MemoryType::PINNED_HOST, MemoryType::HOST, MemoryType::DISK
-};
+constexpr std::array SPILL_TARGET_MEMORY_TYPES{MemoryType::PINNED_HOST, MemoryType::HOST};
 
 /**
  * @brief Get the memory types with preference lower than or equal to @p mem_type.

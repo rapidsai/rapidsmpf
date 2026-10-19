@@ -378,7 +378,7 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
 
         // Check if we should spill the chunk before inserting into the inbox.
         std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE);
-        if (headroom < 0 && packed_data.data
+        if (headroom < 0 && is_spilling_enabled() && packed_data.data
             && packed_data.data->mem_type() == MemoryType::DEVICE)
         {
             auto chunk = create_chunk(pid, std::move(packed_data));
@@ -463,7 +463,7 @@ void Shuffler::wait(std::optional<std::chrono::milliseconds> timeout) {
 
 std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    if (spillable_memory_types_.empty()) {
+    if (!is_spilling_enabled()) {
         return 0;
     }
     std::size_t spill_need{0};
