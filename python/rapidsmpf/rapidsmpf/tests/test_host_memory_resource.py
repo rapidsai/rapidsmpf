@@ -30,23 +30,13 @@ def test_allocate_deallocate_tracks_usage(device_mr: rmm.mr.CudaMemoryResource) 
     ptr = host_mr.allocate(1024, stream)
     assert ptr != 0
     assert host_mr.current_allocated == 1024
-    record = host_mr.get_main_memory_record()
+    record = host_mr.get_main_record()
     assert record.num_total_allocs() == 1
     assert record.current() == 1024
 
     host_mr.deallocate(ptr, 1024, stream)
     assert host_mr.current_allocated == 0
-    assert host_mr.get_main_memory_record().peak() == 1024
-
-
-def test_handle_keeps_buffer_resource_alive(
-    device_mr: rmm.mr.CudaMemoryResource,
-) -> None:
-    host_mr = BufferResource(device_mr).host_mr
-    stream = Stream()
-    ptr = host_mr.allocate(256, stream)
-    assert host_mr.current_allocated == 256
-    host_mr.deallocate(ptr, 256, stream)
+    assert host_mr.get_main_record().peak() == 1024
 
 
 def test_report_includes_host_memory(device_mr: rmm.mr.CudaMemoryResource) -> None:

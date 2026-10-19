@@ -102,7 +102,7 @@ cdef class HostMemoryResource:
             ret = self._handle.value().current_allocated()
         return ret
 
-    def get_main_memory_record(self):
+    def get_main_record(self):
         """
         Returns a copy of the main memory record.
 

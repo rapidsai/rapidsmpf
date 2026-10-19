@@ -263,11 +263,11 @@ cdef class Statistics:
             report. When ``None``, the memory profiling section shows
             "Disabled".
         pinned_mr
-            When provided, a pinned memory section is included in the
+            When provided alongside ``mr``, a pinned memory section is included in the
             report. Obtain the handle from
             :attr:`rapidsmpf.memory.buffer_resource.BufferResource.pinned_mr`.
         host_mr
-            When provided, a pageable-host memory main record is included in
+            When provided alongside ``mr``, a pageable-host memory main record is included in
             the report. Obtain the handle from
             :attr:`rapidsmpf.memory.buffer_resource.BufferResource.host_mr`.
         header
