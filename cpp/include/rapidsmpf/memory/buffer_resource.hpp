@@ -415,7 +415,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @brief Try to reserve memory from the given order of memory types.
      *
      * @param size The size of the memory to reserve.
-     * @param mem_types Memory types to try in preference order.
+     * @param mem_types Memory types to try in descending priority.
      * @return A full reservation, or `std::nullopt` if none is immediately available.
      */
     template <std::ranges::input_range Range>
@@ -456,12 +456,12 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     /**
      * @brief Try to reserve memory, spilling device memory when necessary.
      *
-     * Tries the requested memory types in preference order. A device reservation is
+     * Tries the requested memory types in descending priority. A device reservation is
      * retained while lower memory tiers are tried; if none are immediately available,
      * device memory is spilled and retried up to @p num_spill_retries times.
      *
      * @param size The size of the memory to reserve.
-     * @param mem_types Memory types to try in preference order.
+     * @param mem_types Memory types to try in descending priority.
      * @param num_spill_retries Maximum number of device spill attempts.
      * @return A full reservation, or `std::nullopt` if no reservation can be satisfied.
      * @throws std::invalid_argument if @p mem_types is empty.
@@ -542,10 +542,10 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     }
 
     /**
-     * @brief Make a memory reservation or fail based on the given order of memory types.
+     * @brief Make a memory reservation or fail based on descending priority of memory types.
      *
      * @param size The size of the buffer to allocate.
-     * @param mem_types Range of memory types to try in preference order.
+     * @param mem_types Range of memory types to try in descending priority.
      * @return A memory reservation.
      * @throws std::runtime_error if no memory reservation was made.
      */

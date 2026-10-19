@@ -45,7 +45,7 @@ class ChunksToSend {
      * chunk, and leaves all subsequent chunks queued.
      *
      * @param br The buffer resource used to restore disk-backed data.
-     * @param memory_types Addressable memory types to try in preference order.
+     * @param memory_types Addressable memory types to try in descending priority.
      * @return Vector of chunks ready to send.
      */
     [[nodiscard]] std::vector<Chunk> extract_and_restore(
@@ -148,7 +148,7 @@ class ReceivedChunks {
      *
      * @param br The buffer resource for memory and disk allocations.
      * @param amount Requested amount of device data to spill in bytes.
-     * @param spillable_memory_types Non-device spill destinations in preference order.
+     * @param spillable_memory_types Non-device spill destinations in descending priority.
      * @return Actual amount of device data spilled in bytes.
      */
     [[nodiscard]] std::size_t spill(
