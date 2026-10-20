@@ -15,8 +15,10 @@
 #include <mutex>
 #include <optional>
 #include <ranges>
+#include <span>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include <cuda/memory_resource>
 #include <cuda/stream>
@@ -738,6 +740,34 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         return disk_resource_;
     }
 
+    /**
+     * @brief Memory types usable as spill destinations for device data.
+     *
+     * Derived at construction from the available resources: pinned host memory (when
+     * enabled), host memory, and disk (when a spill directory was configured), in
+     * decreasing order of preference.
+     *
+     * @return Span of spill destination memory types, valid for the lifetime of this
+     * buffer resource.
+     */
+    [[nodiscard]] std::span<MemoryType const> spill_target_memory_types() const noexcept {
+        return spill_target_memory_types_;
+    }
+
+    /**
+     * @brief Addressable memory types that spilled (e.g., disk-backed) data can be
+     * restored into.
+     *
+     * Derived at construction from the available resources: device memory, pinned host
+     * memory (when enabled), and host memory, in decreasing order of preference.
+     *
+     * @return Span of addressable memory types, valid for the lifetime of this buffer
+     * resource.
+     */
+    [[nodiscard]] std::span<MemoryType const> restore_memory_types() const noexcept {
+        return restore_memory_types_;
+    }
+
   private:
     /** @brief Private constructor, use `create()` or `from_options()`. */
     BufferResource(
@@ -761,6 +791,8 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     std::shared_ptr<StreamPool> stream_pool_;
     SpillManager spill_manager_;
     std::shared_ptr<Statistics> statistics_;
+    std::vector<MemoryType> spill_target_memory_types_;
+    std::vector<MemoryType> restore_memory_types_;
 };
 
 static_assert(StatisticsProvider<BufferResource>);

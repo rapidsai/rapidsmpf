@@ -56,6 +56,18 @@ BufferResource::BufferResource(
     }
     RAPIDSMPF_EXPECTS(stream_pool_ != nullptr, "the stream pool pointer cannot be NULL");
     RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
+
+    // Advertise only the memory types backed by an available resource.
+    restore_memory_types_.push_back(MemoryType::DEVICE);
+    if (pinned_mr_.has_value()) {
+        restore_memory_types_.push_back(MemoryType::PINNED_HOST);
+        spill_target_memory_types_.push_back(MemoryType::PINNED_HOST);
+    }
+    restore_memory_types_.push_back(MemoryType::HOST);
+    spill_target_memory_types_.push_back(MemoryType::HOST);
+    if (disk_resource_ != nullptr) {
+        spill_target_memory_types_.push_back(MemoryType::DISK);
+    }
 }
 
 std::shared_ptr<BufferResource> BufferResource::create(

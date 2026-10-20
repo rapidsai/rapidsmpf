@@ -113,7 +113,7 @@ class Shuffler {
     using FinishedCallback = std::function<void()>;
 
     // clang-format off
-    /// @copydoc Shuffler(std::shared_ptr<Communicator>, OpID, PartID, BufferResource*, PartitionOwner, std::unique_ptr<communicator::MetadataPayloadExchange>, std::vector<MemoryType>, std::vector<MemoryType>)
+    /// @copydoc Shuffler(std::shared_ptr<Communicator>, OpID, PartID, BufferResource*, PartitionOwner, std::unique_ptr<communicator::MetadataPayloadExchange>)
     // clang-format on
     /// @param finished_callback Callback to notify when all partitions are finished.
     Shuffler(
@@ -123,14 +123,7 @@ class Shuffler {
         BufferResource* br,
         FinishedCallback&& finished_callback,
         PartitionOwner partition_owner = round_robin,
-        std::unique_ptr<communicator::MetadataPayloadExchange> mpe = nullptr,
-        std::vector<MemoryType> spillable_memory_types = from_env_var(
-            "RAPIDSMPF_SHUFFLER_SPILLABLE_MEM_TYPES", to_vector(SPILL_TARGET_MEMORY_TYPES)
-        ),  // TODO: this is a temporary backdoor for testing disk spilling.
-        std::vector<MemoryType> reservation_memory_types = from_env_var(
-            "RAPIDSMPF_SHUFFLER_RESERVATION_MEM_TYPES",
-            to_vector(ADDRESSABLE_MEMORY_TYPES)
-        )  // TODO: this is a temporary backdoor for testing disk spilling.
+        std::unique_ptr<communicator::MetadataPayloadExchange> mpe = nullptr
     );
 
     /**
@@ -144,13 +137,10 @@ class Shuffler {
      * @param partition_owner Function to determine partition ownership.
      * @param mpe Optional custom metadata payload exchange. If not provided,
      * uses the default tag-based implementation.
-     * @param spillable_memory_types Memory types available as spill destinations, in
-     * preference order. An empty vector disables spilling. Device memory is not a valid
-     * spill destination.
-     * @param reservation_memory_types Addressable memory types available for
-     * shuffler-managed payload allocations, in preference order.
-     * @throws std::invalid_argument If @p reservation_memory_types is empty or contains
-     * a non-addressable memory type.
+     *
+     * @note Spill destinations and the memory types used to restore spilled data are
+     * taken from `BufferResource::spill_target_memory_types()` and
+     * `BufferResource::restore_memory_types()`.
      *
      * @note It is safe to reuse the `op_id` as soon as `wait` has completed
      * locally.
@@ -165,14 +155,7 @@ class Shuffler {
         PartID total_num_partitions,
         BufferResource* br,
         PartitionOwner partition_owner = round_robin,
-        std::unique_ptr<communicator::MetadataPayloadExchange> mpe = nullptr,
-        std::vector<MemoryType> spillable_memory_types = from_env_var(
-            "RAPIDSMPF_SHUFFLER_SPILLABLE_MEM_TYPES", to_vector(SPILL_TARGET_MEMORY_TYPES)
-        ),  // TODO: this is a temporary backdoor for testing disk spilling.
-        std::vector<MemoryType> reservation_memory_types = from_env_var(
-            "RAPIDSMPF_SHUFFLER_RESERVATION_MEM_TYPES",
-            to_vector(ADDRESSABLE_MEMORY_TYPES)
-        )  // TODO: this is a temporary backdoor for testing disk spilling.
+        std::unique_ptr<communicator::MetadataPayloadExchange> mpe = nullptr
     )
         : Shuffler(
               comm,
@@ -181,9 +164,7 @@ class Shuffler {
               br,
               nullptr,
               partition_owner,
-              std::move(mpe),
-              std::move(spillable_memory_types),
-              std::move(reservation_memory_types)
+              std::move(mpe)
           ) {}
 
     ~Shuffler();
@@ -198,13 +179,14 @@ class Shuffler {
     }
 
     /**
-     * @brief Whether spilling is enabled, i.e., at least one spillable memory type was
-     * configured.
+     * @brief Whether spilling is enabled, i.e., the buffer resource advertises at least
+     * one spill destination.
      *
-     * @return True if `spillable_memory_types` is non-empty, otherwise false.
+     * @return True if `BufferResource::spill_target_memory_types()` is non-empty,
+     * otherwise false.
      */
-    [[nodiscard]] constexpr bool is_spilling_enabled() const noexcept {
-        return !spillable_memory_types_.empty();
+    [[nodiscard]] bool is_spilling_enabled() const noexcept {
+        return !br_->spill_target_memory_types().empty();
     }
 
     Shuffler(Shuffler const&) = delete;
@@ -350,8 +332,6 @@ class Shuffler {
 
   private:
     BufferResource* br_;
-    std::vector<MemoryType> spillable_memory_types_;
-    std::vector<MemoryType> reservation_memory_types_;
     std::atomic<bool> active_{true};
     // Have we called `insert_finished()` on this rank.
     std::atomic<bool> locally_finished_{false};

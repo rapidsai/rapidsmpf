@@ -630,8 +630,7 @@ TEST(Shuffler, ReturnsDiskResidentChunksForCallerToUnspill) {
         total_num_partitions,
         br.get(),
         rapidsmpf::shuffler::Shuffler::round_robin,
-        nullptr,
-        {rapidsmpf::MemoryType::DISK}
+        nullptr
     );
     std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> input;
     input.emplace(0, generate_packed_data(num_rows, 0, stream, *br));
@@ -673,8 +672,7 @@ TEST(Shuffler, SpillToDiskOnInsert) {
         num_partitions,
         br.get(),
         rapidsmpf::shuffler::Shuffler::round_robin,
-        nullptr,
-        {rapidsmpf::MemoryType::DISK}
+        nullptr
     );
     std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> input;
     input.emplace(0, generate_packed_data(num_rows, 0, stream, *br));
