@@ -44,6 +44,13 @@ class ChunksToSend {
      * Extracts ready chunks in order through the first disk-backed chunk, restores that
      * chunk, and leaves all subsequent chunks queued.
      *
+     * @note Chunks are removed from the container before the disk-backed chunk is
+     * restored, and the restore runs without holding the container's mutex so concurrent
+     * `insert()` calls are not blocked. Consequently, `empty()` may return true while a
+     * restore is in progress; only the (single) caller of this method should rely on
+     * `empty()` to decide that all chunks have been handed off, and must do so after this
+     * method returns.
+     *
      * @param br The buffer resource used to restore disk-backed data.
      * @param memory_types Addressable memory types to try in descending priority.
      * @return Vector of chunks ready to send.

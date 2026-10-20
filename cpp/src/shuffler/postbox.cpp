@@ -36,32 +36,44 @@ std::vector<Chunk> ChunksToSend::extract_ready() {
 std::vector<Chunk> ChunksToSend::extract_and_restore(
     BufferResource* br, std::span<MemoryType const> memory_types
 ) {
-    std::lock_guard lock(mutex_);
     std::vector<Chunk> result;
-    for (auto&& chunk : chunks_) {
-        if (!chunk->is_ready()) {
-            break;
+    {
+        // Only move chunks out while holding the mutex. The (slow) disk read and any
+        // spilling it triggers must not block concurrent `insert()` calls.
+        std::lock_guard lock(mutex_);
+        for (auto&& chunk : chunks_) {
+            if (!chunk->is_ready()) {
+                break;
+            }
+            if (!chunk->is_on_disk()) {
+                auto c = std::move(chunk);
+                result.emplace_back(std::move(*c));
+            } else if (br->spill_manager().spilling_now()) {
+                // Restoring now would compete with the ongoing spill for addressable
+                // memory. Leave the chunk queued, it is retried on the next call.
+                break;
+            } else {
+                // Stop after the first disk-backed chunk because restoring is slow and
+                // introduces memory pressure for addressable memory. It is therefore
+                // always the last element of `result`.
+                auto c = std::move(chunk);
+                result.emplace_back(std::move(*c));
+                break;
+            }
         }
-        auto const restore = chunk->is_on_disk();
-        if (restore) {
-            auto reservation = br->try_reserve_or_spill(chunk->data_size(), memory_types);
-            RAPIDSMPF_EXPECTS(
-                reservation.has_value(),
-                "failed to reserve addressable memory for an outgoing disk-backed chunk",
-                std::runtime_error
-            );
-            chunk->set_data_buffer(br->move(chunk->release_data_buffer(), *reservation));
-        }
-        auto c = std::move(chunk);
-        result.emplace_back(std::move(*c));
-        if (restore) {
-            // break after the first disk-backed chunk is restored to addressable memory
-            // because restoring is slow and introduce memory pressure for addressable
-            // memory.
-            break;
-        }
+        std::erase(chunks_, nullptr);
     }
-    std::erase(chunks_, nullptr);
+
+    if (!result.empty() && result.back().is_on_disk()) {
+        auto& chunk = result.back();
+        auto reservation = br->try_reserve_or_spill(chunk.data_size(), memory_types);
+        RAPIDSMPF_EXPECTS(
+            reservation.has_value(),
+            "failed to reserve addressable memory for an outgoing disk-backed chunk",
+            std::runtime_error
+        );
+        chunk.set_data_buffer(br->move(chunk.release_data_buffer(), *reservation));
+    }
     return result;
 }
 

@@ -542,7 +542,8 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     }
 
     /**
-     * @brief Make a memory reservation or fail based on descending priority of memory types.
+     * @brief Make a memory reservation or fail based on descending priority of memory
+     * types.
      *
      * @param size The size of the buffer to allocate.
      * @param mem_types Range of memory types to try in descending priority.
