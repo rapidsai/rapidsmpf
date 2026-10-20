@@ -77,6 +77,12 @@ std::shared_ptr<BufferResource> BufferResource::create(
     std::optional<PinnedMemoryResource> pinned_mr;
     if (pinned_pool_properties.has_value()) {
         RAPIDSMPF_EXPECTS(
+            !pinned_pool_properties->max_pool_size.has_value()
+                || *pinned_pool_properties->max_pool_size > 0,
+            "PinnedPoolProperties::max_pool_size must be greater than zero",
+            std::invalid_argument
+        );
+        RAPIDSMPF_EXPECTS(
             is_pinned_memory_resources_supported(),
             "pinned host memory was requested (via `PinnedPoolProperties`) but is not "
             "supported on this system. "
@@ -84,12 +90,6 @@ std::shared_ptr<BufferResource> BufferResource::create(
             " is one of the requirements, but additional platform or driver constraints "
             "may apply. Pass `PinnedMemoryDisabled` to disable pinned host memory.",
             std::runtime_error
-        );
-        RAPIDSMPF_EXPECTS(
-            !pinned_pool_properties->max_pool_size.has_value()
-                || *pinned_pool_properties->max_pool_size > 0,
-            "PinnedPoolProperties::max_pool_size must be greater than zero",
-            std::invalid_argument
         );
         pinned_mr = PinnedMemoryResource{*pinned_pool_properties};
     }
