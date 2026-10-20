@@ -34,7 +34,7 @@ void AllGather::insert(std::uint64_t sequence_number, PackedData&& packed_data) 
     auto const headroom = br_->memory_available(MemoryType::DEVICE);
     if (headroom < 0 && chunk->memory_type() == MemoryType::DEVICE) {
         if (auto reservation =
-                br_->try_reserve(chunk->data_size(), spillable_memory_types_))
+                br_->try_reserve(chunk->data_size(), br_->spill_target_memory_types()))
         {
             chunk->attach_data_buffer(
                 br_->move(chunk->release_data_buffer(), *reservation)
@@ -103,7 +103,7 @@ void AllGather::wait(std::chrono::milliseconds timeout) {
 }
 
 std::size_t AllGather::spill(std::optional<std::size_t> amount) {
-    if (spillable_memory_types_.empty()) {
+    if (br_->spill_target_memory_types().empty()) {
         return 0;
     }
     std::size_t spill_need{0};
@@ -116,10 +116,12 @@ std::size_t AllGather::spill(std::optional<std::size_t> amount) {
     std::size_t spilled{0};
     if (spill_need > 0) {
         // Spill from ready post box then inserted postbox
-        spilled = for_extraction_.spill(br_, spill_need, spillable_memory_types_);
+        spilled =
+            for_extraction_.spill(br_, spill_need, br_->spill_target_memory_types());
         if (spilled < spill_need) {
-            spilled +=
-                inserted_.spill(br_, spill_need - spilled, spillable_memory_types_);
+            spilled += inserted_.spill(
+                br_, spill_need - spilled, br_->spill_target_memory_types()
+            );
         }
     }
     return spilled;
@@ -138,43 +140,16 @@ AllGather::AllGather(
     std::shared_ptr<Communicator> comm,
     OpID op_id,
     BufferResource* br,
-    std::function<void(void)>&& finished_callback,
-    std::vector<MemoryType> spillable_memory_types,
-    std::vector<MemoryType> reservation_memory_types
+    std::function<void(void)>&& finished_callback
 )
     : comm_{std::move(comm)},
       br_{br},
-      spillable_memory_types_{std::move(spillable_memory_types)},
-      reservation_memory_types_{std::move(reservation_memory_types)},
       finished_callback_{std::move(finished_callback)},
       finish_counter_{comm_->nranks()},
       op_id_{op_id},
       remote_finish_counter_{comm_->nranks() - 1} {
     RAPIDSMPF_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be NULL");
     RAPIDSMPF_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be NULL");
-    RAPIDSMPF_EXPECTS(
-        !reservation_memory_types_.empty(),
-        "reservation_memory_types cannot be empty",
-        std::invalid_argument
-    );
-    RAPIDSMPF_EXPECTS(
-        std::ranges::all_of(
-            reservation_memory_types_,
-            [](auto mem_type) { return contains(ADDRESSABLE_MEMORY_TYPES, mem_type); }
-        ),
-        "reservation_memory_types contains a non-addressable memory type",
-        std::invalid_argument
-    );
-    RAPIDSMPF_EXPECTS(
-        std::ranges::all_of(
-            spillable_memory_types_,
-            [](auto mem_type) {
-                return mem_type != MemoryType::DEVICE && contains(MEMORY_TYPES, mem_type);
-            }
-        ),
-        "spillable_memory_types contains an invalid spill destination",
-        std::invalid_argument
-    );
     function_id_ =
         comm_->progress_thread()->add_function([this]() { return event_loop(); });
     spill_function_id_ = br_->spill_manager().add_spill_function(
@@ -256,7 +231,8 @@ ProgressThread::ProgressState AllGather::event_loop() {
         }
     } else {
         // Chunks that are ready to send
-        for (auto&& chunk : inserted_.extract_and_restore(br_, reservation_memory_types_))
+        for (auto&& chunk :
+             inserted_.extract_and_restore(br_, br_->restore_memory_types()))
         {
             // Tell the destination about them. All messages (data + finish) share
             // metadata_tag so the no-overtaking guarantee on a single (src, tag) pair
@@ -293,7 +269,8 @@ ProgressThread::ProgressState AllGather::event_loop() {
             if (!msg) {
                 break;
             }
-            auto chunk = detail::Chunk::deserialize(*msg, br_, reservation_memory_types_);
+            auto chunk =
+                detail::Chunk::deserialize(*msg, br_, br_->restore_memory_types());
             if (chunk->is_finish()) {
                 remote_finish_counter_--;
                 num_expected_messages_ += chunk->sequence();

@@ -23,7 +23,6 @@
 #include <rapidsmpf/memory/spill_manager.hpp>
 #include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/utils/misc.hpp>
-#include <rapidsmpf/utils/string.hpp>
 
 /**
  * @namespace rapidsmpf::coll
@@ -107,12 +106,10 @@ class AllGather {
      * @param finished_callback Optional callback run when partitions are locally
      * finished. The callback is guaranteed to be called by the progress thread exactly
      * once when the allgather is locally ready.
-     * @param spillable_memory_types Memory types available as spill destinations, in
-     * preference order. An empty vector disables spilling. Device memory is not valid.
-     * @param reservation_memory_types Addressable memory types available for
-     * allgather-managed payload allocations, in preference order.
-     * @throws std::invalid_argument If either list contains an invalid memory type, or
-     * if @p reservation_memory_types is empty.
+     *
+     * @note Spill destinations and the memory types used to restore spilled data are
+     * taken from `BufferResource::spill_target_memory_types()` and
+     * `BufferResource::restore_memory_types()`.
      *
      * @note It is safe to reuse the `op_id` as soon as `wait_and_extract` has completed
      * locally.
@@ -125,15 +122,7 @@ class AllGather {
         std::shared_ptr<Communicator> comm,
         OpID op_id,
         BufferResource* br,
-        std::function<void(void)>&& finished_callback = nullptr,
-        std::vector<MemoryType> spillable_memory_types = from_env_var(
-            "RAPIDSMPF_ALLGATHER_SPILLABLE_MEM_TYPES",
-            to_vector(SPILL_TARGET_MEMORY_TYPES)
-        ),
-        std::vector<MemoryType> reservation_memory_types = from_env_var(
-            "RAPIDSMPF_ALLGATHER_RESERVATION_MEM_TYPES",
-            to_vector(ADDRESSABLE_MEMORY_TYPES)
-        )
+        std::function<void(void)>&& finished_callback = nullptr
     );
 
     /// @brief Deleted copy constructor.
@@ -209,9 +198,6 @@ class AllGather {
 
     std::shared_ptr<Communicator> comm_;  ///< Communicator
     BufferResource* br_;  ///< Buffer resource for memory allocation
-    std::vector<MemoryType> const spillable_memory_types_;  ///< Spill destinations
-    std::vector<MemoryType> const
-        reservation_memory_types_;  ///< Payload allocation tiers
     std::function<void(void)> finished_callback_{
         nullptr
     };  ///< Optional callback to run when allgather is finished and ready for extraction.

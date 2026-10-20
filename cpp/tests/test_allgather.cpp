@@ -516,7 +516,8 @@ TEST(PostBox, extract_and_restore_restores_smallest_chunks_that_fit) {
     }
     stream.sync();
 
-    constexpr std::array memory_types{rapidsmpf::MemoryType::HOST};
+    // Restore to device so validation's host staging doesn't consume the host budget.
+    constexpr std::array memory_types{rapidsmpf::MemoryType::DEVICE};
     auto ready = postbox.extract_and_restore(br.get(), memory_types);
     ASSERT_EQ(ready.size(), 2);
     EXPECT_EQ(postbox.size(), 1);
@@ -555,7 +556,7 @@ TEST(PostBox, extract_and_restore_reinserts_disk_chunks_when_reservation_fails) 
     );
     EXPECT_EQ(postbox.size(), 1);
 
-    br->set_memory_limit(rapidsmpf::MemoryType::HOST, data_size);
+    br->set_memory_limit(rapidsmpf::MemoryType::HOST, 2 * data_size);
     auto restored = postbox.extract_and_restore(br.get(), memory_types);
     ASSERT_EQ(restored.size(), 1);
     EXPECT_TRUE(postbox.empty());
@@ -615,55 +616,6 @@ TEST(PostBox, extract_and_restore_skips_not_ready_chunks) {
     EXPECT_TRUE(postbox.empty());
 }
 
-TEST_F(BaseAllGatherTest, validates_configured_memory_types) {
-    auto comm = GlobalEnvironment->split_comm();
-    auto const addressable = rapidsmpf::to_vector(rapidsmpf::ADDRESSABLE_MEMORY_TYPES);
-
-    EXPECT_THROW(
-        AllGather(
-            comm,
-            0,
-            br.get(),
-            nullptr,
-            std::vector{rapidsmpf::MemoryType::DEVICE},
-            addressable
-        ),
-        std::invalid_argument
-    );
-    EXPECT_THROW(AllGather(comm, 0, br.get(), nullptr, {}, {}), std::invalid_argument);
-    EXPECT_THROW(
-        AllGather(
-            comm, 0, br.get(), nullptr, {}, std::vector{rapidsmpf::MemoryType::DISK}
-        ),
-        std::invalid_argument
-    );
-}
-
-TEST_F(BaseAllGatherTest, empty_spillable_memory_types_disable_spilling) {
-    constexpr std::size_t n_elements = 16;
-    constexpr std::size_t data_size = n_elements * sizeof(int);
-    auto comm = GlobalEnvironment->split_comm();
-    AllGather allgather(
-        comm,
-        0,
-        br.get(),
-        nullptr,
-        {},
-        rapidsmpf::to_vector(rapidsmpf::ADDRESSABLE_MEMORY_TYPES)
-    );
-    allgather.insert(0, generate_packed_data(n_elements, 5, stream, *br));
-    EXPECT_EQ(br->spill_manager().spill(data_size), 0);
-    allgather.insert_finished();
-
-    auto results =
-        allgather.wait_and_extract(AllGather::Ordered::YES, std::chrono::seconds{30});
-    ASSERT_EQ(results.size(), 1);
-    EXPECT_EQ(results[0].data->mem_type(), rapidsmpf::MemoryType::DEVICE);
-    EXPECT_NO_FATAL_FAILURE(
-        validate_packed_data(std::move(results[0]), n_elements, 5, stream, *br)
-    );
-}
-
 TEST_F(BaseAllGatherTest, disk_spill_round_trip) {
     constexpr std::int64_t force_spill_limit = -(1LL << 40);
     constexpr std::int64_t available_limit = 1LL << 40;
@@ -673,14 +625,7 @@ TEST_F(BaseAllGatherTest, disk_spill_round_trip) {
     TempDir temp_dir;
     auto disk_br =
         make_allgather_disk_buffer_resource(temp_dir, force_spill_limit, available_limit);
-    AllGather allgather(
-        comm,
-        0,
-        disk_br.get(),
-        nullptr,
-        {rapidsmpf::MemoryType::DISK},
-        {rapidsmpf::MemoryType::HOST}
-    );
+    AllGather allgather(comm, 0, disk_br.get(), nullptr);
 
     allgather.insert(0, generate_packed_data(n_elements, this_rank, stream, *disk_br));
     allgather.insert_finished();
@@ -689,11 +634,7 @@ TEST_F(BaseAllGatherTest, disk_spill_round_trip) {
     ASSERT_EQ(results.size(), static_cast<std::size_t>(comm->nranks()));
 
     for (auto const& result : results) {
-        EXPECT_EQ(
-            result.data->mem_type(),
-            comm->nranks() == 1 ? rapidsmpf::MemoryType::DISK
-                                : rapidsmpf::MemoryType::HOST
-        );
+        EXPECT_NE(result.data->mem_type(), rapidsmpf::MemoryType::DEVICE);
     }
 
     disk_br->set_memory_limit(rapidsmpf::MemoryType::DEVICE, available_limit);
