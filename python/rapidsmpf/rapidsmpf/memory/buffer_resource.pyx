@@ -70,8 +70,11 @@ cdef extern from * nogil:
     std::optional<rapidsmpf::HostMemoryResource>
     cpp_br_host_mr(rapidsmpf::BufferResource& br) {
         auto ref = br.host_mr();
-        // `host_mr()` always wraps a `HostMemoryResource`, so the cast cannot fail.
-        return *cuda::mr::resource_cast<rapidsmpf::HostMemoryResource>(&ref);
+        // `host_mr()` always wraps a `HostMemoryResource`, so the cast cannot fail;
+        // the check is purely defensive.
+        auto* mr = cuda::mr::resource_cast<rapidsmpf::HostMemoryResource>(&ref);
+        RAPIDSMPF_EXPECTS(mr != nullptr, "host_mr() is not a HostMemoryResource");
+        return *mr;
     }
 
     std::pair<std::unique_ptr<rapidsmpf::MemoryReservation>, std::size_t>
@@ -405,7 +408,9 @@ cdef class BufferResource:
         -------
         The pageable host memory resource.
         """
-        cdef optional[cpp_HostMemoryResource] mr = cpp_br_host_mr(deref(self._handle))
+        cdef optional[cpp_HostMemoryResource] mr
+        with nogil:
+            mr = cpp_br_host_mr(deref(self._handle))
         return HostMemoryResource.from_handle(mr.value())
 
     @property
@@ -424,9 +429,7 @@ cdef class BufferResource:
         cdef optional[cpp_PinnedMemoryResource] opt
         with nogil:
             opt = deref(self._handle).try_pinned_mr()
-        if not opt.has_value():
-            return None
-        return PinnedMemoryResource.from_handle(opt)
+        return PinnedMemoryResource.from_handle(opt) if opt.has_value() else None
 
     @property
     def spill_directory(self):
