@@ -14,10 +14,12 @@
 
 #include <rmm/mr/per_device_resource.hpp>
 
+#include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/streaming/chunks/packed_data.hpp>
 #include <rapidsmpf/streaming/core/spillable_messages.hpp>
 
+#include "../utils.hpp"
 #include "base_streaming_fixture.hpp"
 
 using namespace rapidsmpf;
@@ -125,6 +127,95 @@ TEST_F(StreamingSpillableMessages, InsertSpillExtract) {
     EXPECT_EQ(msg.get<int>(), 3);
     EXPECT_THROW(std::ignore = msgs.extract(mid2), std::out_of_range);
     EXPECT_TRUE(msgs.get_content_descriptions().empty());
+}
+
+TEST_F(StreamingSpillableMessages, SpillWithoutReservation) {
+    SpillableMessages msgs;
+    auto mid = msgs.insert(
+        create_int_msg(1, 42, MemoryType::DEVICE, ContentDescription::Spillable::YES)
+    );
+
+    br->set_memory_limit(MemoryType::HOST, 0);
+    EXPECT_EQ(msgs.spill(mid, br.get()), 0);
+    EXPECT_EQ(
+        msgs.get_content_description(mid).content_size(MemoryType::DEVICE), sizeof(int)
+    );
+
+    br->set_memory_limit(MemoryType::HOST, sizeof(int));
+    EXPECT_EQ(msgs.spill(mid, br.get()), sizeof(int));
+    EXPECT_EQ(msgs.extract(mid).get<int>(), 42);
+}
+
+TEST_F(StreamingSpillableMessages, InvalidSpillableMemoryTypes) {
+    EXPECT_THROW(
+        SpillableMessages{std::vector<MemoryType>{MemoryType::DEVICE}},
+        std::invalid_argument
+    );
+}
+
+TEST_F(StreamingSpillableMessages, SpillDisabled) {
+    SpillableMessages msgs{std::vector<MemoryType>{}};
+    auto mid = msgs.insert(
+        create_int_msg(1, 42, MemoryType::DEVICE, ContentDescription::Spillable::YES)
+    );
+    EXPECT_EQ(msgs.spill(mid, br.get()), 0);
+    EXPECT_EQ(
+        msgs.get_content_description(mid).content_size(MemoryType::DEVICE), sizeof(int)
+    );
+}
+
+TEST_F(StreamingSpillableMessages, SpillToConfiguredMemoryType) {
+    SpillableMessages msgs{std::vector<MemoryType>{MemoryType::HOST}};
+    auto mid = msgs.insert(
+        create_int_msg(1, 42, MemoryType::DEVICE, ContentDescription::Spillable::YES)
+    );
+    EXPECT_EQ(msgs.spill(mid, br.get()), sizeof(int));
+    EXPECT_EQ(
+        msgs.get_content_description(mid).content_size(MemoryType::HOST), sizeof(int)
+    );
+}
+
+TEST_F(StreamingSpillableMessages, DiskSpill) {
+    TempDir disk_dir;
+    auto disk_br = BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        PinnedMemoryDisabled,
+        {},
+        std::nullopt,
+        std::make_shared<StreamPool>(1),
+        Statistics::disabled(),
+        disk_dir.path()
+    );
+    constexpr std::size_t size = 256;
+    std::vector<std::uint8_t> expected(size);
+    for (std::size_t i = 0; i < size; ++i) {
+        expected[i] = static_cast<std::uint8_t>(i);
+    }
+    auto data =
+        disk_br->make_buffer(stream, disk_br->reserve_or_fail(size, MemoryType::DEVICE));
+    data->write_access([&](std::byte* ptr, cuda::stream_ref copy_stream) {
+        RAPIDSMPF_CUDA_TRY(cuda_memcpy_async(ptr, expected.data(), size, copy_stream));
+    });
+    data->stream().sync();
+
+    SpillableMessages msgs{std::vector<MemoryType>{MemoryType::DISK}};
+    auto mid = msgs.insert(to_message(
+        0,
+        std::make_unique<PackedData>(
+            std::make_unique<std::vector<std::uint8_t>>(1, 42), std::move(data)
+        )
+    ));
+    EXPECT_EQ(msgs.spill(mid, disk_br.get()), size);
+    EXPECT_EQ(msgs.get_content_description(mid).content_size(MemoryType::DISK), size);
+
+    // Extraction returns the message in its current (disk) memory tier.
+    auto spilled = msgs.extract(mid).release<PackedData>();
+    EXPECT_EQ(spilled.data->mem_type(), MemoryType::DISK);
+
+    auto host =
+        disk_br->make_buffer(stream, disk_br->reserve_or_fail(size, MemoryType::HOST));
+    buffer_copy(disk_br->statistics(), *host, *spilled.data, size);
+    EXPECT_EQ(host->get_storage<Buffer::HostBufferT>()->copy_to_uint8_vector(), expected);
 }
 
 TEST_F(StreamingSpillableMessages, MultiThreadedRandomInsertSpillExtract) {
