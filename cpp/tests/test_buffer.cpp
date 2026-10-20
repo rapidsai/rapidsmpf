@@ -238,3 +238,18 @@ TEST_P(BufferRebindStreamTest, ThrowsWhenLocked) {
     EXPECT_NO_THROW(buffer->rebind_stream(stream2));
     EXPECT_EQ(buffer->stream().get(), stream2.get());
 }
+
+TEST(BufferRebindStream, ThrowsOnInvalidStream) {
+    StreamPool stream_pool{1};
+    auto stream = stream_pool.get_stream();
+    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
+
+    auto [reserve, _] = br->reserve(MemoryType::DEVICE, 1_KiB, AllowOverbooking::YES);
+    auto buffer = br->make_buffer(1_KiB, stream, reserve);
+
+    EXPECT_THROW(
+        buffer->rebind_stream(cuda::stream_ref{cuda::invalid_stream}),
+        std::invalid_argument
+    );
+    EXPECT_EQ(buffer->stream().get(), stream.get());
+}
