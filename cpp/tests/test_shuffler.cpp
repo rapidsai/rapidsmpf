@@ -649,7 +649,6 @@ TEST(Shuffler, ReturnsDiskResidentChunksForCallerToUnspill) {
         std::move(extracted), br.get(), rapidsmpf::AllowOverbooking::NO
     );
     EXPECT_EQ(unspilled[0].data->mem_type(), rapidsmpf::MemoryType::DEVICE);
-    br->set_memory_limit(rapidsmpf::MemoryType::HOST, 1LL << 40);
     validate_packed_data(std::move(unspilled[0]), num_rows, 0, stream, *br);
     shuffler.insert_finished();
 }
@@ -691,7 +690,6 @@ TEST(Shuffler, SpillToDiskOnInsert) {
         std::move(extracted), br.get(), rapidsmpf::AllowOverbooking::NO
     );
     EXPECT_EQ(unspilled[0].data->mem_type(), rapidsmpf::MemoryType::DEVICE);
-    br->set_memory_limit(rapidsmpf::MemoryType::HOST, available_limit);
     validate_packed_data(std::move(unspilled[0]), num_rows, 0, stream, *br);
     shuffler.insert_finished();
 }
