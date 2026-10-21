@@ -3,146 +3,138 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef RAPIDSMPF_MEMORY_RESERVATION_RECORDER_H
-#define RAPIDSMPF_MEMORY_RESERVATION_RECORDER_H
+#pragma once
 
-#include <stdbool.h>
-#include <stddef.h>
-#include <stdint.h>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <variant>
+#include <vector>
 
-#ifdef __cplusplus
-extern "C" {
-#define RAPIDSMPF_RECORDER_NOEXCEPT noexcept
-#else
-#define RAPIDSMPF_RECORDER_NOEXCEPT
-#endif
+#include <rapidsmpf/memory/reservation_attributes.hpp>
 
-#define RAPIDSMPF_RESERVATION_RECORDER_ABI_VERSION 1U
+namespace rapidsmpf {
 
-typedef enum {
-    RAPIDSMPF_RESERVATION_ATTRIBUTE_STRING = 0,
-    RAPIDSMPF_RESERVATION_ATTRIBUTE_I64 = 1,
-    RAPIDSMPF_RESERVATION_ATTRIBUTE_BOOL = 2,
-    RAPIDSMPF_RESERVATION_ATTRIBUTE_F64 = 3
-} rapidsmpf_reservation_attribute_type;
+/** @brief Memory type encoded in reservation telemetry. */
+enum class ReservationEventMemoryType : std::uint32_t {
+    DEVICE = 0,
+    HOST = 1,
+    PINNED_HOST = 2,
+    DISK = 3
+};
 
-/** @brief Borrowed UTF-8 string valid only for the duration of a callback. */
-typedef struct {
-    char const* data;  ///< String bytes; may be NULL only when size is zero.
-    size_t size;  ///< Number of bytes, excluding any terminator.
-} rapidsmpf_string_view;
+/** @brief Policy used by a reservation request. */
+enum class ReservationRequestPolicy : std::uint32_t {
+    IMMEDIATE = 0,
+    OVERBOOK = 1,
+    SPILL = 2,
+    WAIT = 3,
+    WAIT_OR_OVERBOOK = 4,
+    WAIT_OR_FAIL = 5
+};
 
-/** @brief One borrowed reservation attribute. */
-typedef struct {
-    rapidsmpf_string_view key;  ///< Attribute key.
-    uint32_t type;  ///< A rapidsmpf_reservation_attribute_type value.
+/** @brief Terminal outcome of a reservation request. */
+enum class ReservationRequestOutcome : std::uint32_t {
+    GRANTED = 0,
+    EMPTY = 1,
+    FAILED = 2,
+    CANCELLED = 3
+};
 
-    union {
-        rapidsmpf_string_view string_value;  ///< String value.
-        int64_t i64_value;  ///< Signed integer value.
-        bool bool_value;  ///< Boolean value.
-        double f64_value;  ///< Floating-point value.
-    } value;  ///< Value selected by type.
-} rapidsmpf_reservation_attribute;
+/** @brief Reason an active reservation changed size. */
+enum class ReservationResizeReason : std::uint32_t {
+    CONSUMED = 0,
+    SPLIT_OFF = 1
+};
 
-/** @brief Borrowed attribute array valid only for the duration of a callback. */
-typedef struct {
-    rapidsmpf_reservation_attribute const* data;  ///< Attribute array.
-    size_t size;  ///< Number of attributes.
-} rapidsmpf_reservation_attributes_view;
+/** @brief Reason a reservation reached its terminal state. */
+enum class ReservationReleaseReason : std::uint32_t {
+    CLEARED = 0,
+    RELEASED_CONSUMED = 1,
+    RELEASED_SPLIT = 2
+};
 
-typedef enum {
-    RAPIDSMPF_MEMORY_DEVICE = 0,
-    RAPIDSMPF_MEMORY_HOST = 1,
-    RAPIDSMPF_MEMORY_PINNED_HOST = 2,
-    RAPIDSMPF_MEMORY_DISK = 3
-} rapidsmpf_recorder_memory_type;
+/** @brief Payload emitted when a reservation request starts. */
+struct RequestSubmittedEvent {
+    std::uint64_t id;  ///< Request identifier.
+    std::size_t size;  ///< Requested bytes.
+    std::vector<ReservationEventMemoryType> memory_types;  ///< Memory preference order.
+    ReservationRequestPolicy policy;  ///< Request policy.
+    std::optional<std::int64_t> net_memory_delta;  ///< Optional expected net change.
+    ReservationAttributeMap attributes;  ///< Owned request attributes.
+};
 
-typedef enum {
-    RAPIDSMPF_REQUEST_IMMEDIATE = 0,
-    RAPIDSMPF_REQUEST_OVERBOOK = 1,
-    RAPIDSMPF_REQUEST_SPILL = 2,
-    RAPIDSMPF_REQUEST_WAIT = 3,
-    RAPIDSMPF_REQUEST_WAIT_OR_OVERBOOK = 4,
-    RAPIDSMPF_REQUEST_WAIT_OR_FAIL = 5
-} rapidsmpf_reservation_request_policy;
+/** @brief Payload emitted when a reservation request begins waiting. */
+struct RequestWaitingEvent {
+    std::uint64_t id;  ///< Request identifier.
+};
 
-typedef enum {
-    RAPIDSMPF_REQUEST_GRANTED = 0,
-    RAPIDSMPF_REQUEST_EMPTY = 1,
-    RAPIDSMPF_REQUEST_FAILED = 2,
-    RAPIDSMPF_REQUEST_CANCELLED = 3
-} rapidsmpf_reservation_request_outcome;
+/** @brief Payload emitted when a reservation request terminates. */
+struct RequestResolvedEvent {
+    std::uint64_t id;  ///< Request identifier.
+    ReservationRequestOutcome outcome;  ///< Terminal outcome.
+    std::uint64_t reservation_id;  ///< Granted reservation identifier, or zero.
+    ReservationEventMemoryType memory_type;  ///< Granted memory type.
+    std::size_t size;  ///< Granted bytes.
+    std::size_t overbooked_bytes;  ///< Bytes granted beyond availability.
+    bool timed_out;  ///< Whether forced progress resolved the request.
+    std::string error;  ///< Failure description.
+};
 
-typedef enum {
-    RAPIDSMPF_RESERVATION_CONSUMED = 0,
-    RAPIDSMPF_RESERVATION_SPLIT_OFF = 1
-} rapidsmpf_reservation_resize_reason;
+/** @brief Payload emitted when a reservation is created. */
+struct ReservationCreatedEvent {
+    std::uint64_t id;  ///< Reservation identifier.
+    ReservationEventMemoryType memory_type;  ///< Reserved memory type.
+    std::size_t size;  ///< Initial reserved bytes.
+    ReservationAttributeMap attributes;  ///< Owned reservation attributes.
+    std::uint64_t request_id;  ///< Originating request identifier, or zero.
+    std::uint64_t parent_id;  ///< Parent reservation identifier, or zero.
+};
 
-typedef enum {
-    RAPIDSMPF_RESERVATION_CLEARED = 0,
-    RAPIDSMPF_RESERVATION_RELEASED_CONSUMED = 1,
-    RAPIDSMPF_RESERVATION_RELEASED_SPLIT = 2
-} rapidsmpf_reservation_release_reason;
+/** @brief Payload emitted when an active reservation changes size. */
+struct ReservationResizedEvent {
+    std::uint64_t id;  ///< Reservation identifier.
+    std::size_t size;  ///< Remaining reserved bytes.
+    ReservationResizeReason reason;  ///< Cause of the size change.
+};
 
-/** @brief Versioned callback table for observing reservation activity. */
-typedef struct rapidsmpf_reservation_recorder {
-    uint32_t abi_version;  ///< RAPIDSMPF_RESERVATION_RECORDER_ABI_VERSION.
-    size_t struct_size;  ///< Size of this structure in bytes.
-    void* user;  ///< Opaque callback state.
-    void (*retain_user)(void*) RAPIDSMPF_RECORDER_NOEXCEPT;  ///< Retain user state.
-    void (*release_user)(void*) RAPIDSMPF_RECORDER_NOEXCEPT;  ///< Release user state.
-    void (*request_submitted)(
-        void*,
-        uint64_t,
-        uint64_t,
-        size_t,
-        uint32_t const*,
-        size_t,
-        uint32_t,
-        bool,
-        int64_t,
-        rapidsmpf_reservation_attributes_view
-    ) RAPIDSMPF_RECORDER_NOEXCEPT;  ///< Observe request submission.
-    void (*request_waiting)(
-        void*, uint64_t, uint64_t
-    ) RAPIDSMPF_RECORDER_NOEXCEPT;  ///< Observe entry into the wait queue.
-    void (*request_resolved)(
-        void*,
-        uint64_t,
-        uint64_t,
-        uint32_t,
-        uint64_t,
-        uint32_t,
-        size_t,
-        size_t,
-        bool,
-        rapidsmpf_string_view
-    ) RAPIDSMPF_RECORDER_NOEXCEPT;  ///< Observe a terminal request outcome.
-    void (*reservation_created)(
-        void*,
-        uint64_t,
-        uint64_t,
-        uint32_t,
-        size_t,
-        rapidsmpf_reservation_attributes_view,
-        uint64_t,
-        uint64_t
-    ) RAPIDSMPF_RECORDER_NOEXCEPT;  ///< Observe reservation creation.
-    void (*reservation_resized)(
-        void*, uint64_t, uint64_t, size_t, uint32_t
-    ) RAPIDSMPF_RECORDER_NOEXCEPT;  ///< Observe a nonzero reservation resize.
-    void (*reservation_released)(
-        void*, uint64_t, uint64_t, uint32_t
-    ) RAPIDSMPF_RECORDER_NOEXCEPT;  ///< Observe reservation release.
-    void (*memory_limit_changed)(
-        void*, uint64_t, uint32_t, int64_t
-    ) RAPIDSMPF_RECORDER_NOEXCEPT;  ///< Observe an exact signed memory limit.
-} rapidsmpf_reservation_recorder;
+/** @brief Payload emitted when a reservation terminates. */
+struct ReservationReleasedEvent {
+    std::uint64_t id;  ///< Reservation identifier.
+    ReservationReleaseReason reason;  ///< Cause of release.
+};
 
-#ifdef __cplusplus
-}
-#undef RAPIDSMPF_RECORDER_NOEXCEPT
-#endif
+/** @brief Payload emitted when a configured memory limit changes. */
+struct MemoryLimitChangedEvent {
+    ReservationEventMemoryType memory_type;  ///< Changed memory type.
+    std::int64_t configured_limit;  ///< New signed configured limit.
+};
 
-#endif
+/** @brief Variant containing every reservation event payload. */
+using ReservationEventData = std::variant<
+    RequestSubmittedEvent,
+    RequestWaitingEvent,
+    RequestResolvedEvent,
+    ReservationCreatedEvent,
+    ReservationResizedEvent,
+    ReservationReleasedEvent,
+    MemoryLimitChangedEvent>;
+
+/**
+ * @brief One owned reservation event.
+ *
+ * `sequence` starts at zero for each recording session. `timestamp_ns` is the
+ * event occurrence time as Unix nanoseconds. Payload strings, vectors, and
+ * attributes are owned by the event and remain valid after the producer returns.
+ */
+struct ReservationEvent {
+    std::uint64_t sequence;  ///< Global sequence within the recording session.
+    std::int64_t timestamp_ns;  ///< Unix timestamp in nanoseconds.
+    ReservationEventData data;  ///< Owned event payload.
+};
+
+/** @brief An ordered batch removed from the in-memory event buffer. */
+using ReservationEventBatch = std::vector<ReservationEvent>;
+
+}  // namespace rapidsmpf

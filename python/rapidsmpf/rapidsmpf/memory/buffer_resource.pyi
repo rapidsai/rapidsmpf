@@ -4,7 +4,7 @@
 import os
 import pathlib
 from collections.abc import Mapping
-from typing import Self
+from typing import Literal, Self, TypedDict
 
 from rmm.pylibrmm.cuda_stream_pool import CudaStreamPool
 from rmm.pylibrmm.memory_resource import DeviceMemoryResource
@@ -21,6 +21,71 @@ from rapidsmpf.memory.pinned_memory_resource import (
 from rapidsmpf.memory.spill_manager import SpillManager
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.statistics import Statistics
+
+_ReservationAttributeValue = str | int | bool | float
+
+class _ReservationEventBase(TypedDict):
+    sequence: int
+    timestamp_ns: int
+
+class _RequestSubmittedEvent(_ReservationEventBase):
+    kind: Literal["request_submitted"]
+    id: int
+    size: int
+    memory_types: list[int]
+    policy: int
+    net_memory_delta: int | None
+    attributes: dict[str, _ReservationAttributeValue]
+
+class _RequestWaitingEvent(_ReservationEventBase):
+    kind: Literal["request_waiting"]
+    id: int
+
+class _RequestResolvedEvent(_ReservationEventBase):
+    kind: Literal["request_resolved"]
+    id: int
+    outcome: int
+    reservation_id: int
+    memory_type: int
+    size: int
+    overbooked_bytes: int
+    timed_out: bool
+    error: str
+
+class _ReservationCreatedEvent(_ReservationEventBase):
+    kind: Literal["reservation_created"]
+    id: int
+    memory_type: int
+    size: int
+    attributes: dict[str, _ReservationAttributeValue]
+    request_id: int
+    parent_id: int
+
+class _ReservationResizedEvent(_ReservationEventBase):
+    kind: Literal["reservation_resized"]
+    id: int
+    size: int
+    reason: int
+
+class _ReservationReleasedEvent(_ReservationEventBase):
+    kind: Literal["reservation_released"]
+    id: int
+    reason: int
+
+class _MemoryLimitChangedEvent(_ReservationEventBase):
+    kind: Literal["memory_limit_changed"]
+    memory_type: int
+    configured_limit: int
+
+_ReservationEvent = (
+    _RequestSubmittedEvent
+    | _RequestWaitingEvent
+    | _RequestResolvedEvent
+    | _ReservationCreatedEvent
+    | _ReservationResizedEvent
+    | _ReservationReleasedEvent
+    | _MemoryLimitChangedEvent
+)
 
 class BufferResource:
     def __init__(
@@ -61,7 +126,9 @@ class BufferResource:
     def memory_limit(self, mem_type: MemoryType) -> int: ...
     def has_memory_resource(self, mem_type: MemoryType) -> bool: ...
     def set_memory_limit(self, mem_type: MemoryType, limit: int) -> None: ...
-    def set_reservation_recorder(self, capsule: object | None) -> None: ...
+    def start_reservation_event_recording(self) -> None: ...
+    def drain_reservation_events(self) -> list[_ReservationEvent]: ...
+    def stop_reservation_event_recording(self) -> list[_ReservationEvent]: ...
     @property
     def spill_manager(self) -> SpillManager: ...
     @property

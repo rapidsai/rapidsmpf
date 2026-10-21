@@ -133,7 +133,12 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
     }
     std::array const types{mem_type_};
     detail::RequestScope scope{
-        *br_, size, types, RAPIDSMPF_REQUEST_WAIT, net_memory_delta, std::move(attributes)
+        *br_,
+        size,
+        types,
+        ReservationRequestPolicy::WAIT,
+        net_memory_delta,
+        std::move(attributes)
     };
     try {
         auto result = co_await reserve_or_wait_impl(size, net_memory_delta, scope);
@@ -248,7 +253,7 @@ MemoryReserveOrWait::reserve_or_wait_or_overbook(
         *br_,
         size,
         types,
-        RAPIDSMPF_REQUEST_WAIT_OR_OVERBOOK,
+        ReservationRequestPolicy::WAIT_OR_OVERBOOK,
         net_memory_delta,
         std::move(attributes)
     };
@@ -302,7 +307,7 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait_or_fail(
         *br_,
         size,
         types,
-        RAPIDSMPF_REQUEST_WAIT_OR_FAIL,
+        ReservationRequestPolicy::WAIT_OR_FAIL,
         net_memory_delta,
         std::move(attributes)
     };

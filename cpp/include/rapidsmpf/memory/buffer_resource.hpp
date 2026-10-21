@@ -76,7 +76,7 @@ class RequestScope {
         BufferResource& br,
         std::size_t size,
         std::span<MemoryType const> memory_types,
-        rapidsmpf_reservation_request_policy policy,
+        ReservationRequestPolicy policy,
         std::optional<std::int64_t> net_memory_delta,
         ReservationAttributes attributes
     );
@@ -100,7 +100,7 @@ class RequestScope {
 
   private:
     void resolve(
-        rapidsmpf_reservation_request_outcome outcome,
+        ReservationRequestOutcome outcome,
         ReserveResult const* result,
         bool timed_out,
         std::string const& error
@@ -209,8 +209,6 @@ class StreamPool {
  */
 class BufferResource : public std::enable_shared_from_this<BufferResource> {
   public:
-    class RecorderRegistration;
-
     /**
      * @brief Construct a `BufferResource` managed by `std::shared_ptr`.
      *
@@ -444,14 +442,34 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     void set_memory_limit(MemoryType mem_type, std::int64_t limit) noexcept;
 
     /**
-     * @brief Install, replace, or clear the process-independent recorder hook.
+     * @brief Start a new reservation event recording session.
      *
-     * The recorder is copied. Replacing or clearing waits for callbacks using the
-     * previous registration to finish before releasing its user data.
+     * Recording is disabled by default. A session starts with sequence zero and
+     * owns every payload it records.
      *
-     * @param recorder Recorder to install, or nullptr to uninstall it.
+     * @throws std::logic_error if recording is already active.
      */
-    void set_reservation_recorder(rapidsmpf_reservation_recorder const* recorder);
+    void start_reservation_event_recording();
+
+    /**
+     * @brief Atomically detach and return the events recorded so far.
+     *
+     * Recording remains active. Returns an empty batch if recording is disabled
+     * or no events have occurred since the previous drain.
+     *
+     * @returns The events recorded since the previous drain.
+     */
+    [[nodiscard]] ReservationEventBatch drain_reservation_events();
+
+    /**
+     * @brief Disable recording and atomically return the final event batch.
+     *
+     * Once this method returns, no producer can append to the stopped session.
+     * Calling it while recording is disabled returns an empty batch.
+     *
+     * @returns The final events recorded by the stopped session.
+     */
+    [[nodiscard]] ReservationEventBatch stop_reservation_event_recording();
 
     /**
      * @brief Returns the memory available to a new reservation, in bytes.
@@ -641,7 +659,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
             *this,
             size,
             types,
-            RAPIDSMPF_REQUEST_IMMEDIATE,
+            ReservationRequestPolicy::IMMEDIATE,
             std::nullopt,
             std::move(attributes)
         };
@@ -904,14 +922,14 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         std::uint64_t,
         std::size_t,
         std::span<MemoryType const>,
-        rapidsmpf_reservation_request_policy,
+        ReservationRequestPolicy,
         std::optional<std::int64_t>,
         ReservationAttributes const&
     );
     void emit_request_waiting(std::uint64_t);
     void emit_request_resolved(
         std::uint64_t,
-        rapidsmpf_reservation_request_outcome,
+        ReservationRequestOutcome,
         detail::ReserveResult const*,
         bool,
         std::string const&
@@ -919,10 +937,9 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     void emit_reservation_created(
         MemoryReservation const&, std::uint64_t request_id, std::uint64_t parent_id
     );
-    void emit_reservation_resized(
-        std::uint64_t, std::size_t, rapidsmpf_reservation_resize_reason
-    );
-    void emit_reservation_released(std::uint64_t, rapidsmpf_reservation_release_reason);
+    void emit_reservation_resized(std::uint64_t, std::size_t, ReservationResizeReason);
+    void emit_reservation_released(std::uint64_t, ReservationReleaseReason);
+    void record_reservation_event(ReservationEventData) noexcept;
     void clear_reservation(MemoryReservation&) noexcept;
     /** @brief Private constructor, use `create()` or `from_options()`. */
     BufferResource(
@@ -950,8 +967,16 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     std::shared_ptr<Statistics> statistics_;
     Duration memory_reserve_timeout_;
     AllowOverbooking allow_overbooking_by_default_;
-    std::shared_ptr<RecorderRegistration> recorder_;
-    std::mutex recorder_mutex_;
+
+    struct RecordingSession {
+        ReservationEventBatch events;
+        std::uint64_t next_sequence{0};
+        std::int64_t last_timestamp_ns{-1};
+    };
+
+    std::optional<RecordingSession> recording_;
+    std::mutex recording_mutex_;
+    std::atomic<bool> recording_enabled_{false};
     std::atomic<std::uint64_t> reservation_id_counter_{1};
     std::atomic<std::uint64_t> request_id_counter_{1};
 };

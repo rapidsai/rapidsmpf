@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -127,11 +128,58 @@ def test_reservation_attributes_validation() -> None:
         )
 
 
-def test_set_reservation_recorder_validation() -> None:
+def test_reservation_event_recording_lifecycle() -> None:
     br = BufferResource(rmm.mr.CudaMemoryResource())
-    br.set_reservation_recorder(None)
-    with pytest.raises(TypeError, match="PyCapsule"):
-        br.set_reservation_recorder(object())
+    br.set_memory_limit(MemoryType.DEVICE, 10)
+    assert br.drain_reservation_events() == []
+    assert br.stop_reservation_event_recording() == []
+
+    br.start_reservation_event_recording()
+    with pytest.raises(RuntimeError, match="already active"):
+        br.start_reservation_event_recording()
+    reservation, _ = br.reserve(
+        MemoryType.DEVICE,
+        4,
+        allow_overbooking=False,
+        attributes={"site": "python", "count": 2, "enabled": True, "ratio": 1.5},
+    )
+    first = br.drain_reservation_events()
+    assert [event["kind"] for event in first] == [
+        "request_submitted",
+        "reservation_created",
+        "request_resolved",
+    ]
+    assert [event["sequence"] for event in first] == [0, 1, 2]
+    assert all(event["timestamp_ns"] > 0 for event in first)
+    assert (
+        first[0]["timestamp_ns"] < first[1]["timestamp_ns"] < first[2]["timestamp_ns"]
+    )
+    submitted = cast("Any", first[0])
+    created = cast("Any", first[1])
+    resolved = cast("Any", first[2])
+    assert submitted["memory_types"] == [0]
+    assert submitted["policy"] == 0
+    assert submitted["net_memory_delta"] is None
+    assert submitted["attributes"] == {
+        "site": "python",
+        "count": 2,
+        "enabled": True,
+        "ratio": 1.5,
+    }
+    assert created["attributes"] == submitted["attributes"]
+    assert resolved["outcome"] == 0
+    assert br.drain_reservation_events() == []
+
+    reservation.clear()
+    br.set_memory_limit(MemoryType.DEVICE, -7)
+    final = br.stop_reservation_event_recording()
+    assert [event["kind"] for event in final] == [
+        "reservation_released",
+        "memory_limit_changed",
+    ]
+    assert [event["sequence"] for event in final] == [3, 4]
+    assert cast("Any", final[1])["configured_limit"] == -7
+    assert br.stop_reservation_event_recording() == []
 
 
 def test_memory_resource_introspection() -> None:

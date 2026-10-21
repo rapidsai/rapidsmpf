@@ -4,8 +4,6 @@
 import os
 import pathlib
 
-from cpython.object cimport PyObject
-from cpython.pycapsule cimport PyCapsule_CheckExact
 from cython cimport no_gc_clear
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int64_t
@@ -31,7 +29,8 @@ from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
 from rapidsmpf.memory.buffer cimport Buffer, cpp_Buffer
 from rapidsmpf.memory.reservation_attributes cimport (
-    cpp_ReservationAttributes, reservation_attributes_from_mapping)
+    cpp_ReservationAttributeMap, cpp_ReservationAttributes,
+    reservation_attributes_from_mapping)
 
 
 cdef extern from *:
@@ -50,20 +49,14 @@ cdef extern from *:
         );
     }
 
-    rapidsmpf_reservation_recorder* cpp_recorder_from_capsule(PyObject* capsule) {
-        char const* name = PyCapsule_GetName(capsule);
-        if (name == nullptr && PyErr_Occurred()) {
-            return nullptr;
-        }
-        return static_cast<rapidsmpf_reservation_recorder*>(
-            PyCapsule_GetPointer(capsule, name)
-        );
-    }
     """
     optional[device_async_resource_ref] cpp_make_device_async_resource_ref_from_any(
         any_resource[device_accessible]&
     ) except +ex_handler
-    cpp_reservation_recorder* cpp_recorder_from_capsule(PyObject*) except NULL
+
+
+cdef extern from "<variant>" namespace "std" nogil:
+    cdef T cpp_variant_get "std::get" [T](...)
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.host_memory_resource cimport (HostMemoryResource,
@@ -155,6 +148,110 @@ cdef extern from * nogil:
         vector[MemoryType],
         cpp_ReservationAttributes,
     ) except +ex_handler
+
+
+cdef object _reservation_attributes_to_dict(cpp_ReservationAttributeMap attributes):
+    cdef dict result = {}
+    cdef object value
+    for item in attributes:
+        if item.second.index() == 0:
+            value = cpp_variant_get[string](item.second).decode()
+        elif item.second.index() == 1:
+            value = cpp_variant_get[int64_t](item.second)
+        elif item.second.index() == 2:
+            value = bool(cpp_variant_get[bool_t](item.second))
+        else:
+            value = cpp_variant_get[double](item.second)
+        result[item.first.decode()] = value
+    return result
+
+
+cdef dict _reservation_event_to_dict(cpp_ReservationEvent event):
+    cdef dict result = {
+        "sequence": event.sequence,
+        "timestamp_ns": event.timestamp_ns,
+    }
+    cdef cpp_RequestSubmittedEvent submitted
+    cdef cpp_RequestWaitingEvent waiting
+    cdef cpp_RequestResolvedEvent resolved
+    cdef cpp_ReservationCreatedEvent created
+    cdef cpp_ReservationResizedEvent resized
+    cdef cpp_ReservationReleasedEvent released
+    cdef cpp_MemoryLimitChangedEvent limit
+    cdef list memory_types
+    cdef size_t index = event.data.index()
+    if index == 0:
+        submitted = cpp_variant_get[cpp_RequestSubmittedEvent](event.data)
+        memory_types = []
+        for memory_type in submitted.memory_types:
+            memory_types.append(<unsigned int>memory_type)
+        result.update({
+            "kind": "request_submitted",
+            "id": submitted.id,
+            "size": submitted.size,
+            "memory_types": memory_types,
+            "policy": <unsigned int>submitted.policy,
+            "net_memory_delta": (
+                submitted.net_memory_delta.value()
+                if submitted.net_memory_delta.has_value()
+                else None
+            ),
+            "attributes": _reservation_attributes_to_dict(submitted.attributes),
+        })
+    elif index == 1:
+        waiting = cpp_variant_get[cpp_RequestWaitingEvent](event.data)
+        result.update({"kind": "request_waiting", "id": waiting.id})
+    elif index == 2:
+        resolved = cpp_variant_get[cpp_RequestResolvedEvent](event.data)
+        result.update({
+            "kind": "request_resolved",
+            "id": resolved.id,
+            "outcome": <unsigned int>resolved.outcome,
+            "reservation_id": resolved.reservation_id,
+            "memory_type": <unsigned int>resolved.memory_type,
+            "size": resolved.size,
+            "overbooked_bytes": resolved.overbooked_bytes,
+            "timed_out": bool(resolved.timed_out),
+            "error": resolved.error.decode(),
+        })
+    elif index == 3:
+        created = cpp_variant_get[cpp_ReservationCreatedEvent](event.data)
+        result.update({
+            "kind": "reservation_created",
+            "id": created.id,
+            "memory_type": <unsigned int>created.memory_type,
+            "size": created.size,
+            "attributes": _reservation_attributes_to_dict(created.attributes),
+            "request_id": created.request_id,
+            "parent_id": created.parent_id,
+        })
+    elif index == 4:
+        resized = cpp_variant_get[cpp_ReservationResizedEvent](event.data)
+        result.update({
+            "kind": "reservation_resized",
+            "id": resized.id,
+            "size": resized.size,
+            "reason": <unsigned int>resized.reason,
+        })
+    elif index == 5:
+        released = cpp_variant_get[cpp_ReservationReleasedEvent](event.data)
+        result.update({
+            "kind": "reservation_released",
+            "id": released.id,
+            "reason": <unsigned int>released.reason,
+        })
+    else:
+        limit = cpp_variant_get[cpp_MemoryLimitChangedEvent](event.data)
+        result.update({
+            "kind": "memory_limit_changed",
+            "memory_type": <unsigned int>limit.memory_type,
+            "configured_limit": limit.configured_limit,
+        })
+    return result
+
+
+cdef list _reservation_event_batch_to_list(cpp_ReservationEventBatch batch):
+    return [_reservation_event_to_dict(event) for event in batch]
 
 
 @no_gc_clear
@@ -580,20 +677,29 @@ cdef class BufferResource:
         with nogil:
             deref(self._handle).set_memory_limit(mem_type, limit)
 
-    def set_reservation_recorder(self, capsule):
-        """
-        Install a reservation recorder from a PyCapsule, or unset it with ``None``.
-
-        The capsule must point to a ``rapidsmpf_reservation_recorder`` C struct.
-        The C++ buffer resource retains the recorder's user state independently.
-        """
-        cdef cpp_reservation_recorder* recorder = NULL
-        if capsule is not None:
-            if not PyCapsule_CheckExact(capsule):
-                raise TypeError("recorder must be a PyCapsule or None")
-            recorder = cpp_recorder_from_capsule(<PyObject*>capsule)
+    def start_reservation_event_recording(self):
+        """Start a reservation event recording session."""
         with nogil:
-            deref(self._handle).set_reservation_recorder(recorder)
+            deref(self._handle).start_reservation_event_recording()
+
+    def drain_reservation_events(self):
+        """
+        Atomically return events recorded so far while keeping recording active.
+
+        Each event is an owned dictionary containing ``sequence``, ``timestamp_ns``,
+        ``kind``, and the fields for that event kind.
+        """
+        cdef cpp_ReservationEventBatch batch
+        with nogil:
+            batch = deref(self._handle).drain_reservation_events()
+        return _reservation_event_batch_to_list(move(batch))
+
+    def stop_reservation_event_recording(self):
+        """Disable recording and return the final owned event batch."""
+        cdef cpp_ReservationEventBatch batch
+        with nogil:
+            batch = deref(self._handle).stop_reservation_event_recording()
+        return _reservation_event_batch_to_list(move(batch))
 
     def reserve(
         self,

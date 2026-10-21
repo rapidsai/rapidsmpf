@@ -3,13 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
 #include <array>
 #include <atomic>
-#include <condition_variable>
-#include <mutex>
-#include <set>
-#include <string>
+#include <chrono>
+#include <cstdint>
 #include <thread>
+#include <variant>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -22,235 +22,37 @@ using namespace rapidsmpf;
 
 namespace {
 
-struct RecorderState {
-    std::mutex mutex;
-    std::condition_variable cv;
-    std::vector<std::string> events;
-    std::vector<std::uint64_t> sequences;
-    int retains{0};
-    int releases{0};
-    bool block_limit{false};
-    bool in_limit{false};
-    std::vector<std::int64_t> limits;
-    std::vector<std::size_t> submitted_attribute_counts;
-    std::vector<std::size_t> created_attribute_counts;
-    std::set<std::uint32_t> submitted_attribute_types;
-    std::vector<std::vector<std::uint32_t>> submitted_memory_types;
-    std::vector<std::uint32_t> resolved_memory_types;
-    std::vector<std::uint32_t> created_memory_types;
-};
-
-void retain(void* user) noexcept {
-    static_cast<RecorderState*>(user)->retains++;
-}
-
-void release(void* user) noexcept {
-    static_cast<RecorderState*>(user)->releases++;
-}
-
-void add(RecorderState& state, std::uint64_t sequence, std::string event) {
-    std::lock_guard lock(state.mutex);
-    state.sequences.push_back(sequence);
-    state.events.push_back(std::move(event));
-}
-
-void submitted(
-    void* user,
-    std::uint64_t sequence,
-    std::uint64_t,
-    std::size_t,
-    std::uint32_t const* memory_types,
-    std::size_t memory_type_count,
-    std::uint32_t,
-    bool,
-    std::int64_t,
-    rapidsmpf_reservation_attributes_view attributes
-) noexcept {
-    auto& state = *static_cast<RecorderState*>(user);
-    {
-        std::lock_guard lock(state.mutex);
-        state.submitted_attribute_counts.push_back(attributes.size);
-        state.submitted_memory_types.emplace_back(
-            memory_types, memory_types + memory_type_count
-        );
-        for (std::size_t i = 0; i < attributes.size; ++i) {
-            state.submitted_attribute_types.insert(attributes.data[i].type);
-        }
-    }
-    add(state, sequence, "submitted");
-}
-
-void resolved(
-    void* user,
-    std::uint64_t sequence,
-    std::uint64_t,
-    std::uint32_t outcome,
-    std::uint64_t,
-    std::uint32_t memory_type,
-    std::size_t,
-    std::size_t,
-    bool,
-    rapidsmpf_string_view
-) noexcept {
-    static constexpr char const* names[] = {"granted", "empty", "failed", "cancelled"};
-    auto& state = *static_cast<RecorderState*>(user);
-    {
-        std::lock_guard lock(state.mutex);
-        state.resolved_memory_types.push_back(memory_type);
-    }
-    add(state, sequence, outcome < std::size(names) ? names[outcome] : "unknown");
-}
-
-void created(
-    void* user,
-    std::uint64_t sequence,
-    std::uint64_t,
-    std::uint32_t memory_type,
-    std::size_t,
-    rapidsmpf_reservation_attributes_view attributes,
-    std::uint64_t,
-    std::uint64_t parent
-) noexcept {
-    auto& state = *static_cast<RecorderState*>(user);
-    {
-        std::lock_guard lock(state.mutex);
-        state.created_attribute_counts.push_back(attributes.size);
-        state.created_memory_types.push_back(memory_type);
-    }
-    add(state, sequence, parent == 0 ? "created" : "split-created");
-}
-
-void resized(
-    void* user, std::uint64_t sequence, std::uint64_t, std::size_t, std::uint32_t reason
-) noexcept {
-    add(*static_cast<RecorderState*>(user),
-        sequence,
-        reason == RAPIDSMPF_RESERVATION_SPLIT_OFF ? "split-off" : "consumed");
-}
-
-void released_reservation(
-    void* user, std::uint64_t sequence, std::uint64_t, std::uint32_t reason
-) noexcept {
-    add(*static_cast<RecorderState*>(user),
-        sequence,
-        reason == RAPIDSMPF_RESERVATION_CLEARED ? "cleared" : "released");
-}
-
-void limit_changed(
-    void* user, std::uint64_t sequence, std::uint32_t, std::int64_t limit
-) noexcept {
-    auto& state = *static_cast<RecorderState*>(user);
-    std::unique_lock lock(state.mutex);
-    state.sequences.push_back(sequence);
-    state.events.push_back("limit");
-    state.limits.push_back(limit);
-    state.in_limit = true;
-    state.cv.notify_all();
-    state.cv.wait(lock, [&] { return !state.block_limit; });
-}
-
-rapidsmpf_reservation_recorder recorder(RecorderState& state) {
-    rapidsmpf_reservation_recorder ret{};
-    ret.abi_version = RAPIDSMPF_RESERVATION_RECORDER_ABI_VERSION;
-    ret.struct_size = sizeof(ret);
-    ret.user = &state;
-    ret.retain_user = retain;
-    ret.release_user = release;
-    ret.request_submitted = submitted;
-    ret.request_resolved = resolved;
-    ret.reservation_created = created;
-    ret.reservation_resized = resized;
-    ret.reservation_released = released_reservation;
-    ret.memory_limit_changed = limit_changed;
-    return ret;
-}
-
-TEST(ReservationRecorder, RequestAndReservationLifecycleIsSequenced) {
-    auto br = BufferResource::create(
+std::shared_ptr<BufferResource> make_resource(std::int64_t device_limit = 1024) {
+    return BufferResource::create(
         rmm::mr::get_current_device_resource_ref(),
         PinnedMemoryDisabled,
-        {{MemoryType::DEVICE, 1024}}
+        {{MemoryType::DEVICE, device_limit}}
     );
-    RecorderState state;
-    auto callbacks = recorder(state);
-    br->set_reservation_recorder(&callbacks);
-
-    auto [reservation, overbooked] =
-        br->reserve(MemoryType::DEVICE, 100, AllowOverbooking::NO);
-    EXPECT_EQ(overbooked, 0);
-    auto child = reservation.split(40);
-    br->release(child, 10);
-    child.clear();
-    reservation.clear();
-
-    EXPECT_EQ(
-        state.events,
-        (std::vector<std::string>{
-            "submitted",
-            "created",
-            "granted",
-            "split-off",
-            "split-created",
-            "consumed",
-            "cleared",
-            "cleared"
-        })
-    );
-    for (std::size_t i = 0; i < state.sequences.size(); ++i) {
-        EXPECT_EQ(state.sequences[i], i);
-    }
-    EXPECT_NE(reservation.id(), child.id());
-    br->set_reservation_recorder(nullptr);
-    EXPECT_EQ(state.retains, 1);
-    EXPECT_EQ(state.releases, 1);
 }
 
-TEST(ReservationRecorder, ZeroByteOperationsEmitNothing) {
-    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
-    RecorderState state;
-    auto callbacks = recorder(state);
-    br->set_reservation_recorder(&callbacks);
-    auto [reservation, overbooked] =
-        br->reserve(MemoryType::DEVICE, 0, AllowOverbooking::YES);
-    EXPECT_EQ(reservation.size(), 0);
-    EXPECT_EQ(overbooked, 0);
-    EXPECT_TRUE(state.events.empty());
+TEST(ReservationEventBuffer, RecordingIsDisabledByDefault) {
+    auto br = make_resource();
+    br->set_memory_limit(MemoryType::DEVICE, 7);
+    EXPECT_TRUE(br->drain_reservation_events().empty());
+    EXPECT_TRUE(br->stop_reservation_event_recording().empty());
 }
 
-TEST(ReservationRecorder, PublicPoliciesHaveOneTerminalOutcome) {
-    auto br = BufferResource::create(
-        rmm::mr::get_current_device_resource_ref(),
-        PinnedMemoryDisabled,
-        {{MemoryType::DEVICE, 0}, {MemoryType::HOST, 1024}}
-    );
-    RecorderState state;
-    auto callbacks = recorder(state);
-    br->set_reservation_recorder(&callbacks);
+TEST(ReservationEventBuffer, StartRejectsAnActiveSession) {
+    auto br = make_resource();
+    br->start_reservation_event_recording();
+    EXPECT_THROW(br->start_reservation_event_recording(), std::logic_error);
+    EXPECT_TRUE(br->stop_reservation_event_recording().empty());
 
-    auto [empty, _] = br->reserve(MemoryType::DEVICE, 10, AllowOverbooking::NO);
-    EXPECT_EQ(empty.size(), 0);
-    EXPECT_EQ(state.events, (std::vector<std::string>{"submitted", "empty"}));
-
-    state.events.clear();
-    std::array const types{MemoryType::DEVICE, MemoryType::HOST};
-    auto reservation = br->reserve_or_fail(10, types);
-    EXPECT_EQ(reservation.mem_type(), MemoryType::HOST);
-    EXPECT_EQ(
-        state.events, (std::vector<std::string>{"submitted", "created", "granted"})
-    );
-    EXPECT_EQ(
-        state.submitted_memory_types.back(),
-        (std::vector<std::uint32_t>{RAPIDSMPF_MEMORY_DEVICE, RAPIDSMPF_MEMORY_HOST})
-    );
-    EXPECT_EQ(state.created_memory_types.back(), RAPIDSMPF_MEMORY_HOST);
-    EXPECT_EQ(state.resolved_memory_types.back(), RAPIDSMPF_MEMORY_HOST);
+    br->start_reservation_event_recording();
+    br->set_memory_limit(MemoryType::DEVICE, 3);
+    auto events = br->stop_reservation_event_recording();
+    ASSERT_EQ(events.size(), 1);
+    EXPECT_EQ(events[0].sequence, 0);
 }
 
-TEST(ReservationRecorder, AttributesReachRequestsAndReservations) {
-    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
-    RecorderState state;
-    auto callbacks = recorder(state);
-    br->set_reservation_recorder(&callbacks);
+TEST(ReservationEventBuffer, RequestAndReservationLifecycleOwnsPayloads) {
+    auto br = make_resource();
+    br->start_reservation_event_recording();
     auto attributes =
         std::make_shared<ReservationAttributeMap const>(ReservationAttributeMap{
             {"string", std::string{"value"}},
@@ -259,63 +61,167 @@ TEST(ReservationRecorder, AttributesReachRequestsAndReservations) {
             {"floating", 1.5},
         });
 
-    auto reservation = br->reserve_or_fail(10, MemoryType::HOST, attributes);
+    auto reservation = br->reserve_or_fail(100, MemoryType::DEVICE, attributes);
+    auto child = reservation.split(40);
+    br->release(child, 10);
+    child.clear();
+    reservation.clear();
+    attributes.reset();
 
-    EXPECT_EQ(state.submitted_attribute_counts, (std::vector<std::size_t>{4}));
-    EXPECT_EQ(state.created_attribute_counts, (std::vector<std::size_t>{4}));
+    auto events = br->stop_reservation_event_recording();
+    ASSERT_EQ(events.size(), 8);
+    for (std::size_t i = 0; i < events.size(); ++i) {
+        EXPECT_EQ(events[i].sequence, i);
+        EXPECT_GT(events[i].timestamp_ns, 0);
+        if (i > 0) {
+            EXPECT_GT(events[i].timestamp_ns, events[i - 1].timestamp_ns);
+        }
+    }
+
+    auto const& submitted = std::get<RequestSubmittedEvent>(events[0].data);
+    EXPECT_EQ(submitted.id, 1);
+    EXPECT_EQ(submitted.size, 100);
     EXPECT_EQ(
-        state.submitted_attribute_types,
-        (std::set<std::uint32_t>{
-            RAPIDSMPF_RESERVATION_ATTRIBUTE_STRING,
-            RAPIDSMPF_RESERVATION_ATTRIBUTE_I64,
-            RAPIDSMPF_RESERVATION_ATTRIBUTE_BOOL,
-            RAPIDSMPF_RESERVATION_ATTRIBUTE_F64,
-        })
+        submitted.memory_types,
+        (std::vector<ReservationEventMemoryType>{ReservationEventMemoryType::DEVICE})
     );
-    EXPECT_EQ(reservation.attributes(), attributes);
+    EXPECT_EQ(submitted.policy, ReservationRequestPolicy::IMMEDIATE);
+    EXPECT_FALSE(submitted.net_memory_delta.has_value());
+    EXPECT_EQ(submitted.attributes.size(), 4);
+    EXPECT_EQ(std::get<std::string>(submitted.attributes.at("string")), "value");
+    EXPECT_EQ(std::get<std::int64_t>(submitted.attributes.at("integer")), 42);
+    EXPECT_TRUE(std::get<bool>(submitted.attributes.at("boolean")));
+    EXPECT_DOUBLE_EQ(std::get<double>(submitted.attributes.at("floating")), 1.5);
+
+    auto const& created = std::get<ReservationCreatedEvent>(events[1].data);
+    EXPECT_EQ(created.memory_type, ReservationEventMemoryType::DEVICE);
+    EXPECT_EQ(created.size, 100);
+    EXPECT_EQ(created.request_id, submitted.id);
+    EXPECT_EQ(created.parent_id, 0);
+    EXPECT_EQ(created.attributes, submitted.attributes);
+
+    auto const& resolved = std::get<RequestResolvedEvent>(events[2].data);
+    EXPECT_EQ(resolved.outcome, ReservationRequestOutcome::GRANTED);
+    EXPECT_EQ(resolved.reservation_id, created.id);
+    EXPECT_EQ(resolved.memory_type, ReservationEventMemoryType::DEVICE);
+    EXPECT_EQ(resolved.size, 100);
+    EXPECT_EQ(resolved.overbooked_bytes, 0);
+    EXPECT_FALSE(resolved.timed_out);
+    EXPECT_TRUE(resolved.error.empty());
+
+    auto const& parent_resize = std::get<ReservationResizedEvent>(events[3].data);
+    EXPECT_EQ(parent_resize.id, created.id);
+    EXPECT_EQ(parent_resize.size, 60);
+    EXPECT_EQ(parent_resize.reason, ReservationResizeReason::SPLIT_OFF);
+
+    auto const& child_created = std::get<ReservationCreatedEvent>(events[4].data);
+    EXPECT_NE(child_created.id, created.id);
+    EXPECT_EQ(child_created.parent_id, created.id);
+    EXPECT_EQ(child_created.request_id, 0);
+    EXPECT_EQ(child_created.attributes, submitted.attributes);
+
+    auto const& child_resize = std::get<ReservationResizedEvent>(events[5].data);
+    EXPECT_EQ(child_resize.id, child_created.id);
+    EXPECT_EQ(child_resize.size, 30);
+    EXPECT_EQ(child_resize.reason, ReservationResizeReason::CONSUMED);
+    EXPECT_EQ(
+        std::get<ReservationReleasedEvent>(events[6].data).reason,
+        ReservationReleaseReason::CLEARED
+    );
+    EXPECT_EQ(
+        std::get<ReservationReleasedEvent>(events[7].data).reason,
+        ReservationReleaseReason::CLEARED
+    );
 }
 
-TEST(ReservationRecorder, ReplacementWaitsForInflightCallback) {
-    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
-    RecorderState state;
-    state.block_limit = true;
-    auto callbacks = recorder(state);
-    br->set_reservation_recorder(&callbacks);
+TEST(ReservationEventBuffer, EmptyFailedAndLimitEventsPreserveValues) {
+    auto br = make_resource(0);
+    br->start_reservation_event_recording();
 
-    std::thread emitter([&] { br->set_memory_limit(MemoryType::DEVICE, 7); });
-    {
-        std::unique_lock lock(state.mutex);
-        state.cv.wait(lock, [&] { return state.in_limit; });
-    }
-    std::atomic<bool> replacement_returned{false};
-    std::thread replacement([&] {
-        br->set_reservation_recorder(nullptr);
-        replacement_returned = true;
-    });
-    std::this_thread::yield();
-    EXPECT_FALSE(replacement_returned);
-    {
-        std::lock_guard lock(state.mutex);
-        state.block_limit = false;
-    }
-    state.cv.notify_all();
-    emitter.join();
-    replacement.join();
-    EXPECT_TRUE(replacement_returned);
-    EXPECT_EQ(state.releases, 1);
-}
-
-TEST(ReservationRecorder, MemoryLimitPreservesNegativeValue) {
-    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
-    RecorderState state;
-    auto callbacks = recorder(state);
-    br->set_reservation_recorder(&callbacks);
-
+    auto [empty, overbooked] = br->reserve(MemoryType::DEVICE, 10, AllowOverbooking::NO);
+    EXPECT_EQ(empty.size(), 0);
+    EXPECT_EQ(overbooked, 10);
     br->set_memory_limit(MemoryType::DEVICE, -7);
+    EXPECT_THROW(
+        static_cast<void>(br->reserve_or_fail(1, MemoryType::PINNED_HOST)),
+        std::runtime_error
+    );
 
-    EXPECT_EQ(br->memory_limit(MemoryType::DEVICE), -7);
-    EXPECT_EQ(state.events, (std::vector<std::string>{"limit"}));
-    EXPECT_EQ(state.limits, (std::vector<std::int64_t>{-7}));
+    auto events = br->stop_reservation_event_recording();
+    ASSERT_EQ(events.size(), 5);
+    EXPECT_EQ(
+        std::get<RequestResolvedEvent>(events[1].data).outcome,
+        ReservationRequestOutcome::EMPTY
+    );
+    auto const& limit = std::get<MemoryLimitChangedEvent>(events[2].data);
+    EXPECT_EQ(limit.memory_type, ReservationEventMemoryType::DEVICE);
+    EXPECT_EQ(limit.configured_limit, -7);
+    auto const& failed = std::get<RequestResolvedEvent>(events[4].data);
+    EXPECT_EQ(failed.outcome, ReservationRequestOutcome::FAILED);
+    EXPECT_NE(failed.error.find("failed to reserve memory"), std::string::npos);
+}
+
+TEST(ReservationEventBuffer, ZeroByteOperationsEmitNothing) {
+    auto br = make_resource();
+    br->start_reservation_event_recording();
+    auto [reservation, overbooked] =
+        br->reserve(MemoryType::DEVICE, 0, AllowOverbooking::YES);
+    EXPECT_EQ(reservation.size(), 0);
+    EXPECT_EQ(overbooked, 0);
+    EXPECT_TRUE(br->drain_reservation_events().empty());
+    EXPECT_TRUE(br->drain_reservation_events().empty());
+    EXPECT_TRUE(br->stop_reservation_event_recording().empty());
+}
+
+TEST(ReservationEventBuffer, ConcurrentProducersAndDrainsLoseNoEvents) {
+    auto br = make_resource();
+    br->start_reservation_event_recording();
+    constexpr std::size_t producer_count = 4;
+    constexpr std::size_t events_per_producer = 250;
+    std::atomic<std::size_t> producers_done{0};
+    std::vector<std::thread> producers;
+    for (std::size_t producer = 0; producer < producer_count; ++producer) {
+        producers.emplace_back([&, producer] {
+            for (std::size_t i = 0; i < events_per_producer; ++i) {
+                br->set_memory_limit(
+                    MemoryType::DEVICE,
+                    static_cast<std::int64_t>(producer * events_per_producer + i)
+                );
+            }
+            ++producers_done;
+        });
+    }
+
+    ReservationEventBatch events;
+    while (producers_done.load() != producer_count) {
+        auto batch = br->drain_reservation_events();
+        events.insert(
+            events.end(),
+            std::make_move_iterator(batch.begin()),
+            std::make_move_iterator(batch.end())
+        );
+        std::this_thread::yield();
+    }
+    for (auto& producer : producers) {
+        producer.join();
+    }
+    auto final = br->stop_reservation_event_recording();
+    events.insert(
+        events.end(),
+        std::make_move_iterator(final.begin()),
+        std::make_move_iterator(final.end())
+    );
+
+    ASSERT_EQ(events.size(), producer_count * events_per_producer);
+    for (std::size_t i = 0; i < events.size(); ++i) {
+        EXPECT_EQ(events[i].sequence, i);
+        if (i > 0) {
+            EXPECT_GT(events[i].timestamp_ns, events[i - 1].timestamp_ns);
+        }
+        EXPECT_TRUE(std::holds_alternative<MemoryLimitChangedEvent>(events[i].data));
+    }
+    br->set_memory_limit(MemoryType::DEVICE, 99);
+    EXPECT_TRUE(br->drain_reservation_events().empty());
 }
 
 }  // namespace

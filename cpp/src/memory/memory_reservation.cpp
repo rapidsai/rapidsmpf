@@ -33,9 +33,9 @@ MemoryReservation MemoryReservation::split(std::size_t size) {
     size_ -= size;
     MemoryReservation child{mem_type_, br_, size, br_->next_reservation_id(), attrs_};
     if (size_ == 0) {
-        br_->emit_reservation_released(id_, RAPIDSMPF_RESERVATION_RELEASED_SPLIT);
+        br_->emit_reservation_released(id_, ReservationReleaseReason::RELEASED_SPLIT);
     } else {
-        br_->emit_reservation_resized(id_, size_, RAPIDSMPF_RESERVATION_SPLIT_OFF);
+        br_->emit_reservation_resized(id_, size_, ReservationResizeReason::SPLIT_OFF);
     }
     br_->emit_reservation_created(child, 0, id_);
     return child;
