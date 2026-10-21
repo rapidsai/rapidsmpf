@@ -103,7 +103,7 @@ class MemoryReservation {
     }
 
     /**
-     * @brief Get the recorder identity carried across moves.
+     * @brief Get the telemetry identity carried across moves.
      *
      * @return Reservation identifier, or zero for an unrecorded empty reservation.
      */
@@ -129,7 +129,7 @@ class MemoryReservation {
      * @param mem_type The type of memory associated with this reservation.
      * @param br Pointer to the buffer resource managing this reservation.
      * @param size The size of the reserved memory in bytes.
-     * @param id Recorder identity.
+     * @param id Reservation telemetry identity.
      * @param attrs Immutable telemetry attributes.
      */
     MemoryReservation(

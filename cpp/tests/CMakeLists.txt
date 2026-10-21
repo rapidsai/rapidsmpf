@@ -92,7 +92,7 @@ target_sources(
           test_misc.cpp
           test_pausable_thread_loop.cpp
           test_progress_thread.cpp
-          test_reservation_recorder.cpp
+          test_reservation_event_buffer.cpp
           test_rmm_resource_adaptor.cpp
           test_shuffler.cpp
           test_shuffler_many_streams.cpp

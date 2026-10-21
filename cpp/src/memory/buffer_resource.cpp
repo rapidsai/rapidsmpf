@@ -35,7 +35,7 @@ namespace rapidsmpf {
 
 namespace {
 
-ReservationEventMemoryType recorder_memory_type(MemoryType type) {
+ReservationEventMemoryType reservation_event_memory_type(MemoryType type) {
     switch (type) {
     case MemoryType::DEVICE:
         return ReservationEventMemoryType::DEVICE;
@@ -105,7 +105,7 @@ void BufferResource::emit_request_submitted(
     std::vector<ReservationEventMemoryType> types;
     types.reserve(memory_types.size());
     for (auto type : memory_types) {
-        types.push_back(recorder_memory_type(type));
+        types.push_back(reservation_event_memory_type(type));
     }
     record_reservation_event(
         RequestSubmittedEvent{
@@ -134,7 +134,7 @@ void BufferResource::emit_request_resolved(
             outcome,
             result == nullptr ? 0 : result->reservation.id(),
             result == nullptr ? ReservationEventMemoryType::DEVICE
-                              : recorder_memory_type(result->mem_type),
+                              : reservation_event_memory_type(result->mem_type),
             result == nullptr ? 0 : result->reservation.size(),
             result == nullptr ? 0 : result->overbooked_bytes,
             timed_out,
@@ -154,7 +154,7 @@ void BufferResource::emit_reservation_created(
     record_reservation_event(
         ReservationCreatedEvent{
             reservation.id(),
-            recorder_memory_type(reservation.mem_type()),
+            reservation_event_memory_type(reservation.mem_type()),
             reservation.size(),
             copy_attributes(reservation.attributes()),
             request_id,
@@ -402,7 +402,7 @@ void BufferResource::set_memory_limit(MemoryType mem_type, std::int64_t limit) n
         limit, std::memory_order_release
     );
     record_reservation_event(
-        MemoryLimitChangedEvent{recorder_memory_type(mem_type), limit}
+        MemoryLimitChangedEvent{reservation_event_memory_type(mem_type), limit}
     );
 }
 

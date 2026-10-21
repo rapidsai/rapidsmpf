@@ -44,7 +44,7 @@ cdef extern from "<rapidsmpf/disk/disk_resource.hpp>" nogil:
     cdef cppclass cpp_DiskResource "rapidsmpf::DiskResource":
         const cpp_path& directory() noexcept
 
-cdef extern from "<rapidsmpf/memory/reservation_recorder.h>" namespace "rapidsmpf":
+cdef extern from "<rapidsmpf/memory/reservation_events.hpp>" namespace "rapidsmpf":
     cdef enum class cpp_ReservationEventMemoryType \
             "rapidsmpf::ReservationEventMemoryType"(unsigned int):
         pass
