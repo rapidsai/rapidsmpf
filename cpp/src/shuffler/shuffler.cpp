@@ -93,9 +93,7 @@ class Shuffler::Progress {
 
         // Submit outgoing chunks to the metadata payload exchange
         {
-            auto ready_chunks = shuffler_.to_send_.extract_and_restore(
-                shuffler_.br_, shuffler_.br_->restore_memory_types()
-            );
+            auto ready_chunks = shuffler_.to_send_.extract_ready();
             RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE("submit_outgoing", ready_chunks.size());
 
             if (!ready_chunks.empty()) {
@@ -331,7 +329,19 @@ void Shuffler::insert(detail::Chunk&& chunk) {
         // this is a local chunk, so we can move it straight to received.
         insert_into_received(std::move(chunk));
     } else {
-        // this is a remote chunk, so we need to send it
+        // this is a remote chunk, so we need to send it. Sending needs addressable
+        // memory, so restore disk-backed data here, in the caller's thread, rather than
+        // in the progress thread.
+        if (chunk.is_on_disk()) {
+            auto reservation =
+                br_->try_reserve_or_spill(chunk.data_size(), br_->restore_memory_types());
+            RAPIDSMPF_EXPECTS(
+                reservation.has_value(),
+                "failed to reserve addressable memory for an outgoing disk-backed chunk",
+                std::runtime_error
+            );
+            chunk.set_data_buffer(br_->move(chunk.release_data_buffer(), *reservation));
+        }
         to_send_.insert(std::make_unique<detail::Chunk>(std::move(chunk)));
     }
 }
