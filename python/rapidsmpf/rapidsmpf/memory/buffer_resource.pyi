@@ -12,6 +12,7 @@ from rmm.pylibrmm.stream import Stream
 
 from rapidsmpf.config import Options
 from rapidsmpf.memory.buffer import Buffer, MemoryType
+from rapidsmpf.memory.host_memory_resource import HostMemoryResource
 from rapidsmpf.memory.memory_reservation import MemoryReservation
 from rapidsmpf.memory.pinned_memory_resource import (
     PinnedMemoryResource,
@@ -43,6 +44,8 @@ class BufferResource:
     @property
     def device_mr(self) -> OwningDeviceMemoryResource: ...
     def device_mr_adaptor(self) -> RmmResourceAdaptor: ...
+    @property
+    def host_mr(self) -> HostMemoryResource: ...
     @property
     def spill_directory(self) -> pathlib.Path | None: ...
     @property

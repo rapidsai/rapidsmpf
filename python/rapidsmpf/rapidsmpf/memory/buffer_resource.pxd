@@ -18,6 +18,8 @@ from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.config cimport Options, cpp_Options
 from rapidsmpf.memory.buffer cimport Buffer, MemoryType, cpp_Buffer
+from rapidsmpf.memory.host_memory_resource cimport (HostMemoryResource,
+                                                    cpp_HostMemoryResource)
 from rapidsmpf.memory.memory_reservation cimport cpp_MemoryReservation
 from rapidsmpf.memory.pinned_memory_resource cimport (PinnedMemoryResource,
                                                       cpp_PinnedMemoryResource,

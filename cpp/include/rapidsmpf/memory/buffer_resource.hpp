@@ -296,7 +296,9 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @note Lifetime semantics are identical to `device_mr()`. See its
      * `@par CCCL lifetime semantics` section for details. In brief, the returned
      * `resource_ref` is non-owning. Promote it to a `any_host_resource` to extend the
-     * `BufferResource` lifetime.
+     * `BufferResource` lifetime. To obtain an owning `HostMemoryResource` handle, use
+     * `cuda::mr::resource_cast<rapidsmpf::HostMemoryResource>` on the returned ref and
+     * copy the result.
      */
     [[nodiscard]] rmm::host_async_resource_ref host_mr() noexcept;
 
