@@ -42,6 +42,20 @@ rapidsmpf_string_view string_view(std::string const& value) {
     return {value.data(), value.size()};
 }
 
+std::uint32_t recorder_memory_type(MemoryType type) {
+    switch (type) {
+    case MemoryType::DEVICE:
+        return RAPIDSMPF_MEMORY_DEVICE;
+    case MemoryType::HOST:
+        return RAPIDSMPF_MEMORY_HOST;
+    case MemoryType::PINNED_HOST:
+        return RAPIDSMPF_MEMORY_PINNED_HOST;
+    case MemoryType::DISK:
+        return RAPIDSMPF_MEMORY_DISK;
+    }
+    RAPIDSMPF_FAIL("unknown memory type", std::invalid_argument);
+}
+
 struct AttributeViews {
     std::vector<rapidsmpf_reservation_attribute> values;
 
@@ -166,7 +180,7 @@ void BufferResource::emit_request_submitted(
     std::vector<std::uint32_t> types;
     types.reserve(memory_types.size());
     for (auto type : memory_types) {
-        types.push_back(static_cast<std::uint32_t>(type));
+        types.push_back(recorder_memory_type(type));
     }
     AttributeViews attrs{attributes};
     emit(recorder_mutex_, recorder_, [&](auto const& recorder, std::uint64_t sequence) {
@@ -210,7 +224,7 @@ void BufferResource::emit_request_resolved(
                 id,
                 outcome,
                 result == nullptr ? 0 : result->reservation.id(),
-                result == nullptr ? 0 : static_cast<std::uint32_t>(result->mem_type),
+                result == nullptr ? 0 : recorder_memory_type(result->mem_type),
                 result == nullptr ? 0 : result->reservation.size(),
                 result == nullptr ? 0 : result->overbooked_bytes,
                 timed_out,
@@ -232,7 +246,7 @@ void BufferResource::emit_reservation_created(
                 recorder.user,
                 sequence,
                 reservation.id(),
-                static_cast<std::uint32_t>(reservation.mem_type()),
+                recorder_memory_type(reservation.mem_type()),
                 reservation.size(),
                 attrs,
                 request_id,
@@ -491,7 +505,7 @@ void BufferResource::set_memory_limit(MemoryType mem_type, std::int64_t limit) n
     emit(recorder_mutex_, recorder_, [=](auto const& recorder, std::uint64_t sequence) {
         if (recorder.memory_limit_changed != nullptr) {
             recorder.memory_limit_changed(
-                recorder.user, sequence, static_cast<std::uint32_t>(mem_type), limit
+                recorder.user, sequence, recorder_memory_type(mem_type), limit
             );
         }
     });

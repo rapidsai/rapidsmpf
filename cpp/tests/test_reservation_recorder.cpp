@@ -35,6 +35,9 @@ struct RecorderState {
     std::vector<std::size_t> submitted_attribute_counts;
     std::vector<std::size_t> created_attribute_counts;
     std::set<std::uint32_t> submitted_attribute_types;
+    std::vector<std::vector<std::uint32_t>> submitted_memory_types;
+    std::vector<std::uint32_t> resolved_memory_types;
+    std::vector<std::uint32_t> created_memory_types;
 };
 
 void retain(void* user) noexcept {
@@ -56,8 +59,8 @@ void submitted(
     std::uint64_t sequence,
     std::uint64_t,
     std::size_t,
-    std::uint32_t const*,
-    std::size_t,
+    std::uint32_t const* memory_types,
+    std::size_t memory_type_count,
     std::uint32_t,
     bool,
     std::int64_t,
@@ -67,6 +70,9 @@ void submitted(
     {
         std::lock_guard lock(state.mutex);
         state.submitted_attribute_counts.push_back(attributes.size);
+        state.submitted_memory_types.emplace_back(
+            memory_types, memory_types + memory_type_count
+        );
         for (std::size_t i = 0; i < attributes.size; ++i) {
             state.submitted_attribute_types.insert(attributes.data[i].type);
         }
@@ -80,23 +86,26 @@ void resolved(
     std::uint64_t,
     std::uint32_t outcome,
     std::uint64_t,
-    std::uint32_t,
+    std::uint32_t memory_type,
     std::size_t,
     std::size_t,
     bool,
     rapidsmpf_string_view
 ) noexcept {
     static constexpr char const* names[] = {"granted", "empty", "failed", "cancelled"};
-    add(*static_cast<RecorderState*>(user),
-        sequence,
-        outcome < std::size(names) ? names[outcome] : "unknown");
+    auto& state = *static_cast<RecorderState*>(user);
+    {
+        std::lock_guard lock(state.mutex);
+        state.resolved_memory_types.push_back(memory_type);
+    }
+    add(state, sequence, outcome < std::size(names) ? names[outcome] : "unknown");
 }
 
 void created(
     void* user,
     std::uint64_t sequence,
     std::uint64_t,
-    std::uint32_t,
+    std::uint32_t memory_type,
     std::size_t,
     rapidsmpf_reservation_attributes_view attributes,
     std::uint64_t,
@@ -106,6 +115,7 @@ void created(
     {
         std::lock_guard lock(state.mutex);
         state.created_attribute_counts.push_back(attributes.size);
+        state.created_memory_types.push_back(memory_type);
     }
     add(state, sequence, parent == 0 ? "created" : "split-created");
 }
@@ -228,6 +238,12 @@ TEST(ReservationRecorder, PublicPoliciesHaveOneTerminalOutcome) {
     EXPECT_EQ(
         state.events, (std::vector<std::string>{"submitted", "created", "granted"})
     );
+    EXPECT_EQ(
+        state.submitted_memory_types.back(),
+        (std::vector<std::uint32_t>{RAPIDSMPF_MEMORY_DEVICE, RAPIDSMPF_MEMORY_HOST})
+    );
+    EXPECT_EQ(state.created_memory_types.back(), RAPIDSMPF_MEMORY_HOST);
+    EXPECT_EQ(state.resolved_memory_types.back(), RAPIDSMPF_MEMORY_HOST);
 }
 
 TEST(ReservationRecorder, AttributesReachRequestsAndReservations) {
