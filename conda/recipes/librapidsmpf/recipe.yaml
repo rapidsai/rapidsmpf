@@ -134,6 +134,7 @@ outputs:
         - librmm =${{ minor_version }}
         - libpmix >=5.0,<6.0
         - libucxx ${{ ucxx_version }}
+        - ucx  # librapidsmpf.so links libucp; the version range comes from libucxx
         - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
       ignore_run_exports:
         from_package:
