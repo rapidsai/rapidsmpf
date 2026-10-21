@@ -259,6 +259,14 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     return {MemoryReservation(mem_type, this, size), overbooking};
 }
 
+MemoryReservation BufferResource::reserve_up_to(MemoryType mem_type, std::size_t size) {
+    // `reserve()` reports the total overbooking, other reservations' included, so clamp
+    // to `size` for the part this reservation added.
+    auto [reservation, overbooking] = reserve(mem_type, size, AllowOverbooking::YES);
+    release(reservation, std::min(overbooking, reservation.size()));
+    return std::move(reservation);
+}
+
 MemoryReservation BufferResource::reserve_device_memory_and_spill(
     std::size_t size, AllowOverbooking allow_overbooking
 ) {

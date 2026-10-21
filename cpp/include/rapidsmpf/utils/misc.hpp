@@ -10,6 +10,7 @@
 #include <concepts>
 #include <cstdlib>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <ranges>
 #include <source_location>
@@ -427,6 +428,43 @@ constexpr To safe_cast(
         // Floating point conversions: direct cast (well-defined overflow behavior).
         return static_cast<To>(value);
     }
+}
+
+/**
+ * @brief Adds two integers in the type of the first operand, saturating at the limits
+ * of that type instead of overflowing.
+ *
+ * @p y is first converted to @p T with `safe_cast`, so it must be representable in
+ * @p T. Only the sum saturates: to `std::numeric_limits<T>::max()` on positive overflow
+ * and to `std::numeric_limits<T>::min()` on negative overflow.
+ *
+ * @tparam T Integral type of the first operand and of the result.
+ * @tparam U Integral type of the second operand.
+ * @param x The first operand.
+ * @param y The second operand.
+ * @param loc Source location (automatically captured).
+ * @return The saturated `x + y`.
+ *
+ * @throws std::overflow_error if @p y is not representable in @p T.
+ */
+template <std::integral T, std::integral U>
+[[nodiscard]] constexpr T safe_add(
+    T const& x,
+    U const& y,
+    std::source_location const& loc = std::source_location::current()
+) {
+    auto const ry = safe_cast<T>(y, loc);
+    constexpr auto max = std::numeric_limits<T>::max();
+    constexpr auto min = std::numeric_limits<T>::min();
+    if (ry > T{0} && x > static_cast<T>(max - ry)) {
+        return max;
+    }
+    if constexpr (std::is_signed_v<T>) {
+        if (ry < T{0} && x < static_cast<T>(min - ry)) {
+            return min;
+        }
+    }
+    return static_cast<T>(x + ry);
 }
 
 }  // namespace rapidsmpf

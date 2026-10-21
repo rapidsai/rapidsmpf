@@ -405,6 +405,24 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     );
 
     /**
+     * @brief Reserve as much of the requested amount as is currently available.
+     *
+     * Unlike `reserve()`, this never overbooks: the returned reservation covers
+     * `min(size, memory_available_for_reservation(mem_type))` bytes, which may be zero.
+     *
+     * @param mem_type The target memory type.
+     * @param size The maximum number of bytes to reserve.
+     * @return A reservation of at most @p size bytes.
+     *
+     * @throws std::invalid_argument if the memory type is `MemoryType::PINNED_HOST` and
+     * the pinned memory resource is not available.
+     * @throws std::invalid_argument if the memory type is `MemoryType::DISK` and
+     * no disk resource is available.
+     * @throws std::overflow_error if @p size exceeds `INT64_MAX`.
+     */
+    [[nodiscard]] MemoryReservation reserve_up_to(MemoryType mem_type, std::size_t size);
+
+    /**
      * @brief Reserve device memory and spill if necessary.
      *
      * Attempts to reserve the requested amount of device memory. If insufficient memory

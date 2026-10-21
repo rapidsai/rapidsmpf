@@ -288,7 +288,7 @@ class PostBox {
     /**
      * @brief Insert multiple chunks into the postbox.
      *
-     * @param chunks A vector of chunks to insert.
+     * @param chunks A vector of chunks to insert. Null entries are skipped.
      */
     void insert(std::vector<std::unique_ptr<Chunk>>&& chunks);
 
@@ -305,17 +305,17 @@ class PostBox {
     /**
      * @brief Extract ready chunks and restore disk-backed data to addressable memory.
      *
-     * Returns ready chunks whose payloads are addressable, restoring ready disk-backed
-     * payloads when capacity is available in @p memory_types. Chunks that are not ready,
-     * and disk-backed chunks that cannot currently be restored, remain in the postbox.
-     * The returned chunks are not ordered.
+     * Returns all ready chunks whose payloads are addressable, plus at most one ready
+     * disk-backed chunk, the first in the postbox, whose payload is restored into
+     * @p memory_types. Chunks that are not ready, and any further disk-backed chunks,
+     * remain in the postbox. The returned chunks are not ordered.
      *
      * @param br The buffer resource used to restore disk-backed data.
      * @param memory_types Addressable memory types eligible for restoration, in
      * preference order.
      * @return A vector of chunks ready for processing.
-     * @throws std::runtime_error If no configured memory type can restore a ready
-     * disk-backed chunk after spilling.
+     * @throws std::runtime_error If no configured memory type can restore the disk-backed
+     * chunk after spilling.
      */
     [[nodiscard]] std::vector<std::unique_ptr<Chunk>> extract_and_restore(
         BufferResource* br, std::span<MemoryType const> memory_types

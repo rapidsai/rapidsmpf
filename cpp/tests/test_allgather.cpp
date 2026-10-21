@@ -393,6 +393,72 @@ TEST_F(BaseAllGatherTest, opid_reuse) {
     }
 }
 
+namespace {
+
+std::shared_ptr<rapidsmpf::BufferResource> make_allgather_disk_buffer_resource(
+    TempDir const& temp_dir, std::int64_t device_limit
+) {
+    return rapidsmpf::BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        rapidsmpf::PinnedMemoryDisabled,
+        {{rapidsmpf::MemoryType::DEVICE, device_limit}},
+        std::nullopt,
+        std::make_shared<rapidsmpf::StreamPool>(4),
+        rapidsmpf::Statistics::disabled(),
+        temp_dir.path()
+    );
+}
+
+std::unique_ptr<rapidsmpf::coll::detail::Chunk> make_allgather_disk_chunk(
+    rapidsmpf::BufferResource& br,
+    cuda::stream_ref stream,
+    std::size_t n_elements,
+    int offset
+) {
+    auto packed_data = generate_packed_data(n_elements, offset, stream, br);
+    auto reservation =
+        br.reserve_or_fail(packed_data.data->size, rapidsmpf::MemoryType::DISK);
+    packed_data.data = br.move(std::move(packed_data.data), reservation);
+    return rapidsmpf::coll::detail::Chunk::from_packed_data(
+        0, 0, rapidsmpf::coll::detail::Chunk::INVALID_RANK, std::move(packed_data)
+    );
+}
+
+}  // namespace
+
+TEST_F(BaseAllGatherTest, disk_spill_round_trip) {
+    constexpr std::int64_t force_spill_limit = -(1LL << 40);
+    constexpr std::int64_t available_limit = 1LL << 40;
+    constexpr std::size_t n_elements = 64;
+    auto const& comm = GlobalEnvironment->comm_;
+    auto const this_rank = comm->rank();
+    TempDir temp_dir;
+    auto disk_br = make_allgather_disk_buffer_resource(temp_dir, force_spill_limit);
+    AllGather allgather(comm, 0, disk_br.get(), nullptr);
+
+    allgather.insert(0, generate_packed_data(n_elements, this_rank, stream, *disk_br));
+    allgather.insert_finished();
+    auto results =
+        allgather.wait_and_extract(AllGather::Ordered::YES, std::chrono::seconds{30});
+    ASSERT_EQ(results.size(), static_cast<std::size_t>(comm->nranks()));
+
+    for (auto const& result : results) {
+        EXPECT_NE(result.data->mem_type(), rapidsmpf::MemoryType::DEVICE);
+    }
+
+    disk_br->set_memory_limit(rapidsmpf::MemoryType::DEVICE, available_limit);
+    auto restored = rapidsmpf::unspill_partitions(
+        std::move(results), disk_br.get(), rapidsmpf::AllowOverbooking::NO
+    );
+    ASSERT_EQ(restored.size(), static_cast<std::size_t>(comm->nranks()));
+    for (int rank = 0; rank < comm->nranks(); ++rank) {
+        EXPECT_EQ(restored[rank].data->mem_type(), rapidsmpf::MemoryType::DEVICE);
+        EXPECT_NO_FATAL_FAILURE(validate_packed_data(
+            std::move(restored[rank]), n_elements, rank, stream, *disk_br
+        ));
+    }
+}
+
 // Test that PostBox::spill() tracks the remaining spill need correctly across iterations,
 // rather than passing the original amount to lower_bound every time.
 //
@@ -426,47 +492,24 @@ TEST(PostBox, spill_uses_remaining_amount) {
     EXPECT_EQ(postbox.spill(br.get(), 100, rapidsmpf::SPILL_TARGET_MEMORY_TYPES), 110UL);
 }
 
-namespace {
+// Fixture for `PostBox` tests with a buffer resource that has a disk spill directory
+// and a device limit of one chunk.
+class PostBoxDiskTest : public ::testing::Test {
+  protected:
+    static constexpr std::size_t n_elements = 16;
+    static constexpr std::size_t data_size = n_elements * sizeof(int);
 
-std::shared_ptr<rapidsmpf::BufferResource> make_allgather_disk_buffer_resource(
-    TempDir const& temp_dir, std::int64_t device_limit, std::int64_t host_limit = 0
-) {
-    return rapidsmpf::BufferResource::create(
-        rmm::mr::get_current_device_resource_ref(),
-        rapidsmpf::PinnedMemoryDisabled,
-        {{rapidsmpf::MemoryType::DEVICE, device_limit},
-         {rapidsmpf::MemoryType::HOST, host_limit}},
-        std::nullopt,
-        std::make_shared<rapidsmpf::StreamPool>(4),
-        rapidsmpf::Statistics::disabled(),
-        temp_dir.path()
-    );
-}
+    void SetUp() override {
+        br = make_allgather_disk_buffer_resource(temp_dir, data_size);
+    }
 
-std::unique_ptr<rapidsmpf::coll::detail::Chunk> make_allgather_disk_chunk(
-    rapidsmpf::BufferResource& br,
-    cuda::stream_ref stream,
-    std::size_t n_elements,
-    int offset
-) {
-    auto packed_data = generate_packed_data(n_elements, offset, stream, br);
-    auto reservation =
-        br.reserve_or_fail(packed_data.data->size, rapidsmpf::MemoryType::DISK);
-    packed_data.data = br.move(std::move(packed_data.data), reservation);
-    return rapidsmpf::coll::detail::Chunk::from_packed_data(
-        0, 0, rapidsmpf::coll::detail::Chunk::INVALID_RANK, std::move(packed_data)
-    );
-}
-
-}  // namespace
-
-TEST(PostBox, spill_to_disk_preserves_payload) {
-    constexpr std::size_t n_elements = 16;
-    constexpr std::size_t data_size = n_elements * sizeof(int);
-    auto stream = cuda::stream_ref{cudaStreamLegacy};
-    TempDir temp_dir;
-    auto br = make_allgather_disk_buffer_resource(temp_dir, data_size, 1LL << 40);
+    cuda::stream_ref stream{cudaStreamLegacy};
+    TempDir temp_dir;  // Declared before `br` so it outlives the buffer resource.
+    std::shared_ptr<rapidsmpf::BufferResource> br;
     rapidsmpf::coll::detail::PostBox postbox;
+};
+
+TEST_F(PostBoxDiskTest, spill_to_disk_preserves_payload) {
     postbox.insert(
         rapidsmpf::coll::detail::Chunk::from_packed_data(
             0,
@@ -499,79 +542,37 @@ TEST(PostBox, spill_to_disk_preserves_payload) {
     );
 }
 
-TEST(PostBox, extract_and_restore_restores_smallest_chunks_that_fit) {
-    constexpr std::size_t largest_n_elements = 8;
-    constexpr std::size_t addressable_limit = largest_n_elements * sizeof(int);
-    auto stream = cuda::stream_ref{cudaStreamLegacy};
-    TempDir temp_dir;
-    auto br = make_allgather_disk_buffer_resource(
-        temp_dir, addressable_limit, addressable_limit
-    );
-    rapidsmpf::coll::detail::PostBox postbox;
-    for (auto const [n_elements, offset] : std::array<std::pair<std::size_t, int>, 3>{
-             {{largest_n_elements, 80}, {2, 20}, {4, 40}}
-         })
-    {
+TEST_F(PostBoxDiskTest, extract_and_restore_restores_one_disk_chunk_per_call) {
+    for (int offset : {10, 20, 30}) {
         postbox.insert(make_allgather_disk_chunk(*br, stream, n_elements, offset));
     }
     stream.sync();
 
-    // Restore to device so validation's host staging doesn't consume the host budget.
     constexpr std::array memory_types{rapidsmpf::MemoryType::DEVICE};
-    auto ready = postbox.extract_and_restore(br.get(), memory_types);
-    ASSERT_EQ(ready.size(), 2);
-    EXPECT_EQ(postbox.size(), 1);
-    std::ranges::sort(ready, std::less{}, [](auto const& chunk) {
-        return chunk->data_size();
-    });
-    EXPECT_NO_FATAL_FAILURE(
-        validate_packed_data(ready[0]->release(), 2, 20, stream, *br)
-    );
-    EXPECT_NO_FATAL_FAILURE(
-        validate_packed_data(ready[1]->release(), 4, 40, stream, *br)
-    );
-
-    auto remaining = postbox.extract_and_restore(br.get(), memory_types);
-    ASSERT_EQ(remaining.size(), 1);
-    EXPECT_NO_FATAL_FAILURE(
-        validate_packed_data(remaining[0]->release(), largest_n_elements, 80, stream, *br)
-    );
+    for (int offset : {10, 20, 30}) {
+        auto ready = postbox.extract_and_restore(br.get(), memory_types);
+        ASSERT_EQ(ready.size(), 1);
+        EXPECT_NO_FATAL_FAILURE(
+            validate_packed_data(ready[0]->release(), n_elements, offset, stream, *br)
+        );
+    }
     EXPECT_TRUE(postbox.empty());
 }
 
-TEST(PostBox, extract_and_restore_reinserts_disk_chunks_when_reservation_fails) {
-    constexpr std::size_t n_elements = 4;
-    constexpr std::size_t data_size = n_elements * sizeof(int);
-    auto stream = cuda::stream_ref{cudaStreamLegacy};
-    TempDir temp_dir;
-    auto br = make_allgather_disk_buffer_resource(temp_dir, data_size);
-    rapidsmpf::coll::detail::PostBox postbox;
+TEST_F(PostBoxDiskTest, extract_and_restore_throws_when_reservation_fails) {
     postbox.insert(make_allgather_disk_chunk(*br, stream, n_elements, 5));
     stream.sync();
 
-    constexpr std::array memory_types{rapidsmpf::MemoryType::HOST};
+    // No device memory left, so the disk chunk cannot be restored.
+    br->set_memory_limit(rapidsmpf::MemoryType::DEVICE, 0);
+    constexpr std::array memory_types{rapidsmpf::MemoryType::DEVICE};
     EXPECT_THROW(
         std::ignore = postbox.extract_and_restore(br.get(), memory_types),
         std::runtime_error
     );
-    EXPECT_EQ(postbox.size(), 1);
-
-    br->set_memory_limit(rapidsmpf::MemoryType::HOST, 2 * data_size);
-    auto restored = postbox.extract_and_restore(br.get(), memory_types);
-    ASSERT_EQ(restored.size(), 1);
-    EXPECT_TRUE(postbox.empty());
-    EXPECT_NO_FATAL_FAILURE(
-        validate_packed_data(restored[0]->release(), n_elements, 5, stream, *br)
-    );
 }
 
-TEST(PostBox, extract_and_restore_skips_not_ready_chunks) {
-    constexpr std::size_t n_elements = 4;
-    constexpr std::size_t data_size = n_elements * sizeof(int);
-    auto stream = cuda::stream_ref{cudaStreamLegacy};
-    TempDir temp_dir;
-    auto br = make_allgather_disk_buffer_resource(temp_dir, data_size, 1LL << 40);
-
+TEST_F(PostBoxDiskTest, extract_and_restore_skips_not_ready_chunks) {
     auto disk_chunk = make_allgather_disk_chunk(*br, stream, n_elements, 5);
     auto disk_data = disk_chunk->release_data_buffer();
     auto const path = (*disk_data->get_storage<rapidsmpf::Buffer::DiskBufferT>()).path();
@@ -596,7 +597,6 @@ TEST(PostBox, extract_and_restore_skips_not_ready_chunks) {
     );
     ASSERT_FALSE(delayed_chunk->is_ready());
 
-    rapidsmpf::coll::detail::PostBox postbox;
     postbox.insert(std::move(delayed_chunk));
     postbox.insert(std::move(disk_chunk));
 
@@ -614,38 +614,4 @@ TEST(PostBox, extract_and_restore_skips_not_ready_chunks) {
         postbox.extract_and_restore(br.get(), rapidsmpf::ADDRESSABLE_MEMORY_TYPES);
     EXPECT_EQ(remaining.size(), 1);
     EXPECT_TRUE(postbox.empty());
-}
-
-TEST_F(BaseAllGatherTest, disk_spill_round_trip) {
-    constexpr std::int64_t force_spill_limit = -(1LL << 40);
-    constexpr std::int64_t available_limit = 1LL << 40;
-    constexpr std::size_t n_elements = 64;
-    auto const& comm = GlobalEnvironment->comm_;
-    auto const this_rank = comm->rank();
-    TempDir temp_dir;
-    auto disk_br =
-        make_allgather_disk_buffer_resource(temp_dir, force_spill_limit, available_limit);
-    AllGather allgather(comm, 0, disk_br.get(), nullptr);
-
-    allgather.insert(0, generate_packed_data(n_elements, this_rank, stream, *disk_br));
-    allgather.insert_finished();
-    auto results =
-        allgather.wait_and_extract(AllGather::Ordered::YES, std::chrono::seconds{30});
-    ASSERT_EQ(results.size(), static_cast<std::size_t>(comm->nranks()));
-
-    for (auto const& result : results) {
-        EXPECT_NE(result.data->mem_type(), rapidsmpf::MemoryType::DEVICE);
-    }
-
-    disk_br->set_memory_limit(rapidsmpf::MemoryType::DEVICE, available_limit);
-    auto restored = rapidsmpf::unspill_partitions(
-        std::move(results), disk_br.get(), rapidsmpf::AllowOverbooking::NO
-    );
-    ASSERT_EQ(restored.size(), static_cast<std::size_t>(comm->nranks()));
-    for (int rank = 0; rank < comm->nranks(); ++rank) {
-        EXPECT_EQ(restored[rank].data->mem_type(), rapidsmpf::MemoryType::DEVICE);
-        EXPECT_NO_FATAL_FAILURE(validate_packed_data(
-            std::move(restored[rank]), n_elements, rank, stream, *disk_br
-        ));
-    }
 }

@@ -17,6 +17,7 @@
 
 #include <rapidsmpf/coll/utils.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf::coll::detail {
 
@@ -185,7 +186,9 @@ void PostBox::insert(std::unique_ptr<Chunk> chunk) {
 void PostBox::insert(std::vector<std::unique_ptr<Chunk>>&& chunks) {
     std::lock_guard lock(mutex_);
     std::ranges::for_each(chunks, [&](auto&& chunk) {
-        chunks_.emplace_back(std::move(chunk));
+        if (chunk != nullptr) {
+            chunks_.emplace_back(std::move(chunk));
+        }
     });
 }
 
@@ -206,95 +209,40 @@ std::vector<std::unique_ptr<Chunk>> PostBox::extract_and_restore(
     BufferResource* br, std::span<MemoryType const> memory_types
 ) {
     std::vector<std::unique_ptr<Chunk>> result;
-    std::vector<std::unique_ptr<Chunk>> disk_chunks;
-    std::size_t total_disk_size{0};
+    std::unique_ptr<Chunk> disk_chunk;
     {
+        // Only move chunks out while holding the mutex. The (slow) disk read and any
+        // spilling it triggers must not block concurrent `insert()` calls.
         std::lock_guard lock(mutex_);
         for (auto&& chunk : chunks_) {
             if (!chunk->is_ready()) {
                 continue;
             }
-            if (chunk->memory_type() == MemoryType::DISK) {
-                auto const size = safe_cast<std::size_t>(chunk->data_size());
-                total_disk_size =
-                    size > std::numeric_limits<std::size_t>::max() - total_disk_size
-                        ? std::numeric_limits<std::size_t>::max()
-                        : total_disk_size + size;
-                disk_chunks.emplace_back(std::move(chunk));
-            } else {
+            if (chunk->memory_type() != MemoryType::DISK) {
                 result.emplace_back(std::move(chunk));
+            } else if (disk_chunk == nullptr) {
+                // Only restore the first disk-backed chunk because restoring is slow and
+                // introduces memory pressure for addressable memory. The rest stay
+                // queued and are picked up by later calls.
+                disk_chunk = std::move(chunk);
             }
         }
         std::erase(chunks_, nullptr);
     }
 
-    if (disk_chunks.empty()) {
-        return result;
-    }
-
-    std::ranges::sort(disk_chunks, std::ranges::less{}, [](auto const& chunk) {
-        return chunk->data_size();
-    });
-
-    // The availability values are advisory. The subsequent reservation is the
-    // authority because another thread may reserve memory after this snapshot.
-    auto const available = br->memory_available_for_reservation();
-    std::ptrdiff_t restore_count{0};
-    auto const smallest_size = safe_cast<std::size_t>(disk_chunks.front()->data_size());
-    auto const memory_type = std::ranges::find_if(memory_types, [&](auto const mem_type) {
-        auto const value = available[static_cast<std::size_t>(mem_type)];
-        return value >= 0 && safe_cast<std::size_t>(value) >= smallest_size;
-    });
-
-    // Reserve the full batch in the first tier that can make progress, then restore the
-    // smallest disk chunks that fit after releasing any overbooking.
-    if (memory_type != memory_types.end()) {
-        auto const reservation_size = std::min(
-            total_disk_size,
-            static_cast<std::size_t>(std::numeric_limits<std::int64_t>::max())
-        );
-        auto [reservation, overbooking] =
-            br->reserve(*memory_type, reservation_size, AllowOverbooking::YES);
-
-        // Keep only the portion of the full-batch reservation that is actually
-        // available.
-        br->release(reservation, std::min(overbooking, reservation.size()));
-
-        for (auto& chunk : disk_chunks) {
-            if (reservation.size() < safe_cast<std::size_t>(chunk->data_size())) {
-                break;
-            }
-            chunk->attach_data_buffer(
-                br->move(chunk->release_data_buffer(), reservation)
-            );
-            result.emplace_back(std::move(chunk));
-            ++restore_count;
-        }
-    }
-
-    // No tier could fit the smallest chunk, or the bulk reservation lost a race and
-    // was trimmed below its size. Ask the spill manager to make enough space for one
-    // chunk so progress is still guaranteed whenever any configured tier can satisfy it.
-    if (restore_count == 0) {
+    if (disk_chunk != nullptr) {
         auto reservation =
-            br->try_reserve_or_spill(disk_chunks.front()->data_size(), memory_types);
-        if (!reservation.has_value()) {
-            insert(std::move(disk_chunks));
-            RAPIDSMPF_FAIL(
-                "failed to reserve addressable memory for an outgoing disk-backed "
-                "allgather chunk",
-                std::runtime_error
-            );
-        }
-        auto& chunk = disk_chunks.front();
-        chunk->attach_data_buffer(br->move(chunk->release_data_buffer(), *reservation));
-        result.emplace_back(std::move(chunk));
-        restore_count = 1;
-    }
-    // erase restored chunk indices
-    disk_chunks.erase(disk_chunks.begin(), std::next(disk_chunks.begin(), restore_count));
-    if (!disk_chunks.empty()) {
-        insert(std::move(disk_chunks));
+            br->try_reserve_or_spill(disk_chunk->data_size(), memory_types);
+        RAPIDSMPF_EXPECTS(
+            reservation.has_value(),
+            "failed to reserve addressable memory for an outgoing disk-backed "
+            "allgather chunk",
+            std::runtime_error
+        );
+        disk_chunk->attach_data_buffer(
+            br->move(disk_chunk->release_data_buffer(), *reservation)
+        );
+        result.emplace_back(std::move(disk_chunk));
     }
     return result;
 }

@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <limits>
 #include <string>
+#include <tuple>
+#include <type_traits>
 
 #include <gtest/gtest.h>
 
@@ -247,6 +249,38 @@ TEST(MiscTest, SafeCastZeroAndBoundaries) {
     // Boundaries for std::uint8_t
     EXPECT_EQ(safe_cast<std::uint8_t>(std::uint16_t{255}), std::uint8_t{255});
     EXPECT_THROW(safe_cast<std::uint8_t>(std::uint16_t{256}), std::overflow_error);
+}
+
+TEST(MiscTest, SafeAdd) {
+    static_assert(safe_add(std::size_t{1}, std::size_t{2}) == 3);
+    constexpr auto max = std::numeric_limits<std::size_t>::max();
+
+    // Saturates at the maximum instead of wrapping.
+    EXPECT_EQ(safe_add(max - 1, std::size_t{1}), max);
+    EXPECT_EQ(safe_add(max, std::size_t{1}), max);
+    EXPECT_EQ(safe_add(max, max), max);
+
+    // The result has the type of the first operand.
+    static_assert(
+        std::
+            is_same_v<decltype(safe_add(std::uint8_t{1}, std::uint64_t{1})), std::uint8_t>
+    );
+    EXPECT_EQ(safe_add(std::uint8_t{250}, std::uint64_t{5}), 255);
+    EXPECT_EQ(safe_add(std::uint8_t{250}, std::uint64_t{10}), 255);
+
+    // The second operand must fit in the first operand's type.
+    EXPECT_THROW(
+        std::ignore = safe_add(std::uint8_t{1}, std::uint64_t{256}), std::overflow_error
+    );
+    EXPECT_THROW(std::ignore = safe_add(std::size_t{1}, -1), std::overflow_error);
+    EXPECT_EQ(safe_add(std::size_t{1}, 2), 3);
+
+    // Signed first operand saturates in both directions.
+    constexpr auto imax = std::numeric_limits<std::int32_t>::max();
+    constexpr auto imin = std::numeric_limits<std::int32_t>::min();
+    EXPECT_EQ(safe_add(std::int32_t{5}, -7), -2);
+    EXPECT_EQ(safe_add(imax, 1), imax);
+    EXPECT_EQ(safe_add(imin, -1), imin);
 }
 
 // Test ceil_div edge cases. `ceil_div` is constexpr, so these are all

@@ -109,6 +109,28 @@ TEST(BufferResource, MemoryAvailableForReservationSnapshot) {
     EXPECT_EQ(available[static_cast<std::size_t>(MemoryType::DISK)], 0);
 }
 
+TEST(BufferResource, ReserveUpTo) {
+    auto br = BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        PinnedMemoryDisabled,
+        {{MemoryType::HOST, 10_KiB}}
+    );
+
+    // Fits entirely.
+    auto first = br->reserve_up_to(MemoryType::HOST, 4_KiB);
+    EXPECT_EQ(first.size(), 4_KiB);
+
+    // Only the remaining headroom is granted, without overbooking.
+    auto second = br->reserve_up_to(MemoryType::HOST, 100_KiB);
+    EXPECT_EQ(second.size(), 6_KiB);
+    EXPECT_EQ(br->memory_available_for_reservation(MemoryType::HOST), 0);
+
+    // Nothing left.
+    auto third = br->reserve_up_to(MemoryType::HOST, 1_KiB);
+    EXPECT_EQ(third.size(), 0);
+    EXPECT_EQ(br->memory_available_for_reservation(MemoryType::HOST), 0);
+}
+
 TEST(BufferResource, ReservationOverbooking) {
     // Create a buffer resource that always reports 10 KiB of available device memory.
     auto br = BufferResource::create(
