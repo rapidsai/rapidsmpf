@@ -33,6 +33,50 @@ std::vector<Chunk> ChunksToSend::extract_ready() {
     return result;
 }
 
+std::vector<Chunk> ChunksToSend::extract_and_restore(
+    BufferResource* br, std::span<MemoryType const> memory_types
+) {
+    std::vector<Chunk> result;
+    {
+        // Only move chunks out while holding the mutex. The (slow) disk read and any
+        // spilling it triggers must not block concurrent `insert()` calls.
+        std::lock_guard lock(mutex_);
+        for (auto&& chunk : chunks_) {
+            if (!chunk->is_ready()) {
+                break;
+            }
+            if (!chunk->is_on_disk()) {
+                auto c = std::move(chunk);
+                result.emplace_back(std::move(*c));
+            } else if (br->spill_manager().spilling_now()) {
+                // Restoring now would compete with the ongoing spill for addressable
+                // memory. Leave the chunk queued, it is retried on the next call.
+                break;
+            } else {
+                // Stop after the first disk-backed chunk because restoring is slow and
+                // introduces memory pressure for addressable memory. It is therefore
+                // always the last element of `result`.
+                auto c = std::move(chunk);
+                result.emplace_back(std::move(*c));
+                break;
+            }
+        }
+        std::erase(chunks_, nullptr);
+    }
+
+    if (!result.empty() && result.back().is_on_disk()) {
+        auto& chunk = result.back();
+        auto reservation = br->try_reserve_or_spill(chunk.data_size(), memory_types);
+        RAPIDSMPF_EXPECTS(
+            reservation.has_value(),
+            "failed to reserve addressable memory for an outgoing disk-backed chunk",
+            std::runtime_error
+        );
+        chunk.set_data_buffer(br->move(chunk.release_data_buffer(), *reservation));
+    }
+    return result;
+}
+
 bool ChunksToSend::empty() const {
     std::lock_guard lock(mutex_);
     return chunks_.empty();
@@ -70,21 +114,32 @@ bool ReceivedChunks::empty() const {
     return pigeonhole_.empty();
 }
 
-std::size_t ReceivedChunks::spill(BufferResource* br, std::size_t amount) {
+std::size_t ReceivedChunks::spill(
+    BufferResource* br,
+    std::size_t amount,
+    std::span<MemoryType const> spillable_memory_types
+) {
+    if (amount == 0) {
+        return 0;
+    }
+
     RAPIDSMPF_NVTX_FUNC_RANGE(amount);
     std::lock_guard lock(mutex_);
     // TODO: use a clever strategy to decided which chunks to spill.
     std::size_t total_spilled{0};
     for (auto& [_, chunks] : pigeonhole_) {
         for (auto& chunk : chunks) {
-            auto const size = chunk.data_size();
-            if (size == 0 || !chunk.is_data_buffer_set()
+            if (chunk.data_size() == 0 || !chunk.is_data_buffer_set()
                 || chunk.data_memory_type() != MemoryType::DEVICE)
             {
                 continue;
             }
-            auto reservation = br->reserve_or_fail(size, SPILL_TARGET_MEMORY_TYPES);
-            chunk.set_data_buffer(br->move(chunk.release_data_buffer(), reservation));
+            auto const size = chunk.data_size();
+            auto reservation = br->try_reserve(size, spillable_memory_types);
+            if (!reservation.has_value()) {
+                continue;
+            }
+            chunk.set_data_buffer(br->move(chunk.release_data_buffer(), *reservation));
             if ((total_spilled += size) >= amount) {
                 break;
             }

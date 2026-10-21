@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <span>
 #include <vector>
 
 #include <rapidsmpf/communicator/communicator.hpp>
@@ -214,13 +215,16 @@ class Chunk {
      *
      * @param data The serialized chunk data.
      * @param br Buffer resource for memory allocation.
+     * @param memory_types Addressable memory types to try in preference order.
      * @return A unique pointer to the deserialized chunk.
      *
      * @note If the serialized form encodes a data chunk, this
      * function allocates space for the data buffer.
      */
     [[nodiscard]] static std::unique_ptr<Chunk> deserialize(
-        std::vector<std::uint8_t>& data, BufferResource* br
+        std::vector<std::uint8_t>& data,
+        BufferResource* br,
+        std::span<MemoryType const> memory_types = ADDRESSABLE_MEMORY_TYPES
     );
 
     /**
@@ -284,7 +288,7 @@ class PostBox {
     /**
      * @brief Insert multiple chunks into the postbox.
      *
-     * @param chunks A vector of chunks to insert.
+     * @param chunks A vector of chunks to insert. Null entries are skipped.
      */
     void insert(std::vector<std::unique_ptr<Chunk>>&& chunks);
 
@@ -297,6 +301,25 @@ class PostBox {
      * their data buffers.
      */
     [[nodiscard]] std::vector<std::unique_ptr<Chunk>> extract_ready();
+
+    /**
+     * @brief Extract ready chunks and restore disk-backed data to addressable memory.
+     *
+     * Returns all ready chunks whose payloads are addressable, plus at most one ready
+     * disk-backed chunk, the first in the postbox, whose payload is restored into
+     * @p memory_types. Chunks that are not ready, and any further disk-backed chunks,
+     * remain in the postbox. The returned chunks are not ordered.
+     *
+     * @param br The buffer resource used to restore disk-backed data.
+     * @param memory_types Addressable memory types eligible for restoration, in
+     * preference order.
+     * @return A vector of chunks ready for processing.
+     * @throws std::runtime_error If no configured memory type can restore the disk-backed
+     * chunk after spilling.
+     */
+    [[nodiscard]] std::vector<std::unique_ptr<Chunk>> extract_and_restore(
+        BufferResource* br, std::span<MemoryType const> memory_types
+    );
 
     /**
      * @brief Extract all chunks from the postbox.
@@ -327,14 +350,19 @@ class PostBox {
      *
      * The spilling is stream ordered by the spilled buffers' CUDA streams.
      *
-     * @param br The buffer resource for host and device allocations.
+     * @param br The buffer resource for memory and disk allocations.
      * @param amount Requested amount of data to spill in bytes.
+     * @param spillable_memory_types Non-device spill destinations in preference order.
      * @return Actual amount of data spilled in bytes.
      *
      * @note We attempt to minimise the number of individual buffers
      * spilled, as well as the amount of "overspill".
      */
-    [[nodiscard]] std::size_t spill(BufferResource* br, std::size_t amount);
+    [[nodiscard]] std::size_t spill(
+        BufferResource* br,
+        std::size_t amount,
+        std::span<MemoryType const> spillable_memory_types
+    );
 
   private:
     mutable std::mutex mutex_{};  ///< Mutex for thread-safe access

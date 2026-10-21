@@ -164,6 +164,15 @@ class Chunk {
     }
 
     /**
+     * @brief Whether the data buffer is disk-resident.
+     *
+     * @return True if the chunk has a disk-backed data buffer, false otherwise.
+     */
+    [[nodiscard]] bool is_on_disk() const {
+        return data_ && data_->mem_type() == MemoryType::DISK;
+    }
+
+    /**
      * @brief Whether the metadata buffer is set.
      *
      * @return True if the metadata buffer is set, false otherwise.
@@ -261,8 +270,6 @@ class Chunk {
      * @brief Whether the chunk is ready for consumption.
      *
      * @return True if the chunk is ready, false otherwise.
-     * @note chunk is ready if it has no data or if the data is ready. data_ buffer
-     * could be set later, so we need to check if it is non-null.
      */
     [[nodiscard]] bool is_ready() const {
         // data_size_ contains the size of the data buffer. If it is 0, the chunk

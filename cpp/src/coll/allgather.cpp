@@ -22,15 +22,27 @@ namespace rapidsmpf::coll {
 
 void AllGather::insert(std::uint64_t sequence_number, PackedData&& packed_data) {
     nlocal_insertions_.fetch_add(1, std::memory_order_relaxed);
-    return insert(
-        detail::Chunk::from_packed_data(
-            sequence_number,
-            comm_->rank(),
-            detail::Chunk::INVALID_RANK,  // Destination is hard-coded in ring algorithm
-            std::move(packed_data)
-        )
-
+    auto chunk = detail::Chunk::from_packed_data(
+        sequence_number,
+        comm_->rank(),
+        detail::Chunk::INVALID_RANK,  // Destination is hard-coded in ring algorithm
+        std::move(packed_data)
     );
+
+    // If device memory is already over its limit, prefer spilling the new chunk before
+    // exposing it to the progress thread.
+    auto const headroom = br_->memory_available(MemoryType::DEVICE);
+    if (headroom < 0 && chunk->memory_type() == MemoryType::DEVICE) {
+        if (auto reservation =
+                br_->try_reserve(chunk->data_size(), br_->spill_target_memory_types()))
+        {
+            chunk->attach_data_buffer(
+                br_->move(chunk->release_data_buffer(), *reservation)
+            );
+        }
+    }
+    insert(std::move(chunk));
+    br_->spill_manager().spill_to_make_headroom(0);
 }
 
 void AllGather::insert(std::unique_ptr<detail::Chunk> chunk) {
@@ -91,6 +103,9 @@ void AllGather::wait(std::chrono::milliseconds timeout) {
 }
 
 std::size_t AllGather::spill(std::optional<std::size_t> amount) {
+    if (br_->spill_target_memory_types().empty()) {
+        return 0;
+    }
     std::size_t spill_need{0};
     if (amount.has_value()) {
         spill_need = amount.value();
@@ -101,9 +116,12 @@ std::size_t AllGather::spill(std::optional<std::size_t> amount) {
     std::size_t spilled{0};
     if (spill_need > 0) {
         // Spill from ready post box then inserted postbox
-        spilled = for_extraction_.spill(br_, spill_need);
+        spilled =
+            for_extraction_.spill(br_, spill_need, br_->spill_target_memory_types());
         if (spilled < spill_need) {
-            spilled += inserted_.spill(br_, spill_need - spilled);
+            spilled += inserted_.spill(
+                br_, spill_need - spilled, br_->spill_target_memory_types()
+            );
         }
     }
     return spilled;
@@ -130,6 +148,8 @@ AllGather::AllGather(
       finish_counter_{comm_->nranks()},
       op_id_{op_id},
       remote_finish_counter_{comm_->nranks() - 1} {
+    RAPIDSMPF_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be NULL");
+    RAPIDSMPF_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be NULL");
     function_id_ =
         comm_->progress_thread()->add_function([this]() { return event_loop(); });
     spill_function_id_ = br_->spill_manager().add_spill_function(
@@ -211,7 +231,9 @@ ProgressThread::ProgressState AllGather::event_loop() {
         }
     } else {
         // Chunks that are ready to send
-        for (auto&& chunk : inserted_.extract_ready()) {
+        for (auto&& chunk :
+             inserted_.extract_and_restore(br_, br_->restore_memory_types()))
+        {
             // Tell the destination about them. All messages (data + finish) share
             // metadata_tag so the no-overtaking guarantee on a single (src, tag) pair
             // ensures current-collective messages arrive before any new-collective
@@ -247,7 +269,8 @@ ProgressThread::ProgressState AllGather::event_loop() {
             if (!msg) {
                 break;
             }
-            auto chunk = detail::Chunk::deserialize(*msg, br_);
+            auto chunk =
+                detail::Chunk::deserialize(*msg, br_, br_->restore_memory_types());
             if (chunk->is_finish()) {
                 remote_finish_counter_--;
                 num_expected_messages_ += chunk->sequence();

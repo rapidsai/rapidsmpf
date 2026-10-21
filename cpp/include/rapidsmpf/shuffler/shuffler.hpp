@@ -19,6 +19,7 @@
 #include <rapidsmpf/communicator/metadata_payload_exchange/tag.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/progress_thread.hpp>
@@ -27,6 +28,7 @@
 #include <rapidsmpf/shuffler/postbox.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils/misc.hpp>
+#include <rapidsmpf/utils/string.hpp>
 
 /**
  * @namespace rapidsmpf::shuffler
@@ -110,25 +112,10 @@ class Shuffler {
      */
     using FinishedCallback = std::function<void()>;
 
-    /**
-     * @brief Construct a new shuffler for a single shuffle.
-     *
-     * @param comm The communicator to use.
-     * @param op_id The operation ID of the shuffle.
-     * @param total_num_partitions Total number of partitions in the shuffle.
-     * @param br Buffer resource used to allocate temporary and the shuffle result.
-     * @param finished_callback Callback to notify when all partitions are finished.
-     * @param partition_owner Function to determine partition ownership.
-     * @param mpe Optional custom metadata payload exchange. If not provided,
-     * uses the default tag-based implementation.
-     *
-     * @note It is safe to reuse the `op_id` as soon as `wait` has completed
-     * locally.
-     *
-     * @note The caller promises that inserted buffers are stream-ordered with respect
-     * to their own stream, and extracted buffers are likewise guaranteed to be stream-
-     * ordered with respect to their own stream.
-     */
+    // clang-format off
+    /// @copydoc Shuffler(std::shared_ptr<Communicator>, OpID, PartID, BufferResource*, PartitionOwner, std::unique_ptr<communicator::MetadataPayloadExchange>)
+    // clang-format on
+    /// @param finished_callback Callback to notify when all partitions are finished.
     Shuffler(
         std::shared_ptr<Communicator> comm,
         OpID op_id,
@@ -150,6 +137,13 @@ class Shuffler {
      * @param partition_owner Function to determine partition ownership.
      * @param mpe Optional custom metadata payload exchange. If not provided,
      * uses the default tag-based implementation.
+     *
+     * @note Spill destinations and the memory types used to restore spilled data are
+     * taken from `BufferResource::spill_target_memory_types()` and
+     * `BufferResource::restore_memory_types()`.
+     *
+     * @note It is safe to reuse the `op_id` as soon as `wait` has completed
+     * locally.
      *
      * @note The caller promises that inserted buffers are stream-ordered with respect
      * to their own stream, and extracted buffers are likewise guaranteed to be stream-
@@ -182,6 +176,17 @@ class Shuffler {
      */
     [[nodiscard]] std::shared_ptr<Communicator> const& comm() const noexcept {
         return comm_;
+    }
+
+    /**
+     * @brief Whether spilling is enabled, i.e., the buffer resource advertises at least
+     * one spill destination.
+     *
+     * @return True if `BufferResource::spill_target_memory_types()` is non-empty,
+     * otherwise false.
+     */
+    [[nodiscard]] bool is_spilling_enabled() const noexcept {
+        return !br_->spill_target_memory_types().empty();
     }
 
     Shuffler(Shuffler const&) = delete;
@@ -225,6 +230,9 @@ class Shuffler {
      * To ensure the partition is complete, use `wait()`
      * or another appropriate synchronization mechanism beforehand.
      *
+     * @note Extracted buffers retain their current storage tier and may be
+     * disk-resident. Use `unspill_partitions()` when device-resident output is needed.
+     *
      * @param pid The ID of the partition to extract.
      * @return A vector of PackedData chunks associated with the partition.
      */
@@ -258,6 +266,8 @@ class Shuffler {
      * @param amount An optional amount of memory to spill. If not provided, the
      * function will check the current available device memory.
      * @return The amount of memory actually spilled.
+     *
+     * @note Returns zero when spilling is disabled.
      */
     std::size_t spill(std::optional<std::size_t> amount = std::nullopt);
 

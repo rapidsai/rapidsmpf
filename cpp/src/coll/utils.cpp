@@ -6,6 +6,9 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <functional>
+#include <iterator>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <vector>
@@ -14,6 +17,7 @@
 
 #include <rapidsmpf/coll/utils.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf::coll::detail {
 
@@ -126,7 +130,9 @@ std::unique_ptr<std::vector<std::uint8_t>> Chunk::serialize() const {
 }
 
 std::unique_ptr<Chunk> Chunk::deserialize(
-    std::vector<std::uint8_t>& data, BufferResource* br
+    std::vector<std::uint8_t>& data,
+    BufferResource* br,
+    std::span<MemoryType const> memory_types
 ) {
     ChunkID id;
     std::uint64_t data_size;
@@ -143,14 +149,17 @@ std::unique_ptr<Chunk> Chunk::deserialize(
         data.data() + sizeof(ChunkID) + sizeof(data_size),
         metadata->size()
     );
+    auto reservation = br->try_reserve_or_spill(data_size, memory_types);
+    RAPIDSMPF_EXPECTS(
+        reservation.has_value(),
+        "failed to reserve addressable memory for an incoming allgather chunk",
+        std::runtime_error
+    );
     return std::unique_ptr<Chunk>(new Chunk(
         id,
         Chunk::INVALID_RANK,
         std::move(metadata),
-        br->make_buffer(
-            br->stream_pool()->get_stream(),
-            br->reserve_or_fail(data_size, ADDRESSABLE_MEMORY_TYPES)
-        )
+        br->make_buffer(br->stream_pool()->get_stream(), std::move(*reservation))
     ));
 }
 
@@ -177,7 +186,9 @@ void PostBox::insert(std::unique_ptr<Chunk> chunk) {
 void PostBox::insert(std::vector<std::unique_ptr<Chunk>>&& chunks) {
     std::lock_guard lock(mutex_);
     std::ranges::for_each(chunks, [&](auto&& chunk) {
-        chunks_.emplace_back(std::move(chunk));
+        if (chunk != nullptr) {
+            chunks_.emplace_back(std::move(chunk));
+        }
     });
 }
 
@@ -191,6 +202,48 @@ std::vector<std::unique_ptr<Chunk>> PostBox::extract_ready() {
         result.emplace_back(std::move(chunk));
     }
     std::erase(chunks_, nullptr);
+    return result;
+}
+
+std::vector<std::unique_ptr<Chunk>> PostBox::extract_and_restore(
+    BufferResource* br, std::span<MemoryType const> memory_types
+) {
+    std::vector<std::unique_ptr<Chunk>> result;
+    std::unique_ptr<Chunk> disk_chunk;
+    {
+        // Only move chunks out while holding the mutex. The (slow) disk read and any
+        // spilling it triggers must not block concurrent `insert()` calls.
+        std::lock_guard lock(mutex_);
+        for (auto&& chunk : chunks_) {
+            if (!chunk->is_ready()) {
+                continue;
+            }
+            if (chunk->memory_type() != MemoryType::DISK) {
+                result.emplace_back(std::move(chunk));
+            } else if (disk_chunk == nullptr) {
+                // Only restore the first disk-backed chunk because restoring is slow and
+                // introduces memory pressure for addressable memory. The rest stay
+                // queued and are picked up by later calls.
+                disk_chunk = std::move(chunk);
+            }
+        }
+        std::erase(chunks_, nullptr);
+    }
+
+    if (disk_chunk != nullptr) {
+        auto reservation =
+            br->try_reserve_or_spill(disk_chunk->data_size(), memory_types);
+        RAPIDSMPF_EXPECTS(
+            reservation.has_value(),
+            "failed to reserve addressable memory for an outgoing disk-backed "
+            "allgather chunk",
+            std::runtime_error
+        );
+        disk_chunk->attach_data_buffer(
+            br->move(disk_chunk->release_data_buffer(), *reservation)
+        );
+        result.emplace_back(std::move(disk_chunk));
+    }
     return result;
 }
 
@@ -209,8 +262,15 @@ bool PostBox::empty() const noexcept {
     return chunks_.empty();
 }
 
-std::size_t PostBox::spill(BufferResource* br, std::size_t amount) {
+std::size_t PostBox::spill(
+    BufferResource* br,
+    std::size_t amount,
+    std::span<MemoryType const> spillable_memory_types
+) {
     std::lock_guard lock(mutex_);
+    if (amount == 0 || spillable_memory_types.empty()) {
+        return 0;
+    }
     std::vector<Chunk*> spillable_chunks;
     std::size_t max_spillable{0};
     std::size_t total_spilled{0};
@@ -221,9 +281,11 @@ std::size_t PostBox::spill(BufferResource* br, std::size_t amount) {
         }
     }
     auto spill_chunk = [&](Chunk* chunk) -> std::size_t {
-        auto reservation =
-            br->reserve_or_fail(chunk->data_size(), SPILL_TARGET_MEMORY_TYPES);
-        chunk->attach_data_buffer(br->move(chunk->release_data_buffer(), reservation));
+        auto reservation = br->try_reserve(chunk->data_size(), spillable_memory_types);
+        if (!reservation.has_value()) {
+            return 0;
+        }
+        chunk->attach_data_buffer(br->move(chunk->release_data_buffer(), *reservation));
         return chunk->data_size();
     };
     if (max_spillable < amount) {
@@ -245,12 +307,20 @@ std::size_t PostBox::spill(BufferResource* br, std::size_t amount) {
                 return chunk->data_size();
             }
         );
-        auto chunk = pos == spillable_chunks.end() ? spillable_chunks.back() : *pos;
+
+        Chunk* chunk;
+        if (pos == spillable_chunks.end()) {
+            // No single chunk can satisfy remaining amount, so spill largest chunk.
+            chunk = spillable_chunks.back();
+            spillable_chunks.pop_back();
+        } else {
+            chunk = *pos;
+            spillable_chunks.erase(pos);
+        }
         total_spilled += spill_chunk(chunk);
         if (total_spilled >= amount) {
             break;
         }
-        spillable_chunks.pop_back();
     }
     return total_spilled;
 }

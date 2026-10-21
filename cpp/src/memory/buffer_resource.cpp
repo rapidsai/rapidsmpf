@@ -56,6 +56,18 @@ BufferResource::BufferResource(
     }
     RAPIDSMPF_EXPECTS(stream_pool_ != nullptr, "the stream pool pointer cannot be NULL");
     RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
+
+    // Advertise only the memory types backed by an available resource.
+    restore_memory_types_.push_back(MemoryType::DEVICE);
+    if (pinned_mr_.has_value()) {
+        restore_memory_types_.push_back(MemoryType::PINNED_HOST);
+        spill_target_memory_types_.push_back(MemoryType::PINNED_HOST);
+    }
+    restore_memory_types_.push_back(MemoryType::HOST);
+    spill_target_memory_types_.push_back(MemoryType::HOST);
+    if (disk_resource_ != nullptr) {
+        spill_target_memory_types_.push_back(MemoryType::DISK);
+    }
 }
 
 std::shared_ptr<BufferResource> BufferResource::create(
@@ -199,6 +211,21 @@ std::int64_t BufferResource::memory_available_for_reservation(MemoryType mem_typ
            );
 }
 
+std::array<std::int64_t, MEMORY_TYPES.size()>
+BufferResource::memory_available_for_reservation() const {
+    std::array<std::int64_t, MEMORY_TYPES.size()> available{};
+    for (auto const mem_type : MEMORY_TYPES) {
+        available[static_cast<std::size_t>(mem_type)] = memory_available(mem_type);
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (auto const mem_type : MEMORY_TYPES) {
+        auto const index = static_cast<std::size_t>(mem_type);
+        available[index] -= safe_cast<std::int64_t>(memory_reserved_[index]);
+    }
+    return available;
+}
+
 std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     MemoryType mem_type, std::size_t size, AllowOverbooking allow_overbooking
 ) {
@@ -232,6 +259,14 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     return {MemoryReservation(mem_type, this, size), overbooking};
 }
 
+MemoryReservation BufferResource::reserve_up_to(MemoryType mem_type, std::size_t size) {
+    // `reserve()` reports the total overbooking, other reservations' included, so clamp
+    // to `size` for the part this reservation added.
+    auto [reservation, overbooking] = reserve(mem_type, size, AllowOverbooking::YES);
+    release(reservation, std::min(overbooking, reservation.size()));
+    return std::move(reservation);
+}
+
 MemoryReservation BufferResource::reserve_device_memory_and_spill(
     std::size_t size, AllowOverbooking allow_overbooking
 ) {
@@ -259,6 +294,10 @@ MemoryReservation BufferResource::reserve_device_memory_and_spill(
 }
 
 std::size_t BufferResource::release(MemoryReservation& reservation, std::size_t size) {
+    if (size == 0) {
+        return reservation.size_;
+    }
+
     std::lock_guard const lock(mutex_);
     RAPIDSMPF_EXPECTS(
         size <= reservation.size_,

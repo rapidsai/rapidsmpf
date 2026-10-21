@@ -18,9 +18,11 @@
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/memory/spill_manager.hpp>
 #include <rapidsmpf/progress_thread.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 /**
  * @namespace rapidsmpf::coll
@@ -86,6 +88,9 @@ class AllGather {
      *
      * @return A vector containing packed data from all participating ranks.
      * @throws std::runtime_error If the timeout is reached.
+     *
+     * @note Extracted buffers retain their current storage tier and may be
+     * disk-resident. Use `unspill_partitions()` when device-resident output is needed.
      */
     [[nodiscard]] std::vector<PackedData> wait_and_extract(
         Ordered ordered = Ordered::YES,
@@ -101,6 +106,10 @@ class AllGather {
      * @param finished_callback Optional callback run when partitions are locally
      * finished. The callback is guaranteed to be called by the progress thread exactly
      * once when the allgather is locally ready.
+     *
+     * @note Spill destinations and the memory types used to restore spilled data are
+     * taken from `BufferResource::spill_target_memory_types()` and
+     * `BufferResource::restore_memory_types()`.
      *
      * @note It is safe to reuse the `op_id` as soon as `wait_and_extract` has completed
      * locally.

@@ -10,6 +10,7 @@
 #include <concepts>
 #include <cstdlib>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <ranges>
 #include <source_location>
@@ -154,25 +155,42 @@ typename MapType::key_type extract_key(
     return std::move(extract_item(map, position).first);
 }
 
+/// @brief Whether @p T defines a `mapped_type`.
+template <typename T>
+concept HasMappedType = requires { typename T::mapped_type; };
+
 /**
- * @brief Converts a map-like associative container to a vector by moving the values and
- * discarding the keys.
+ * @brief Convert a map-like container to a vector by moving its mapped values.
  *
- * @tparam MapType The type of the map-like associative container. Must provide a
- * mapped_type and support range-based for-loops.
- * @param map The map whose values will be moved into the resulting vector. Keys are
- * ignored.
- * @returns A std::vector containing the moved values from the input map.
+ * @tparam MapType The map-like container type.
+ * @param map The map whose values will be moved into the resulting vector.
+ * @returns A vector containing the moved mapped values.
  */
 template <typename MapType>
-auto to_vector(MapType&& map) {
-    using ValueType = typename std::remove_reference_t<MapType>::mapped_type;
+    requires HasMappedType<std::remove_cvref_t<MapType>>
+[[nodiscard]] auto to_vector(MapType&& map) {
+    using ValueType = typename std::remove_cvref_t<MapType>::mapped_type;
     std::vector<ValueType> vec;
     vec.reserve(map.size());
     for (auto&& [key, value] : map) {
         vec.push_back(std::move(value));
     }
     return vec;
+}
+
+/**
+ * @brief Convert a range to a vector.
+ *
+ * @tparam Range The common input range type.
+ * @param range The range to convert.
+ * @returns A vector containing the range's elements.
+ */
+template <std::ranges::input_range Range>
+    requires std::ranges::common_range<Range>
+             && (!HasMappedType<std::remove_cvref_t<Range>>)
+[[nodiscard]] auto to_vector(Range&& range) {
+    using ValueType = std::ranges::range_value_t<Range>;
+    return std::vector<ValueType>(std::ranges::begin(range), std::ranges::end(range));
 }
 
 /**
@@ -410,6 +428,43 @@ constexpr To safe_cast(
         // Floating point conversions: direct cast (well-defined overflow behavior).
         return static_cast<To>(value);
     }
+}
+
+/**
+ * @brief Adds two integers in the type of the first operand, saturating at the limits
+ * of that type instead of overflowing.
+ *
+ * @p y is first converted to @p T with `safe_cast`, so it must be representable in
+ * @p T. Only the sum saturates: to `std::numeric_limits<T>::max()` on positive overflow
+ * and to `std::numeric_limits<T>::min()` on negative overflow.
+ *
+ * @tparam T Integral type of the first operand and of the result.
+ * @tparam U Integral type of the second operand.
+ * @param x The first operand.
+ * @param y The second operand.
+ * @param loc Source location (automatically captured).
+ * @return The saturated `x + y`.
+ *
+ * @throws std::overflow_error if @p y is not representable in @p T.
+ */
+template <std::integral T, std::integral U>
+[[nodiscard]] constexpr T safe_add(
+    T const& x,
+    U const& y,
+    std::source_location const& loc = std::source_location::current()
+) {
+    auto const ry = safe_cast<T>(y, loc);
+    constexpr auto max = std::numeric_limits<T>::max();
+    constexpr auto min = std::numeric_limits<T>::min();
+    if (ry > T{0} && x > static_cast<T>(max - ry)) {
+        return max;
+    }
+    if constexpr (std::is_signed_v<T>) {
+        if (ry < T{0} && x < static_cast<T>(min - ry)) {
+            return min;
+        }
+    }
+    return static_cast<T>(x + ry);
 }
 
 }  // namespace rapidsmpf

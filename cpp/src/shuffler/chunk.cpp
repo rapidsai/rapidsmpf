@@ -97,10 +97,13 @@ Chunk Chunk::deserialize(
         RAPIDSMPF_EXPECTS(
             br != nullptr, "Deserializing non-control Chunk requires a BufferResource"
         );
-        data = br->make_buffer(
-            br->stream_pool()->get_stream(),
-            br->reserve_or_fail(data_size, ADDRESSABLE_MEMORY_TYPES)
+        auto reservation = br->try_reserve_or_spill(data_size, ADDRESSABLE_MEMORY_TYPES);
+        RAPIDSMPF_EXPECTS(
+            reservation.has_value(),
+            "failed to reserve receive buffer after spilling",
+            std::runtime_error
         );
+        data = br->make_buffer(br->stream_pool()->get_stream(), std::move(*reservation));
         if (rapidsmpf::contains(SPILL_TARGET_MEMORY_TYPES, data->mem_type())) {
             br->statistics()->add_bytes_stat("recv-into-host-memory", data_size);
         }
@@ -146,6 +149,9 @@ std::string Chunk::str() const {
     ss << ", expected_num_chunks=" << expected_num_chunks_;
     ss << ", metadata_size=" << metadata_size_;
     ss << ", data_size=" << data_size_;
+    if (data_) {
+        ss << ", data_memory_type=" << data_->mem_type();
+    }
     ss << ")";
     return ss.str();
 }
