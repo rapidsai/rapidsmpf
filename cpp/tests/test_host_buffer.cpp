@@ -84,10 +84,6 @@ void test_buffer(auto&& buffer, std::vector<std::uint8_t> const& source_data) {
 class HostMemoryResource : public ::testing::TestWithParam<std::size_t> {
   protected:
     void SetUp() override {
-        if (!rapidsmpf::is_pinned_memory_resources_supported()) {
-            GTEST_SKIP() << "HostBuffer is not supported for CUDA versions "
-                            "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR;
-        }
         // `HostMemoryResource` is constructible only via a `BufferResource`.
         br =
             rapidsmpf::BufferResource::create(rmm::mr::get_current_device_resource_ref());

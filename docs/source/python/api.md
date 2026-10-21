@@ -17,6 +17,9 @@ This page contains the API reference for `rapidsmpf`.
 .. automodule:: rapidsmpf.memory.buffer_resource
    :members:
 
+.. automodule:: rapidsmpf.memory.host_memory_resource
+   :members:
+
 .. automodule:: rapidsmpf.memory.pinned_memory_resource
    :members:
 

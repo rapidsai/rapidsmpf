@@ -51,6 +51,8 @@ cdef extern from *:
     ) except +ex_handler
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
+from rapidsmpf.memory.host_memory_resource cimport (HostMemoryResource,
+                                                    cpp_HostMemoryResource)
 from rapidsmpf.memory.memory_reservation cimport MemoryReservation
 from rapidsmpf.memory.pinned_memory_resource cimport (
     PinnedMemoryResource, cpp_PinnedMemoryResource, cpp_PinnedPoolProperties,
@@ -63,6 +65,18 @@ from rapidsmpf.statistics cimport Statistics
 cdef extern from * nogil:
     """
     namespace {
+    // Copy the `HostMemoryResource` behind `br->host_mr()`. The copy promotes the
+    // resource's back-reference, so the result keeps `br` alive.
+    std::optional<rapidsmpf::HostMemoryResource>
+    cpp_br_host_mr(rapidsmpf::BufferResource& br) {
+        auto ref = br.host_mr();
+        // `host_mr()` always wraps a `HostMemoryResource`, so the cast cannot fail;
+        // the check is purely defensive.
+        auto* mr = cuda::mr::resource_cast<rapidsmpf::HostMemoryResource>(&ref);
+        RAPIDSMPF_EXPECTS(mr != nullptr, "host_mr() is not a HostMemoryResource");
+        return *mr;
+    }
+
     std::pair<std::unique_ptr<rapidsmpf::MemoryReservation>, std::size_t>
     cpp_br_reserve(
         std::shared_ptr<rapidsmpf::BufferResource> br,
@@ -101,6 +115,9 @@ cdef extern from * nogil:
     }
     }  // namespace
     """
+    optional[cpp_HostMemoryResource] cpp_br_host_mr(
+        cpp_BufferResource&
+    ) except +ex_handler
     pair[unique_ptr[cpp_MemoryReservation], size_t] cpp_br_reserve(
         shared_ptr[cpp_BufferResource],
         MemoryType,
@@ -377,6 +394,23 @@ cdef class BufferResource:
         alive.
         """
         return RmmResourceAdaptor._from_cpp(deref(self._handle).device_mr_adaptor())
+
+    @property
+    def host_mr(self):
+        """
+        The tracked memory resource used for pageable host memory allocations.
+
+        The returned handle holds shared ownership of this ``BufferResource``,
+        keeping it alive for as long as the handle (or any copy of it) lives.
+
+        Returns
+        -------
+        The pageable host memory resource.
+        """
+        cdef optional[cpp_HostMemoryResource] mr
+        with nogil:
+            mr = cpp_br_host_mr(deref(self._handle))
+        return HostMemoryResource.from_handle(mr.value())
 
     @property
     def pinned_mr(self):
