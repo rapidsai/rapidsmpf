@@ -17,6 +17,8 @@ from rapidsmpf.communicator.communicator cimport Communicator
 from rapidsmpf.memory.buffer_resource cimport BufferResource  # no-cython-lint
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
+from rapidsmpf.memory.reservation_attributes cimport (
+    cpp_ReservationAttributes, reservation_attributes_from_mapping)
 from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
 from rapidsmpf.shuffler cimport (PartitionAssignment,
                                  cpp_insert_chunk_into_partition_map,
@@ -74,7 +76,9 @@ def shuffler(
     Channel ch_out not None,
     int32_t op_id,
     uint32_t total_num_partitions,
-    PartitionAssignment partition_assignment = PartitionAssignment.ROUND_ROBIN
+    PartitionAssignment partition_assignment = PartitionAssignment.ROUND_ROBIN,
+    *,
+    attributes=None,
 ):
     """
     Launch a shuffler actor for a single shuffle operation.
@@ -111,6 +115,8 @@ def shuffler(
     been drained.
     """
 
+    cdef cpp_ReservationAttributes cpp_attributes = \
+        reservation_attributes_from_mapping(attributes)
     with nogil:
         _ret = cpp_shuffler(
             ctx._handle,
@@ -122,6 +128,7 @@ def shuffler(
             cpp_Shuffler.round_robin
             if partition_assignment == PartitionAssignment.ROUND_ROBIN
             else cpp_Shuffler.contiguous,
+            move(cpp_attributes),
         )
     return CppActor.from_handle(make_unique[cpp_Actor](move(_ret)), owner=None)
 
@@ -155,15 +162,20 @@ cdef class ShufflerAsync:
         int32_t op_id,
         uint32_t total_num_partitions,
         PartitionAssignment partition_assignment = PartitionAssignment.ROUND_ROBIN,
+        *,
+        attributes=None,
     ):
         self._comm = comm
         self._br = ctx.br()
+        cdef cpp_ReservationAttributes cpp_attributes = \
+            reservation_attributes_from_mapping(attributes)
         with nogil:
             self._handle = make_unique[cpp_ShufflerAsync](
                 ctx._handle, comm._handle, op_id, total_num_partitions,
                 cpp_Shuffler.round_robin
                 if partition_assignment == PartitionAssignment.ROUND_ROBIN
                 else cpp_Shuffler.contiguous,
+                move(cpp_attributes),
             )
 
     def __dealloc__(self):

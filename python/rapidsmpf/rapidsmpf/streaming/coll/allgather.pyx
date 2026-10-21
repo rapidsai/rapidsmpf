@@ -14,6 +14,8 @@ from rapidsmpf.coll.allgather cimport Ordered as cpp_Ordered
 from rapidsmpf.communicator.communicator cimport Communicator
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
+from rapidsmpf.memory.reservation_attributes cimport (
+    cpp_ReservationAttributes, reservation_attributes_from_mapping)
 from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
 from rapidsmpf.streaming._detail.libcoro_spawn_task cimport cpp_set_py_future
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
@@ -78,12 +80,21 @@ cdef class AllGather:
         Operation id identifying this allgather. Must not be reused while
         this object is still live.
     """
-    def __init__(self, Context ctx not None, Communicator comm not None, int32_t op_id):
+    def __init__(
+        self,
+        Context ctx not None,
+        Communicator comm not None,
+        int32_t op_id,
+        *,
+        attributes=None,
+    ):
         self._comm = comm
         self.in_context = False
+        cdef cpp_ReservationAttributes cpp_attributes = \
+            reservation_attributes_from_mapping(attributes)
         with nogil:
             self._handle = make_unique[cpp_AllGather](
-                ctx._handle, comm._handle, op_id
+                ctx._handle, comm._handle, op_id, move(cpp_attributes)
             )
 
     def __dealloc__(self):
@@ -174,6 +185,7 @@ def allgather(
     int32_t op_id,
     *,
     bool ordered,
+    attributes=None,
 ):
     """
     Launch an allgather actor for a single allgather operation.
@@ -205,6 +217,8 @@ def allgather(
 
     cdef cpp_Actor _ret
     cdef cpp_Ordered c_ordered = cpp_Ordered.YES if ordered else cpp_Ordered.NO
+    cdef cpp_ReservationAttributes cpp_attributes = \
+        reservation_attributes_from_mapping(attributes)
     with nogil:
         _ret = cpp_allgather(
             ctx._handle,
@@ -213,5 +227,6 @@ def allgather(
             ch_out._handle,
             op_id,
             c_ordered,
+            move(cpp_attributes),
         )
     return CppActor.from_handle(make_unique[cpp_Actor](move(_ret)), owner=None)

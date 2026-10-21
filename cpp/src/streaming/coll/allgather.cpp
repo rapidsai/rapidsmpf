@@ -12,15 +12,24 @@
 namespace rapidsmpf::streaming {
 
 AllGather::AllGather(
-    std::shared_ptr<Context> ctx, std::shared_ptr<Communicator> comm, OpID op_id
+    std::shared_ptr<Context> ctx,
+    std::shared_ptr<Communicator> comm,
+    OpID op_id,
+    ReservationAttributes attributes
 )
     : ctx_{std::move(ctx)},
-      gatherer_{coll::AllGather(std::move(comm), op_id, ctx_->br().get(), [this]() {
-          // Schedule waiters to resume on the executor.
-          // This doesn't resume the frame immediately so we don't have to track
-          // completion of this callback with a task_group.
-          event_.set(ctx_->executor()->get());
-      })} {}
+      gatherer_{coll::AllGather(
+          std::move(comm),
+          op_id,
+          ctx_->br().get(),
+          [this]() {
+              // Schedule waiters to resume on the executor.
+              // This doesn't resume the frame immediately so we don't have to track
+              // completion of this callback with a task_group.
+              event_.set(ctx_->executor()->get());
+          },
+          std::move(attributes)
+      )} {}
 
 AllGather::~AllGather() noexcept {
     RAPIDSMPF_EXPECTS_FATAL(
@@ -60,11 +69,12 @@ Actor allgather(
     std::shared_ptr<Channel> ch_in,
     std::shared_ptr<Channel> ch_out,
     OpID op_id,
-    AllGather::Ordered ordered
+    AllGather::Ordered ordered,
+    ReservationAttributes attributes
 ) {
     ShutdownAtExit c{ch_in, ch_out};
     co_await ctx->executor()->schedule();
-    auto gatherer = AllGather(ctx, std::move(comm), op_id);
+    auto gatherer = AllGather(ctx, std::move(comm), op_id, std::move(attributes));
     while (true) {
         auto msg = co_await ch_in->receive();
         if (msg.empty()) {

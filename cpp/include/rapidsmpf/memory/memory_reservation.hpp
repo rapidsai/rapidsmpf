@@ -5,8 +5,11 @@
 
 #pragma once
 
+#include <cstdint>
+#include <utility>
+
 #include <rapidsmpf/memory/buffer.hpp>
-#include <rapidsmpf/memory/memory_reservation.hpp>
+#include <rapidsmpf/memory/reservation_attributes.hpp>
 
 namespace rapidsmpf {
 
@@ -22,6 +25,8 @@ class MemoryReservation {
     friend class BufferResource;
 
   public:
+    MemoryReservation() noexcept = default;
+
     /**
      * @brief Destructor for the memory reservation.
      *
@@ -97,6 +102,24 @@ class MemoryReservation {
         return br_;
     }
 
+    /**
+     * @brief Get the recorder identity carried across moves.
+     *
+     * @return Reservation identifier, or zero for an unrecorded empty reservation.
+     */
+    [[nodiscard]] constexpr std::uint64_t id() const noexcept {
+        return id_;
+    }
+
+    /**
+     * @brief Get immutable telemetry attributes inherited by split children.
+     *
+     * @return Shared reservation attributes.
+     */
+    [[nodiscard]] ReservationAttributes const& attributes() const noexcept {
+        return attrs_;
+    }
+
   private:
     /**
      * @brief Constructs a memory reservation.
@@ -106,13 +129,23 @@ class MemoryReservation {
      * @param mem_type The type of memory associated with this reservation.
      * @param br Pointer to the buffer resource managing this reservation.
      * @param size The size of the reserved memory in bytes.
+     * @param id Recorder identity.
+     * @param attrs Immutable telemetry attributes.
      */
-    constexpr MemoryReservation(MemoryType mem_type, BufferResource* br, std::size_t size)
-        : mem_type_{mem_type}, br_{br}, size_{size} {}
+    MemoryReservation(
+        MemoryType mem_type,
+        BufferResource* br,
+        std::size_t size,
+        std::uint64_t id = 0,
+        ReservationAttributes attrs = {}
+    )
+        : mem_type_{mem_type}, br_{br}, size_{size}, id_{id}, attrs_{std::move(attrs)} {}
 
   private:
-    MemoryType mem_type_;  ///< The type of memory for this reservation.
-    BufferResource* br_;  ///< The buffer resource that manages this reservation.
-    std::size_t size_;  ///< The remaining size of the reserved memory in bytes.
+    MemoryType mem_type_{MemoryType::HOST};
+    BufferResource* br_{nullptr};
+    std::size_t size_{0};
+    std::uint64_t id_{0};
+    ReservationAttributes attrs_;
 };
 }  // namespace rapidsmpf

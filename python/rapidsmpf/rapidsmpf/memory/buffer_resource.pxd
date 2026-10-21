@@ -41,6 +41,10 @@ cdef extern from "<rapidsmpf/disk/disk_resource.hpp>" nogil:
     cdef cppclass cpp_DiskResource "rapidsmpf::DiskResource":
         const cpp_path& directory() noexcept
 
+cdef extern from "<rapidsmpf/memory/reservation_recorder.h>":
+    cdef struct cpp_reservation_recorder "rapidsmpf_reservation_recorder":
+        pass
+
 cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
     cdef enum class AllowOverbooking"rapidsmpf::AllowOverbooking"(bool_t):
         NO
@@ -67,7 +71,12 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
             MemoryType mem_type
         ) except +ex_handler
         int64_t memory_available(MemoryType mem_type) except +ex_handler
+        int64_t memory_limit(MemoryType mem_type) noexcept
+        bool_t has_memory_resource(MemoryType mem_type) noexcept
         void set_memory_limit(MemoryType mem_type, int64_t limit) except +ex_handler
+        void set_reservation_recorder(
+            const cpp_reservation_recorder* recorder
+        ) except +ex_handler
         cpp_SpillManager &spill_manager() except +ex_handler
         size_t release(cpp_MemoryReservation&, size_t) except +ex_handler
         shared_ptr[cpp_Statistics] statistics() except +ex_handler

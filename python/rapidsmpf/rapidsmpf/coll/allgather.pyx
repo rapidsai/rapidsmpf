@@ -1,19 +1,47 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 """The AllGather interface for RapidsMPF."""
 
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int32_t, uint64_t
-from libcpp.memory cimport make_unique
+from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
 
+from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.coll.allgather cimport Ordered, cpp_AllGather, milliseconds_t
-from rapidsmpf.communicator.communicator cimport Communicator
+from rapidsmpf.communicator.communicator cimport Communicator, cpp_Communicator
 from rapidsmpf.memory.buffer_resource cimport (BufferResource,
                                                cpp_BufferResource)
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
+from rapidsmpf.memory.reservation_attributes cimport (
+    cpp_ReservationAttributes, reservation_attributes_from_mapping)
+
+
+cdef extern from * nogil:
+    """
+    std::unique_ptr<rapidsmpf::coll::AllGather> cpp_make_allgather(
+        std::shared_ptr<rapidsmpf::Communicator> comm,
+        rapidsmpf::OpID op_id,
+        rapidsmpf::BufferResource* br,
+        rapidsmpf::ReservationAttributes attributes
+    ) {
+        return std::make_unique<rapidsmpf::coll::AllGather>(
+            std::move(comm),
+            op_id,
+            br,
+            nullptr,
+            std::move(attributes)
+        );
+    }
+    """
+    unique_ptr[cpp_AllGather] cpp_make_allgather(
+        shared_ptr[cpp_Communicator],
+        int32_t,
+        cpp_BufferResource*,
+        cpp_ReservationAttributes,
+    ) except +ex_handler
 
 
 cdef class AllGather:
@@ -49,16 +77,21 @@ cdef class AllGather:
         Communicator comm not None,
         int32_t op_id,
         BufferResource br not None,
+        *,
+        attributes=None,
     ):
         self._br = br
         self._comm = comm
         cdef cpp_BufferResource* br_ = br.ptr()
+        cdef cpp_ReservationAttributes cpp_attributes = \
+            reservation_attributes_from_mapping(attributes)
         self.in_context = False
         with nogil:
-            self._handle = make_unique[cpp_AllGather](
+            self._handle = cpp_make_allgather(
                 comm._handle,
                 op_id,
                 br_,
+                move(cpp_attributes),
             )
 
     def __dealloc__(self):

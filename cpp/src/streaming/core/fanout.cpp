@@ -29,18 +29,22 @@ namespace {
  * @param chs_out The set of output channels to which the message is sent.
  */
 Actor send_to_channels(
-    Context& ctx, Message&& msg, std::vector<std::shared_ptr<Channel>>& chs_out
+    Context& ctx,
+    Message&& msg,
+    std::vector<std::shared_ptr<Channel>>& chs_out,
+    ReservationAttributes attributes
 ) {
     RAPIDSMPF_EXPECTS(!chs_out.empty(), "output channels cannot be empty");
 
     auto async_copy_and_send = [](Context& ctx_,
                                   Message const& msg_,
                                   std::size_t msg_sz_,
-                                  Channel& ch_) -> coro::task<bool> {
+                                  Channel& ch_,
+                                  ReservationAttributes attributes_) -> coro::task<bool> {
         co_await ctx_.executor()->schedule();
         auto const& cd = msg_.content_description();
         auto const mem_types = leq_memory_types(cd.principal_memory_type());
-        auto res = ctx_.br()->reserve_or_fail(msg_sz_, mem_types);
+        auto res = ctx_.br()->reserve_or_fail(msg_sz_, mem_types, std::move(attributes_));
         co_return co_await ch_.send(msg_.copy(res));
     };
 
@@ -49,7 +53,9 @@ Actor send_to_channels(
     async_send_tasks.reserve(chs_out.size() - 1);
     std::size_t msg_sz = msg.copy_cost();
     for (std::size_t i = 0; i < chs_out.size() - 1; i++) {
-        async_send_tasks.emplace_back(async_copy_and_send(ctx, msg, msg_sz, *chs_out[i]));
+        async_send_tasks.emplace_back(
+            async_copy_and_send(ctx, msg, msg_sz, *chs_out[i], attributes)
+        );
     }
 
     // note that the send tasks may return false if the channel is shut down. But we can
@@ -74,7 +80,8 @@ Actor send_to_channels(
 Actor bounded_fanout(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_in,
-    std::vector<std::shared_ptr<Channel>> chs_out
+    std::vector<std::shared_ptr<Channel>> chs_out,
+    ReservationAttributes attributes
 ) {
     ShutdownAtExit c1{ch_in};
     ShutdownAtExit c2{chs_out};
@@ -91,7 +98,7 @@ Actor bounded_fanout(
             // all channels are shut down, so we can break & shutdown the input channel
             break;
         }
-        co_await send_to_channels(*ctx, std::move(msg), chs_out);
+        co_await send_to_channels(*ctx, std::move(msg), chs_out, attributes);
     }
 
     std::vector<Actor> drain_tasks;
@@ -187,7 +194,10 @@ struct UnboundedFanout {
      * @return A coroutine representing the task.
      */
     Actor send_task(
-        Context& ctx, std::size_t& self_next_idx, std::shared_ptr<Channel> ch_out
+        Context& ctx,
+        std::size_t& self_next_idx,
+        std::shared_ptr<Channel> ch_out,
+        ReservationAttributes attributes
     ) {
         ShutdownAtExit ch_shutdown{ch_out};
         SetChannelIdxInvalidAtExit set_ch_idx_invalid{
@@ -227,7 +237,8 @@ struct UnboundedFanout {
                 // Reserve memory for the output using the input message's memory type, or
                 // a lower-priority type if needed.
                 auto const mem_types = leq_memory_types(cd.principal_memory_type());
-                auto res = ctx.br()->reserve_or_fail(cd.content_size(), mem_types);
+                auto res =
+                    ctx.br()->reserve_or_fail(cd.content_size(), mem_types, attributes);
                 if (!co_await ch_out->send(spillable_messages->copy(msg_id, res))) {
                     // Failed to send message. Could be that the channel is shut down.
                     // So we need to abort the send task, and notify the process input
@@ -401,7 +412,8 @@ struct UnboundedFanout {
 Actor unbounded_fanout(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_in,
-    std::vector<std::shared_ptr<Channel>> chs_out
+    std::vector<std::shared_ptr<Channel>> chs_out,
+    ReservationAttributes attributes
 ) {
     auto& executor = *ctx->executor();
 
@@ -414,9 +426,9 @@ Actor unbounded_fanout(
     tasks.reserve(chs_out.size() + 1);
 
     for (std::size_t i = 0; i < chs_out.size(); i++) {
-        tasks.emplace_back(executor.schedule(
-            fanout.send_task(*ctx, fanout.per_ch_processed[i], std::move(chs_out[i]))
-        ));
+        tasks.emplace_back(executor.schedule(fanout.send_task(
+            *ctx, fanout.per_ch_processed[i], std::move(chs_out[i]), attributes
+        )));
     }
     tasks.emplace_back(executor.schedule(fanout.recv_task(*ctx, std::move(ch_in))));
 
@@ -429,7 +441,8 @@ Actor fanout(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_in,
     std::vector<std::shared_ptr<Channel>> chs_out,
-    FanoutPolicy policy
+    FanoutPolicy policy,
+    ReservationAttributes attributes
 ) {
     RAPIDSMPF_EXPECTS(
         chs_out.size() > 1,
@@ -439,9 +452,13 @@ Actor fanout(
 
     switch (policy) {
     case FanoutPolicy::BOUNDED:
-        return bounded_fanout(std::move(ctx), std::move(ch_in), std::move(chs_out));
+        return bounded_fanout(
+            std::move(ctx), std::move(ch_in), std::move(chs_out), std::move(attributes)
+        );
     case FanoutPolicy::UNBOUNDED:
-        return unbounded_fanout(std::move(ctx), std::move(ch_in), std::move(chs_out));
+        return unbounded_fanout(
+            std::move(ctx), std::move(ch_in), std::move(chs_out), std::move(attributes)
+        );
     default:
         RAPIDSMPF_FAIL("Unknown broadcast policy", std::invalid_argument);
     }

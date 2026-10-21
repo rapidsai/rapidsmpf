@@ -214,13 +214,16 @@ class Chunk {
      *
      * @param data The serialized chunk data.
      * @param br Buffer resource for memory allocation.
+     * @param attributes Immutable telemetry attributes for the reservation.
      * @return A unique pointer to the deserialized chunk.
      *
      * @note If the serialized form encodes a data chunk, this
      * function allocates space for the data buffer.
      */
     [[nodiscard]] static std::unique_ptr<Chunk> deserialize(
-        std::vector<std::uint8_t>& data, BufferResource* br
+        std::vector<std::uint8_t>& data,
+        BufferResource* br,
+        ReservationAttributes attributes = {}
     );
 
     /**
@@ -329,12 +332,17 @@ class PostBox {
      *
      * @param br The buffer resource for host and device allocations.
      * @param amount Requested amount of data to spill in bytes.
+     * @param attributes Immutable telemetry attributes for the spill reservation.
      * @return Actual amount of data spilled in bytes.
      *
      * @note We attempt to minimise the number of individual buffers
      * spilled, as well as the amount of "overspill".
      */
-    [[nodiscard]] std::size_t spill(BufferResource* br, std::size_t amount);
+    [[nodiscard]] std::size_t spill(
+        BufferResource* br,
+        std::size_t amount,
+        ReservationAttributes attributes = spill_reservation_attributes()
+    );
 
   private:
     mutable std::mutex mutex_{};  ///< Mutex for thread-safe access

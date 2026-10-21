@@ -15,8 +15,12 @@
 #include <optional>
 #include <ranges>
 #include <span>
+#include <string>
 #include <unordered_map>
 #include <utility>
+#include <vector>
+
+#include <rapidsmpf/memory/reservation_recorder.h>
 
 #include <cuda/memory_resource>
 #include <cuda/stream>
@@ -30,6 +34,7 @@
 #include <rapidsmpf/memory/memory_reservation.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
+#include <rapidsmpf/memory/reservation_attributes.hpp>
 #include <rapidsmpf/memory/resource_types.hpp>
 #include <rapidsmpf/memory/spill_manager.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
@@ -49,6 +54,68 @@ enum class AllowOverbooking : bool {
     NO,  ///< Overbooking is not allowed.
     YES,  ///< Overbooking is allowed.
 };
+
+class BufferResource;
+
+namespace detail {
+
+/// @cond
+struct ReserveResult {
+    MemoryReservation reservation;
+    MemoryType mem_type{MemoryType::HOST};
+    std::size_t overbooked_bytes{0};
+    std::size_t total_overbooked_bytes{0};
+    bool waited{false};
+    bool timed_out{false};
+    bool cancelled{false};
+};
+
+class RequestScope {
+  public:
+    RequestScope(
+        BufferResource& br,
+        std::size_t size,
+        std::span<MemoryType const> memory_types,
+        rapidsmpf_reservation_request_policy policy,
+        std::optional<std::int64_t> net_memory_delta,
+        ReservationAttributes attributes
+    );
+    ~RequestScope() noexcept;
+    RequestScope(RequestScope const&) = delete;
+    RequestScope& operator=(RequestScope const&) = delete;
+
+    [[nodiscard]] std::uint64_t id() const noexcept {
+        return id_;
+    }
+
+    [[nodiscard]] ReservationAttributes const& attributes() const noexcept {
+        return attributes_;
+    }
+
+    void waiting();
+    void resolve_granted(ReserveResult const&);
+    void resolve_empty(bool timed_out);
+    void resolve_failed(std::string const& error);
+    void resolve_cancelled();
+
+  private:
+    void resolve(
+        rapidsmpf_reservation_request_outcome outcome,
+        ReserveResult const* result,
+        bool timed_out,
+        std::string const& error
+    );
+
+    BufferResource* br_;
+    std::uint64_t id_;
+    ReservationAttributes attributes_;
+    bool waiting_emitted_{false};
+    bool resolved_{false};
+};
+
+/// @endcond
+
+}  // namespace detail
 
 /**
  * @brief Pool of non-blocking CUDA streams.
@@ -142,6 +209,8 @@ class StreamPool {
  */
 class BufferResource : public std::enable_shared_from_this<BufferResource> {
   public:
+    class RecorderRegistration;
+
     /**
      * @brief Construct a `BufferResource` managed by `std::shared_ptr`.
      *
@@ -212,7 +281,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         std::shared_ptr<Statistics> statistics = Statistics::disabled()
     );
 
-    ~BufferResource() noexcept = default;
+    ~BufferResource() noexcept;
 
     /**
      * @brief `BufferResource` is non-copyable, it is owned by `std::shared_ptr`.
@@ -343,6 +412,22 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     [[nodiscard]] std::int64_t memory_available(MemoryType mem_type) const noexcept;
 
     /**
+     * @brief Return the configured limit for a memory type.
+     *
+     * @param mem_type The memory type to query.
+     * @return The exact signed configured byte limit.
+     */
+    [[nodiscard]] std::int64_t memory_limit(MemoryType mem_type) const noexcept;
+
+    /**
+     * @brief Test whether this buffer resource owns a given memory resource.
+     *
+     * @param mem_type The memory type to query.
+     * @return Whether reservations can target this memory type.
+     */
+    [[nodiscard]] bool has_memory_resource(MemoryType mem_type) const noexcept;
+
+    /**
      * @brief Updates the memory limit for a given memory type at runtime.
      *
      * The store is atomic, but readers (e.g. `memory_available()` and `reserve()`)
@@ -357,6 +442,16 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * spilling.
      */
     void set_memory_limit(MemoryType mem_type, std::int64_t limit) noexcept;
+
+    /**
+     * @brief Install, replace, or clear the process-independent recorder hook.
+     *
+     * The recorder is copied. Replacing or clearing waits for callbacks using the
+     * previous registration to finish before releasing its user data.
+     *
+     * @param recorder Recorder to install, or nullptr to uninstall it.
+     */
+    void set_reservation_recorder(rapidsmpf_reservation_recorder const* recorder);
 
     /**
      * @brief Returns the memory available to a new reservation, in bytes.
@@ -400,6 +495,31 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     );
 
     /**
+     * @brief Reserve memory and attach immutable telemetry attributes.
+     *
+     * @param mem_type The target memory type.
+     * @param size The number of bytes to reserve.
+     * @param allow_overbooking Whether overbooking is allowed.
+     * @param attributes Immutable telemetry attributes for the request.
+     * @return The reservation and this request's overbooked byte count.
+     */
+    std::pair<MemoryReservation, std::size_t> reserve(
+        MemoryType mem_type,
+        std::size_t size,
+        AllowOverbooking allow_overbooking,
+        ReservationAttributes attributes
+    );
+
+    /// @cond
+    detail::ReserveResult reserve_impl(
+        MemoryType mem_type,
+        std::size_t size,
+        AllowOverbooking allow_overbooking,
+        detail::RequestScope* request
+    );
+    /// @endcond
+
+    /**
      * @brief Reserve device memory and spill if necessary.
      *
      * Attempts to reserve the requested amount of device memory. If insufficient memory
@@ -435,7 +555,9 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     template <std::ranges::input_range Range>
         requires std::convertible_to<std::ranges::range_value_t<Range>, MemoryType>
     [[nodiscard]] std::optional<MemoryReservation> try_reserve(
-        std::size_t size, Range mem_types
+        std::size_t size,
+        Range mem_types,
+        ReservationAttributes const& attributes = {}
     ) {
         // try to reserve memory from the given order
         for (auto const& mem_type : mem_types) {
@@ -447,7 +569,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
                 // available.
                 continue;
             }
-            auto [res, _] = reserve(mem_type, size, AllowOverbooking::NO);
+            auto [res, _] = reserve(mem_type, size, AllowOverbooking::NO, attributes);
             if (res.size() == size) {
                 return std::move(res);
             }
@@ -464,10 +586,26 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * satisfied.
      */
     [[nodiscard]] std::optional<MemoryReservation> try_reserve(
-        std::size_t size, MemoryType mem_type
+        std::size_t size,
+        MemoryType mem_type,
+        ReservationAttributes const& attributes = {}
     ) {
-        return try_reserve(size, std::ranges::single_view{mem_type});
+        return try_reserve(size, std::ranges::single_view{mem_type}, attributes);
     }
+
+    /**
+     * @brief Reserve device memory, spill as needed, and attach telemetry attributes.
+     *
+     * @param size The size of memory to reserve.
+     * @param allow_overbooking Whether overbooking is allowed.
+     * @param attributes Immutable telemetry attributes for the request.
+     * @return The memory reservation.
+     */
+    MemoryReservation reserve_device_memory_and_spill(
+        std::size_t size,
+        AllowOverbooking allow_overbooking,
+        ReservationAttributes attributes
+    );
 
     /**
      * @brief Make a memory reservation or fail based on the given order of memory types.
@@ -478,17 +616,54 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * @param size The size of the buffer to allocate.
      * @param mem_types Range of memory types to try to reserve memory from.
+     * @param attributes Immutable telemetry attributes for the request.
      * @return A memory reservation.
      *
      * @throws std::runtime_error if no memory reservation was made.
      */
     template <std::ranges::input_range Range>
         requires std::convertible_to<std::ranges::range_value_t<Range>, MemoryType>
-    [[nodiscard]] MemoryReservation reserve_or_fail(std::size_t size, Range mem_types) {
-        if (auto res = try_reserve(size, std::move(mem_types))) {
-            return std::move(*res);
+    [[nodiscard]] MemoryReservation reserve_or_fail(
+        std::size_t size, Range mem_types, ReservationAttributes attributes = {}
+    ) {
+        if (size == 0) {
+            for (auto const mem_type : mem_types) {
+                if (has_memory_resource(mem_type)) {
+                    return MemoryReservation(mem_type, this, 0);
+                }
+            }
+            RAPIDSMPF_FAIL("failed to reserve memory", std::runtime_error);
         }
-        RAPIDSMPF_FAIL("failed to reserve memory", std::runtime_error);
+        std::vector<MemoryType> types(
+            std::ranges::begin(mem_types), std::ranges::end(mem_types)
+        );
+        detail::RequestScope scope{
+            *this,
+            size,
+            types,
+            RAPIDSMPF_REQUEST_IMMEDIATE,
+            std::nullopt,
+            std::move(attributes)
+        };
+        try {
+            for (auto const mem_type : types) {
+                if (!has_memory_resource(mem_type)) {
+                    continue;
+                }
+                auto result = reserve_impl(mem_type, size, AllowOverbooking::NO, &scope);
+                if (result.reservation.size() == size) {
+                    scope.resolve_granted(result);
+                    return std::move(result.reservation);
+                }
+            }
+            throw std::runtime_error("failed to reserve memory");
+        } catch (std::exception const& e) {
+            scope.resolve_failed(e.what());
+            throw;
+        } catch (...) {
+            scope.resolve_failed("unknown exception");
+            throw;
+        }
     }
 
     /**
@@ -496,14 +671,17 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * @param size The size of the buffer to allocate.
      * @param mem_type The memory type to try to reserve memory from.
+     * @param attributes Immutable telemetry attributes for the request.
      * @return A memory reservation.
      *
      * @throws std::runtime_error if no memory reservation was made.
      */
     [[nodiscard]] MemoryReservation reserve_or_fail(
-        std::size_t size, MemoryType mem_type
+        std::size_t size, MemoryType mem_type, ReservationAttributes attributes = {}
     ) {
-        return reserve_or_fail(size, std::ranges::single_view{mem_type});
+        return reserve_or_fail(
+            size, std::ranges::single_view{mem_type}, std::move(attributes)
+        );
     }
 
     /**
@@ -718,6 +896,34 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     }
 
   private:
+    friend class MemoryReservation;
+    friend class detail::RequestScope;
+    std::uint64_t next_reservation_id() noexcept;
+    std::uint64_t next_request_id() noexcept;
+    void emit_request_submitted(
+        std::uint64_t,
+        std::size_t,
+        std::span<MemoryType const>,
+        rapidsmpf_reservation_request_policy,
+        std::optional<std::int64_t>,
+        ReservationAttributes const&
+    );
+    void emit_request_waiting(std::uint64_t);
+    void emit_request_resolved(
+        std::uint64_t,
+        rapidsmpf_reservation_request_outcome,
+        detail::ReserveResult const*,
+        bool,
+        std::string const&
+    );
+    void emit_reservation_created(
+        MemoryReservation const&, std::uint64_t request_id, std::uint64_t parent_id
+    );
+    void emit_reservation_resized(
+        std::uint64_t, std::size_t, rapidsmpf_reservation_resize_reason
+    );
+    void emit_reservation_released(std::uint64_t, rapidsmpf_reservation_release_reason);
+    void clear_reservation(MemoryReservation&) noexcept;
     /** @brief Private constructor, use `create()` or `from_options()`. */
     BufferResource(
         cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
@@ -744,6 +950,10 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     std::shared_ptr<Statistics> statistics_;
     Duration memory_reserve_timeout_;
     AllowOverbooking allow_overbooking_by_default_;
+    std::shared_ptr<RecorderRegistration> recorder_;
+    std::mutex recorder_mutex_;
+    std::atomic<std::uint64_t> reservation_id_counter_{1};
+    std::atomic<std::uint64_t> request_id_counter_{1};
 };
 
 static_assert(StatisticsProvider<BufferResource>);

@@ -121,6 +121,7 @@ class Shuffler {
      * @param partition_owner Function to determine partition ownership.
      * @param mpe Optional custom metadata payload exchange. If not provided,
      * uses the default tag-based implementation.
+     * @param attributes Immutable telemetry attributes for internal reservations.
      *
      * @note It is safe to reuse the `op_id` as soon as `wait` has completed
      * locally.
@@ -136,7 +137,8 @@ class Shuffler {
         BufferResource* br,
         FinishedCallback&& finished_callback,
         PartitionOwner partition_owner = round_robin,
-        std::unique_ptr<communicator::MetadataPayloadExchange> mpe = nullptr
+        std::unique_ptr<communicator::MetadataPayloadExchange> mpe = nullptr,
+        ReservationAttributes attributes = {}
     );
 
     /**
@@ -150,6 +152,7 @@ class Shuffler {
      * @param partition_owner Function to determine partition ownership.
      * @param mpe Optional custom metadata payload exchange. If not provided,
      * uses the default tag-based implementation.
+     * @param attributes Immutable telemetry attributes for internal reservations.
      *
      * @note The caller promises that inserted buffers are stream-ordered with respect
      * to their own stream, and extracted buffers are likewise guaranteed to be stream-
@@ -161,7 +164,8 @@ class Shuffler {
         PartID total_num_partitions,
         BufferResource* br,
         PartitionOwner partition_owner = round_robin,
-        std::unique_ptr<communicator::MetadataPayloadExchange> mpe = nullptr
+        std::unique_ptr<communicator::MetadataPayloadExchange> mpe = nullptr,
+        ReservationAttributes attributes = {}
     )
         : Shuffler(
               comm,
@@ -170,7 +174,8 @@ class Shuffler {
               br,
               nullptr,
               partition_owner,
-              std::move(mpe)
+              std::move(mpe),
+              std::move(attributes)
           ) {}
 
     ~Shuffler();
@@ -333,6 +338,7 @@ class Shuffler {
 
   private:
     BufferResource* br_;
+    ReservationAttributes attributes_;
     std::atomic<bool> active_{true};
     // Have we called `insert_finished()` on this rank.
     std::atomic<bool> locally_finished_{false};

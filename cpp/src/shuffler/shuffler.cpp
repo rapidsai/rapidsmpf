@@ -86,9 +86,12 @@ using AllocationMode = communicator::MetadataPayloadExchange::AllocationMode;
  * overbooking is not allowed.
  */
 std::unique_ptr<Buffer> allocate_receive_buffer(
-    BufferResource* br, std::size_t size, AllocationMode mode
+    BufferResource* br,
+    std::size_t size,
+    AllocationMode mode,
+    ReservationAttributes const& attributes
 ) {
-    auto res = br->try_reserve(size, ADDRESSABLE_MEMORY_TYPES);
+    auto res = br->try_reserve(size, ADDRESSABLE_MEMORY_TYPES, attributes);
     if (!res.has_value()) {
         if (mode == AllocationMode::MAY_FAIL) {
             return nullptr;
@@ -100,7 +103,7 @@ std::unique_ptr<Buffer> allocate_receive_buffer(
             std::runtime_error
         );
         // Fall back to overbooking host memory as a last resort.
-        res = br->reserve(MemoryType::HOST, size, AllowOverbooking::YES).first;
+        res = br->reserve(MemoryType::HOST, size, AllowOverbooking::YES, attributes).first;
     }
     return br->make_buffer(br->stream_pool()->get_stream(), std::move(*res));
 }
@@ -172,7 +175,11 @@ class Shuffler::Progress {
 
             for (auto&& message : completed_messages) {
                 auto chunk = detail::Chunk::deserialize(
-                    message->metadata(), shuffler_.br_, false, message->release_data()
+                    message->metadata(),
+                    shuffler_.br_,
+                    false,
+                    message->release_data(),
+                    shuffler_.attributes_
                 );
 
                 RAPIDSMPF_EXPECTS(
@@ -258,7 +265,8 @@ Shuffler::Shuffler(
     BufferResource* br,
     FinishedCallback&& finished_callback,
     PartitionOwner partition_owner_fn,
-    std::unique_ptr<communicator::MetadataPayloadExchange> mpe
+    std::unique_ptr<communicator::MetadataPayloadExchange> mpe,
+    ReservationAttributes attributes
 )
     : total_num_partitions{total_num_partitions},
       partition_owner{std::move(partition_owner_fn)},
@@ -266,6 +274,7 @@ Shuffler::Shuffler(
           RAPIDSMPF_EXPECTS(br != nullptr, "the buffer resource pointer cannot be NULL");
           return br;
       }()},
+      attributes_{std::move(attributes)},
       to_send_{},
       received_{safe_cast<std::size_t>(total_num_partitions)},
       comm_{[&comm] {
@@ -277,8 +286,8 @@ Shuffler::Shuffler(
               : std::make_unique<communicator::TagMetadataPayloadExchange>(
                     comm_,
                     op_id,
-                    [br](std::size_t size, AllocationMode mode) {
-                        return allocate_receive_buffer(br, size, mode);
+                    [this](std::size_t size, AllocationMode mode) {
+                        return allocate_receive_buffer(br_, size, mode, attributes_);
                     },
                     br->memory_reserve_timeout(),
                     br
@@ -400,8 +409,11 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
         {
             // NB: the chunk may be for another rank. If the spill targets ever include
             // `MemoryType::DISK`, this must still spill to sendable memory types only.
-            auto reservation =
-                br_->reserve_or_fail(packed_data.data->size, SPILL_TARGET_MEMORY_TYPES);
+            auto reservation = br_->reserve_or_fail(
+                packed_data.data->size,
+                SPILL_TARGET_MEMORY_TYPES,
+                spill_reservation_attributes()
+            );
             auto chunk = create_chunk(pid, std::move(packed_data));
             // Spill the new chunk before inserting.
             chunk.set_data_buffer(br_->move(chunk.release_data_buffer(), reservation));

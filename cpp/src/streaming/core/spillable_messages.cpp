@@ -76,7 +76,8 @@ std::size_t SpillableMessages::spill(MessageId mid, BufferResource* br) const {
     }
 
     // Spill item in-place.
-    auto res = br->reserve_or_fail(msg.copy_cost(), SPILL_TARGET_MEMORY_TYPES);
+    auto res =
+        br->reserve_or_fail(msg.copy_cost(), SPILL_TARGET_MEMORY_TYPES, attributes_);
     item->message = msg.move(res);
     auto const new_cd = item->message.value().content_description();
     item_lock.unlock();

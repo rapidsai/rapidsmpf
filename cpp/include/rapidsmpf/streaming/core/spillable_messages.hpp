@@ -10,6 +10,7 @@
 #include <mutex>
 #include <optional>
 #include <unordered_map>
+#include <utility>
 
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/content_description.hpp>
@@ -41,7 +42,16 @@ class SpillableMessages {
     /// @brief Unique identifier assigned to each message.
     using MessageId = std::uint64_t;
 
-    SpillableMessages() = default;
+    /**
+     * @brief Construct a spillable message store.
+     *
+     * @param attributes Immutable telemetry attributes for spill reservations.
+     */
+    explicit SpillableMessages(
+        ReservationAttributes attributes = spill_reservation_attributes()
+    )
+        : attributes_{std::move(attributes)} {}
+
     SpillableMessages(SpillableMessages const&) = delete;
     SpillableMessages& operator=(SpillableMessages const&) = delete;
     SpillableMessages(SpillableMessages&&) noexcept = delete;
@@ -170,6 +180,7 @@ class SpillableMessages {
     MessageId counter_{0};
     std::unordered_map<MessageId, std::shared_ptr<Item>> items_;
     mutable std::map<MessageId, ContentDescription> content_descriptions_;
+    ReservationAttributes attributes_;
 };
 
 }  // namespace rapidsmpf::streaming

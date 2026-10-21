@@ -13,6 +13,7 @@ set(cython_modules
     memory_reservation.pyx
     packed_data.pyx
     pinned_memory_resource.pyx
+    reservation_attributes.pyx
     scoped_memory_record.pyx
     spill.pyx
     spill_manager.pyx

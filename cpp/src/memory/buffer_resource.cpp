@@ -4,12 +4,18 @@
  */
 
 #include <algorithm>
+#include <cassert>
+#include <condition_variable>
+#include <cstring>
+#include <functional>
 #include <limits>
 #include <optional>
 #include <ranges>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <utility>
+#include <vector>
 
 #include <unistd.h>
 
@@ -29,6 +35,294 @@
 #include <rapidsmpf/utils/string.hpp>
 
 namespace rapidsmpf {
+
+namespace {
+
+rapidsmpf_string_view string_view(std::string const& value) {
+    return {value.data(), value.size()};
+}
+
+struct AttributeViews {
+    std::vector<rapidsmpf_reservation_attribute> values;
+
+    explicit AttributeViews(ReservationAttributes const& attributes) {
+        if (!attributes) {
+            return;
+        }
+        values.reserve(attributes->size());
+        for (auto const& [key, value] : *attributes) {
+            rapidsmpf_reservation_attribute item{};
+            item.key = string_view(key);
+            std::visit(
+                [&item](auto const& entry) {
+                    using T = std::decay_t<decltype(entry)>;
+                    if constexpr (std::is_same_v<T, std::string>) {
+                        item.type = RAPIDSMPF_RESERVATION_ATTRIBUTE_STRING;
+                        item.value.string_value = string_view(entry);
+                    } else if constexpr (std::is_same_v<T, std::int64_t>) {
+                        item.type = RAPIDSMPF_RESERVATION_ATTRIBUTE_I64;
+                        item.value.i64_value = entry;
+                    } else if constexpr (std::is_same_v<T, bool>) {
+                        item.type = RAPIDSMPF_RESERVATION_ATTRIBUTE_BOOL;
+                        item.value.bool_value = entry;
+                    } else {
+                        item.type = RAPIDSMPF_RESERVATION_ATTRIBUTE_F64;
+                        item.value.f64_value = entry;
+                    }
+                },
+                value
+            );
+            values.push_back(item);
+        }
+    }
+
+    operator rapidsmpf_reservation_attributes_view() const {
+        return {values.data(), values.size()};
+    }
+};
+
+}  // namespace
+
+class BufferResource::RecorderRegistration {
+  public:
+    explicit RecorderRegistration(rapidsmpf_reservation_recorder const& recorder)
+        : recorder_{recorder} {
+        if (recorder_.retain_user != nullptr) {
+            recorder_.retain_user(recorder_.user);
+        }
+    }
+
+    ~RecorderRegistration() {
+        if (recorder_.release_user != nullptr) {
+            recorder_.release_user(recorder_.user);
+        }
+    }
+
+    template <typename F>
+    void invoke(F&& callback) noexcept {
+        std::unique_lock lock(mutex_);
+        if (!accepting_) {
+            return;
+        }
+        ++in_flight_;
+        auto const sequence = sequence_++;
+        lock.unlock();
+        callback(recorder_, sequence);
+        lock.lock();
+        if (--in_flight_ == 0) {
+            drained_.notify_all();
+        }
+    }
+
+    void drain() noexcept {
+        std::unique_lock lock(mutex_);
+        accepting_ = false;
+        drained_.wait(lock, [this] { return in_flight_ == 0; });
+    }
+
+  private:
+    rapidsmpf_reservation_recorder recorder_;
+    std::mutex mutex_;
+    std::condition_variable drained_;
+    std::uint64_t sequence_{0};
+    std::size_t in_flight_{0};
+    bool accepting_{true};
+};
+
+namespace {
+template <typename F>
+void emit(
+    std::mutex& mutex,
+    std::shared_ptr<BufferResource::RecorderRegistration> const& recorder,
+    F&& callback
+) {
+    std::shared_ptr<BufferResource::RecorderRegistration> registration;
+    {
+        std::lock_guard lock(mutex);
+        registration = recorder;
+    }
+    if (registration) {
+        registration->invoke(std::forward<F>(callback));
+    }
+}
+}  // namespace
+
+std::uint64_t BufferResource::next_reservation_id() noexcept {
+    return reservation_id_counter_.fetch_add(1, std::memory_order_relaxed);
+}
+
+std::uint64_t BufferResource::next_request_id() noexcept {
+    return request_id_counter_.fetch_add(1, std::memory_order_relaxed);
+}
+
+void BufferResource::emit_request_submitted(
+    std::uint64_t id,
+    std::size_t size,
+    std::span<MemoryType const> memory_types,
+    rapidsmpf_reservation_request_policy policy,
+    std::optional<std::int64_t> delta,
+    ReservationAttributes const& attributes
+) {
+    std::vector<std::uint32_t> types;
+    types.reserve(memory_types.size());
+    for (auto type : memory_types) {
+        types.push_back(static_cast<std::uint32_t>(type));
+    }
+    AttributeViews attrs{attributes};
+    emit(recorder_mutex_, recorder_, [&](auto const& recorder, std::uint64_t sequence) {
+        if (recorder.request_submitted != nullptr) {
+            recorder.request_submitted(
+                recorder.user,
+                sequence,
+                id,
+                size,
+                types.data(),
+                types.size(),
+                policy,
+                delta.has_value(),
+                delta.value_or(0),
+                attrs
+            );
+        }
+    });
+}
+
+void BufferResource::emit_request_waiting(std::uint64_t id) {
+    emit(recorder_mutex_, recorder_, [=](auto const& recorder, std::uint64_t sequence) {
+        if (recorder.request_waiting != nullptr) {
+            recorder.request_waiting(recorder.user, sequence, id);
+        }
+    });
+}
+
+void BufferResource::emit_request_resolved(
+    std::uint64_t id,
+    rapidsmpf_reservation_request_outcome outcome,
+    detail::ReserveResult const* result,
+    bool timed_out,
+    std::string const& error
+) {
+    emit(recorder_mutex_, recorder_, [&](auto const& recorder, std::uint64_t sequence) {
+        if (recorder.request_resolved != nullptr) {
+            recorder.request_resolved(
+                recorder.user,
+                sequence,
+                id,
+                outcome,
+                result == nullptr ? 0 : result->reservation.id(),
+                result == nullptr ? 0 : static_cast<std::uint32_t>(result->mem_type),
+                result == nullptr ? 0 : result->reservation.size(),
+                result == nullptr ? 0 : result->overbooked_bytes,
+                timed_out,
+                string_view(error)
+            );
+        }
+    });
+}
+
+void BufferResource::emit_reservation_created(
+    MemoryReservation const& reservation,
+    std::uint64_t request_id,
+    std::uint64_t parent_id
+) {
+    AttributeViews attrs{reservation.attributes()};
+    emit(recorder_mutex_, recorder_, [&](auto const& recorder, std::uint64_t sequence) {
+        if (recorder.reservation_created != nullptr) {
+            recorder.reservation_created(
+                recorder.user,
+                sequence,
+                reservation.id(),
+                static_cast<std::uint32_t>(reservation.mem_type()),
+                reservation.size(),
+                attrs,
+                request_id,
+                parent_id
+            );
+        }
+    });
+}
+
+void BufferResource::emit_reservation_resized(
+    std::uint64_t id, std::size_t size, rapidsmpf_reservation_resize_reason reason
+) {
+    emit(recorder_mutex_, recorder_, [=](auto const& recorder, std::uint64_t sequence) {
+        if (recorder.reservation_resized != nullptr) {
+            recorder.reservation_resized(recorder.user, sequence, id, size, reason);
+        }
+    });
+}
+
+void BufferResource::emit_reservation_released(
+    std::uint64_t id, rapidsmpf_reservation_release_reason reason
+) {
+    if (id == 0) {
+        return;
+    }
+    emit(recorder_mutex_, recorder_, [=](auto const& recorder, std::uint64_t sequence) {
+        if (recorder.reservation_released != nullptr) {
+            recorder.reservation_released(recorder.user, sequence, id, reason);
+        }
+    });
+}
+
+namespace detail {
+
+RequestScope::RequestScope(
+    BufferResource& br,
+    std::size_t size,
+    std::span<MemoryType const> memory_types,
+    rapidsmpf_reservation_request_policy policy,
+    std::optional<std::int64_t> net_memory_delta,
+    ReservationAttributes attributes
+)
+    : br_{&br}, id_{br.next_request_id()}, attributes_{std::move(attributes)} {
+    br_->emit_request_submitted(
+        id_, size, memory_types, policy, net_memory_delta, attributes_
+    );
+}
+
+RequestScope::~RequestScope() noexcept {
+    assert(resolved_ && "reservation request left unresolved");
+}
+
+void RequestScope::waiting() {
+    if (!waiting_emitted_) {
+        waiting_emitted_ = true;
+        br_->emit_request_waiting(id_);
+    }
+}
+
+void RequestScope::resolve(
+    rapidsmpf_reservation_request_outcome outcome,
+    ReserveResult const* result,
+    bool timed_out,
+    std::string const& error
+) {
+    assert(!resolved_ && "reservation request resolved more than once");
+    if (resolved_) {
+        return;
+    }
+    resolved_ = true;
+    br_->emit_request_resolved(id_, outcome, result, timed_out, error);
+}
+
+void RequestScope::resolve_granted(ReserveResult const& result) {
+    resolve(RAPIDSMPF_REQUEST_GRANTED, &result, result.timed_out, {});
+}
+
+void RequestScope::resolve_empty(bool timed_out) {
+    resolve(RAPIDSMPF_REQUEST_EMPTY, nullptr, timed_out, {});
+}
+
+void RequestScope::resolve_failed(std::string const& error) {
+    resolve(RAPIDSMPF_REQUEST_FAILED, nullptr, false, error);
+}
+
+void RequestScope::resolve_cancelled() {
+    resolve(RAPIDSMPF_REQUEST_CANCELLED, nullptr, false, {});
+}
+
+}  // namespace detail
 
 BufferResource::BufferResource(
     cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
@@ -61,6 +355,10 @@ BufferResource::BufferResource(
     }
     RAPIDSMPF_EXPECTS(stream_pool_ != nullptr, "the stream pool pointer cannot be NULL");
     RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
+}
+
+BufferResource::~BufferResource() noexcept {
+    set_reservation_recorder(nullptr);
 }
 
 std::shared_ptr<BufferResource> BufferResource::create(
@@ -169,10 +467,61 @@ std::int64_t BufferResource::memory_available(MemoryType mem_type) const noexcep
     return std::numeric_limits<std::int64_t>::max();
 }
 
+std::int64_t BufferResource::memory_limit(MemoryType mem_type) const noexcept {
+    return memory_limits_[static_cast<std::size_t>(mem_type)].load(
+        std::memory_order_acquire
+    );
+}
+
+bool BufferResource::has_memory_resource(MemoryType mem_type) const noexcept {
+    switch (mem_type) {
+    case MemoryType::PINNED_HOST:
+        return pinned_mr_.has_value();
+    case MemoryType::DISK:
+        return disk_resource_ != nullptr;
+    default:
+        return true;
+    }
+}
+
 void BufferResource::set_memory_limit(MemoryType mem_type, std::int64_t limit) noexcept {
     memory_limits_[static_cast<std::size_t>(mem_type)].store(
         limit, std::memory_order_release
     );
+    emit(recorder_mutex_, recorder_, [=](auto const& recorder, std::uint64_t sequence) {
+        if (recorder.memory_limit_changed != nullptr) {
+            recorder.memory_limit_changed(
+                recorder.user, sequence, static_cast<std::uint32_t>(mem_type), limit
+            );
+        }
+    });
+}
+
+void BufferResource::set_reservation_recorder(
+    rapidsmpf_reservation_recorder const* recorder
+) {
+    std::shared_ptr<RecorderRegistration> replacement;
+    if (recorder != nullptr) {
+        RAPIDSMPF_EXPECTS(
+            recorder->abi_version == RAPIDSMPF_RESERVATION_RECORDER_ABI_VERSION,
+            "unsupported reservation recorder ABI version",
+            std::invalid_argument
+        );
+        RAPIDSMPF_EXPECTS(
+            recorder->struct_size >= sizeof(rapidsmpf_reservation_recorder),
+            "reservation recorder struct is too small",
+            std::invalid_argument
+        );
+        replacement = std::make_shared<RecorderRegistration>(*recorder);
+    }
+    std::shared_ptr<RecorderRegistration> previous;
+    {
+        std::lock_guard lock(recorder_mutex_);
+        previous = std::exchange(recorder_, std::move(replacement));
+    }
+    if (previous) {
+        previous->drain();
+    }
 }
 
 rmm::device_async_resource_ref BufferResource::device_mr() noexcept {
@@ -213,6 +562,51 @@ std::int64_t BufferResource::memory_available_for_reservation(MemoryType mem_typ
 std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     MemoryType mem_type, std::size_t size, AllowOverbooking allow_overbooking
 ) {
+    return reserve(mem_type, size, allow_overbooking, {});
+}
+
+std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
+    MemoryType mem_type,
+    std::size_t size,
+    AllowOverbooking allow_overbooking,
+    ReservationAttributes attributes
+) {
+    if (size == 0) {
+        return {MemoryReservation(mem_type, this, 0), 0};
+    }
+    std::array const types{mem_type};
+    detail::RequestScope scope{
+        *this,
+        size,
+        types,
+        allow_overbooking == AllowOverbooking::YES ? RAPIDSMPF_REQUEST_OVERBOOK
+                                                   : RAPIDSMPF_REQUEST_IMMEDIATE,
+        std::nullopt,
+        std::move(attributes)
+    };
+    try {
+        auto result = reserve_impl(mem_type, size, allow_overbooking, &scope);
+        if (result.reservation.size() == 0) {
+            scope.resolve_empty(false);
+        } else {
+            scope.resolve_granted(result);
+        }
+        return {std::move(result.reservation), result.total_overbooked_bytes};
+    } catch (std::exception const& e) {
+        scope.resolve_failed(e.what());
+        throw;
+    } catch (...) {
+        scope.resolve_failed("unknown exception");
+        throw;
+    }
+}
+
+detail::ReserveResult BufferResource::reserve_impl(
+    MemoryType mem_type,
+    std::size_t size,
+    AllowOverbooking allow_overbooking,
+    detail::RequestScope* request
+) {
     RAPIDSMPF_EXPECTS(
         mem_type != MemoryType::DISK || disk_resource_ != nullptr,
         "disk memory was requested but no disk resource is available",
@@ -225,63 +619,124 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     );
 
     std::int64_t const available = memory_available(mem_type);
-    std::lock_guard<std::mutex> lock(mutex_);
-    std::size_t& reserved = memory_reserved_[static_cast<std::size_t>(mem_type)];
-
-    // Calculate the available memory _after_ the memory has been reserved.
-    std::int64_t headroom =
-        available - (safe_cast<std::int64_t>(reserved) + safe_cast<std::int64_t>(size));
-    // If negative, we are overbooking.
-    std::size_t overbooking =
-        headroom < 0 ? safe_cast<std::size_t>(std::abs(headroom)) : 0;
-    if (overbooking > 0 && allow_overbooking == AllowOverbooking::NO) {
-        // Cancel the reservation, overbooking isn't allowed.
-        return {MemoryReservation(mem_type, this, 0), overbooking};
+    std::size_t overbooking;
+    MemoryReservation reservation;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        std::size_t& reserved = memory_reserved_[static_cast<std::size_t>(mem_type)];
+        std::int64_t headroom =
+            available
+            - (safe_cast<std::int64_t>(reserved) + safe_cast<std::int64_t>(size));
+        overbooking = headroom < 0 ? safe_cast<std::size_t>(std::abs(headroom)) : 0;
+        if (overbooking > 0 && allow_overbooking == AllowOverbooking::NO) {
+            return {
+                MemoryReservation(mem_type, this, 0),
+                mem_type,
+                std::min(size, overbooking),
+                overbooking
+            };
+        }
+        reserved += size;
+        reservation = MemoryReservation(
+            mem_type,
+            this,
+            size,
+            size == 0 ? 0 : next_reservation_id(),
+            request == nullptr ? ReservationAttributes{} : request->attributes()
+        );
     }
-    // Make the reservation.
-    reserved += size;
-    return {MemoryReservation(mem_type, this, size), overbooking};
+    if (size > 0) {
+        emit_reservation_created(reservation, request == nullptr ? 0 : request->id(), 0);
+    }
+    return {std::move(reservation), mem_type, std::min(size, overbooking), overbooking};
 }
 
 MemoryReservation BufferResource::reserve_device_memory_and_spill(
     std::size_t size, AllowOverbooking allow_overbooking
 ) {
-    auto [reservation, total_overbooking] =
-        reserve(MemoryType::DEVICE, size, AllowOverbooking::YES);
+    return reserve_device_memory_and_spill(size, allow_overbooking, {});
+}
 
-    // `reserve()` reports the total overbooking, other callers' included, so clamp to
-    // `size` for the part this reservation added.
-    if (total_overbooking > 0) {
-        auto const own_overbooking = std::min(size, total_overbooking);
-        // With a headroom of zero, `deficit` is the overbooking still outstanding once
-        // the spill lock is held. All of it is spilled, but this call is judged only on
-        // its own share.
-        auto const [deficit, spilled] = spill_manager_.spill_to_make_headroom();
-        RAPIDSMPF_EXPECTS(
-            allow_overbooking == AllowOverbooking::YES
-                || spilled >= std::min(own_overbooking, deficit),
-            "failed to spill enough memory (reserved: " + format_nbytes(size)
-                + ", overbooking: " + format_nbytes(own_overbooking)
-                + ", spilled: " + format_nbytes(spilled) + ")",
-            rapidsmpf::reservation_error
-        );
+MemoryReservation BufferResource::reserve_device_memory_and_spill(
+    std::size_t size, AllowOverbooking allow_overbooking, ReservationAttributes attributes
+) {
+    if (size == 0) {
+        return MemoryReservation(MemoryType::DEVICE, this, 0);
     }
-    return std::move(reservation);
+    std::array const types{MemoryType::DEVICE};
+    detail::RequestScope scope{
+        *this, size, types, RAPIDSMPF_REQUEST_SPILL, std::nullopt, std::move(attributes)
+    };
+    try {
+        auto result =
+            reserve_impl(MemoryType::DEVICE, size, AllowOverbooking::YES, &scope);
+        auto& reservation = result.reservation;
+        auto const total_overbooking = result.overbooked_bytes;
+
+        if (total_overbooking > 0) {
+            auto const own_overbooking = total_overbooking;
+            // With a headroom of zero, `deficit` is the overbooking still outstanding
+            // once the spill lock is held. All of it is spilled, but this call is judged
+            // only on its own share.
+            auto const [deficit, spilled] = spill_manager_.spill_to_make_headroom();
+            RAPIDSMPF_EXPECTS(
+                allow_overbooking == AllowOverbooking::YES
+                    || spilled >= std::min(own_overbooking, deficit),
+                "failed to spill enough memory (reserved: " + format_nbytes(size)
+                    + ", overbooking: " + format_nbytes(own_overbooking)
+                    + ", spilled: " + format_nbytes(spilled) + ")",
+                rapidsmpf::reservation_error
+            );
+        }
+        scope.resolve_granted(result);
+        return std::move(reservation);
+    } catch (std::exception const& e) {
+        scope.resolve_failed(e.what());
+        throw;
+    } catch (...) {
+        scope.resolve_failed("unknown exception");
+        throw;
+    }
 }
 
 std::size_t BufferResource::release(MemoryReservation& reservation, std::size_t size) {
-    std::lock_guard const lock(mutex_);
-    RAPIDSMPF_EXPECTS(
-        size <= reservation.size_,
-        "MemoryReservation(" + format_nbytes(reservation.size_) + ") isn't big enough ("
-            + format_nbytes(size) + ")",
-        rapidsmpf::reservation_error
-    );
-    std::size_t& reserved =
-        memory_reserved_[static_cast<std::size_t>(reservation.mem_type_)];
-    RAPIDSMPF_EXPECTS(reserved >= size, "corrupted reservation stat");
-    reserved -= size;
-    return reservation.size_ -= size;
+    std::size_t remaining;
+    auto const id = reservation.id_;
+    {
+        std::lock_guard const lock(mutex_);
+        RAPIDSMPF_EXPECTS(
+            size <= reservation.size_,
+            "MemoryReservation(" + format_nbytes(reservation.size_)
+                + ") isn't big enough (" + format_nbytes(size) + ")",
+            rapidsmpf::reservation_error
+        );
+        std::size_t& reserved =
+            memory_reserved_[static_cast<std::size_t>(reservation.mem_type_)];
+        RAPIDSMPF_EXPECTS(reserved >= size, "corrupted reservation stat");
+        reserved -= size;
+        remaining = reservation.size_ -= size;
+    }
+    if (size > 0) {
+        if (remaining == 0) {
+            emit_reservation_released(id, RAPIDSMPF_RESERVATION_RELEASED_CONSUMED);
+        } else {
+            emit_reservation_resized(id, remaining, RAPIDSMPF_RESERVATION_CONSUMED);
+        }
+    }
+    return remaining;
+}
+
+void BufferResource::clear_reservation(MemoryReservation& reservation) noexcept {
+    auto const id = reservation.id_;
+    {
+        std::lock_guard const lock(mutex_);
+        auto& reserved =
+            memory_reserved_[static_cast<std::size_t>(reservation.mem_type_)];
+        assert(reserved >= reservation.size_);
+        reserved -= reservation.size_;
+        reservation.size_ = 0;
+    }
+    emit_reservation_released(id, RAPIDSMPF_RESERVATION_CLEARED);
 }
 
 std::unique_ptr<Buffer> BufferResource::make_buffer(

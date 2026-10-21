@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <rapidsmpf/memory/reservation_attributes.hpp>
 #include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
@@ -51,6 +52,7 @@ enum class FanoutPolicy : std::uint8_t {
  * @param ch_in Input channel from which messages are received.
  * @param chs_out Output channels to which messages are broadcast. Must be at least 2.
  * @param policy The fanout strategy to use (see ::FanoutPolicy).
+ * @param attributes Immutable telemetry attributes for copy reservations.
  *
  * @return Streaming actor representing the fanout operation.
  *
@@ -61,7 +63,8 @@ Actor fanout(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_in,
     std::vector<std::shared_ptr<Channel>> chs_out,
-    FanoutPolicy policy
+    FanoutPolicy policy,
+    ReservationAttributes attributes = {}
 );
 
 }  // namespace rapidsmpf::streaming::actor

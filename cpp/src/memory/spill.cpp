@@ -24,7 +24,9 @@ std::vector<PackedData> spill_partitions(
         }
     }
     // Spill device partitions to the spill target memory types.
-    auto reservation = br->reserve_or_fail(device_size, SPILL_TARGET_MEMORY_TYPES);
+    auto reservation = br->reserve_or_fail(
+        device_size, SPILL_TARGET_MEMORY_TYPES, spill_reservation_attributes()
+    );
     for (auto& [_, data] : partitions) {
         if (data->mem_type() == MemoryType::DEVICE) {
             data = br->move(std::move(data), reservation);
@@ -47,8 +49,9 @@ std::vector<PackedData> unspill_partitions(
     }
 
     // Unspill non-device partitions.
-    auto reservation =
-        br->reserve_device_memory_and_spill(non_device_size, allow_overbooking);
+    auto reservation = br->reserve_device_memory_and_spill(
+        non_device_size, allow_overbooking, spill_reservation_attributes()
+    );
     for (auto& [_, data] : partitions) {
         if (data->mem_type() != MemoryType::DEVICE) {
             data = br->move(std::move(data), reservation);

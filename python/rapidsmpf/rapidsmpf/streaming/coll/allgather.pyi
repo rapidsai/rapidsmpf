@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
+from collections.abc import Mapping
 from typing import Any
 
 from rapidsmpf.communicator.communicator import Communicator
@@ -11,7 +12,14 @@ from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.context import Context
 
 class AllGather:
-    def __init__(self, ctx: Context, comm: Communicator, op_id: int) -> None: ...
+    def __init__(
+        self,
+        ctx: Context,
+        comm: Communicator,
+        op_id: int,
+        *,
+        attributes: Mapping[str, str | int | bool | float] | None = None,
+    ) -> None: ...
     @property
     def comm(self) -> Communicator: ...
     def __enter__(self) -> AllGather: ...
@@ -33,4 +41,5 @@ def allgather(
     op_id: int,
     *,
     ordered: bool,
+    attributes: Mapping[str, str | int | bool | float] | None = None,
 ) -> CppActor: ...

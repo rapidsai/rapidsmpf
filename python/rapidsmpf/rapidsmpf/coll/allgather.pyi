@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from rapidsmpf.communicator.communicator import Communicator
@@ -14,6 +15,8 @@ class AllGather:
         comm: Communicator,
         op_id: int,
         br: BufferResource,
+        *,
+        attributes: Mapping[str, str | int | bool | float] | None = None,
     ) -> None: ...
     @property
     def comm(self) -> Communicator: ...

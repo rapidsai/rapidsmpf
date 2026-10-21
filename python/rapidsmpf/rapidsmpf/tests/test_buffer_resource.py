@@ -89,6 +89,64 @@ def test_memory_reservation(mem_type: MemoryType) -> None:
         br.release(res1, KiB(10))
 
 
+def test_reservation_attributes_validation() -> None:
+    br = BufferResource(rmm.mr.CudaMemoryResource())
+    reservation, _ = br.reserve(
+        MemoryType.HOST,
+        1,
+        allow_overbooking=False,
+        attributes={
+            "string": "value",
+            "integer": 42,
+            "boolean": True,
+            "floating": 1.5,
+        },
+    )
+    assert reservation.size == 1
+
+    with pytest.raises(TypeError, match="mapping"):
+        br.reserve(
+            MemoryType.HOST,
+            1,
+            allow_overbooking=False,
+            attributes=["not", "a", "mapping"],  # type: ignore[arg-type]
+        )
+    with pytest.raises(TypeError, match="keys"):
+        br.reserve(
+            MemoryType.HOST,
+            1,
+            allow_overbooking=False,
+            attributes={1: "value"},  # type: ignore[dict-item]
+        )
+    with pytest.raises(TypeError, match="values"):
+        br.reserve(
+            MemoryType.HOST,
+            1,
+            allow_overbooking=False,
+            attributes={"invalid": object()},  # type: ignore[dict-item]
+        )
+
+
+def test_set_reservation_recorder_validation() -> None:
+    br = BufferResource(rmm.mr.CudaMemoryResource())
+    br.set_reservation_recorder(None)
+    with pytest.raises(TypeError, match="PyCapsule"):
+        br.set_reservation_recorder(object())
+
+
+def test_memory_resource_introspection() -> None:
+    br = BufferResource(
+        rmm.mr.CudaMemoryResource(),
+        memory_limits={MemoryType.HOST: 123},
+        periodic_spill_check=None,
+    )
+    assert br.memory_limit(MemoryType.HOST) == 123
+    assert br.has_memory_resource(MemoryType.DEVICE)
+    assert br.has_memory_resource(MemoryType.HOST)
+    assert not br.has_memory_resource(MemoryType.PINNED_HOST)
+    assert not br.has_memory_resource(MemoryType.DISK)
+
+
 def test_host_memory_availability_tracks_live_allocations() -> None:
     br = BufferResource(
         rmm.mr.CudaMemoryResource(),

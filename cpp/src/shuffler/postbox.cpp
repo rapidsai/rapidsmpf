@@ -70,7 +70,9 @@ bool ReceivedChunks::empty() const {
     return pigeonhole_.empty();
 }
 
-std::size_t ReceivedChunks::spill(BufferResource* br, std::size_t amount) {
+std::size_t ReceivedChunks::spill(
+    BufferResource* br, std::size_t amount, ReservationAttributes attributes
+) {
     RAPIDSMPF_NVTX_FUNC_RANGE(amount);
     std::lock_guard lock(mutex_);
     // TODO: use a clever strategy to decided which chunks to spill.
@@ -83,7 +85,8 @@ std::size_t ReceivedChunks::spill(BufferResource* br, std::size_t amount) {
             {
                 continue;
             }
-            auto reservation = br->reserve_or_fail(size, SPILL_TARGET_MEMORY_TYPES);
+            auto reservation =
+                br->reserve_or_fail(size, SPILL_TARGET_MEMORY_TYPES, attributes);
             chunk.set_data_buffer(br->move(chunk.release_data_buffer(), reservation));
             if ((total_spilled += size) >= amount) {
                 break;

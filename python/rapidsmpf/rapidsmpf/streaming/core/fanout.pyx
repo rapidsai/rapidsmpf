@@ -5,13 +5,22 @@ from libcpp.memory cimport make_unique
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
 
+from rapidsmpf.memory.reservation_attributes cimport (
+    cpp_ReservationAttributes, reservation_attributes_from_mapping)
 from rapidsmpf.streaming.core.actor cimport CppActor, cpp_Actor
 from rapidsmpf.streaming.core.channel cimport Channel
 from rapidsmpf.streaming.core.context cimport Context
 from rapidsmpf.streaming.core.fanout cimport FanoutPolicy
 
 
-def fanout(Context ctx, Channel ch_in, chs_out, FanoutPolicy policy):
+def fanout(
+    Context ctx,
+    Channel ch_in,
+    chs_out,
+    FanoutPolicy policy,
+    *,
+    attributes=None,
+):
     """
     Broadcast messages from one input channel to multiple output channels.
 
@@ -63,6 +72,8 @@ def fanout(Context ctx, Channel ch_in, chs_out, FanoutPolicy policy):
     ...     )
     """
     cdef vector[shared_ptr[cpp_Channel]] _chs_out
+    cdef cpp_ReservationAttributes cpp_attributes = \
+        reservation_attributes_from_mapping(attributes)
     if len(chs_out) == 0:
         raise ValueError("output channels cannot be empty")
     owner = []
@@ -75,6 +86,10 @@ def fanout(Context ctx, Channel ch_in, chs_out, FanoutPolicy policy):
     cdef cpp_Actor _ret
     with nogil:
         _ret = cpp_fanout(
-            ctx._handle, ch_in._handle, move(_chs_out), policy
+            ctx._handle,
+            ch_in._handle,
+            move(_chs_out),
+            policy,
+            move(cpp_attributes),
         )
     return CppActor.from_handle(make_unique[cpp_Actor](move(_ret)), owner)

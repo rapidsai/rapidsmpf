@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from enum import IntEnum
 
 from rapidsmpf.streaming.core.actor import CppActor
@@ -18,4 +19,6 @@ def fanout(
     ch_in: Channel,
     chs_out: list[Channel],
     policy: FanoutPolicy,
+    *,
+    attributes: Mapping[str, str | int | bool | float] | None = None,
 ) -> CppActor: ...

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from libc.stddef cimport size_t
@@ -10,6 +10,7 @@ from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.buffer_resource cimport (BufferResource,
                                                cpp_BufferResource)
 from rapidsmpf.memory.content_description cimport cpp_ContentDescription
+from rapidsmpf.memory.reservation_attributes cimport cpp_ReservationAttributes
 from rapidsmpf.streaming.core.message cimport Message, cpp_Message
 
 
@@ -17,6 +18,7 @@ cdef extern from "<rapidsmpf/streaming/core/spillable_messages.hpp>" nogil:
     cdef cppclass cpp_SpillableMessages"rapidsmpf::streaming::SpillableMessages":
         ctypedef uint64_t cpp_MessageId"MessageId"
 
+        cpp_SpillableMessages(cpp_ReservationAttributes attributes) except +ex_handler
         cpp_MessageId insert(cpp_Message message) except +ex_handler
         cpp_Message extract(cpp_MessageId mid) except +ex_handler
         size_t spill(cpp_MessageId mid, cpp_BufferResource *br) except +ex_handler

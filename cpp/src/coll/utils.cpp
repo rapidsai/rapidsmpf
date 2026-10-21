@@ -126,7 +126,7 @@ std::unique_ptr<std::vector<std::uint8_t>> Chunk::serialize() const {
 }
 
 std::unique_ptr<Chunk> Chunk::deserialize(
-    std::vector<std::uint8_t>& data, BufferResource* br
+    std::vector<std::uint8_t>& data, BufferResource* br, ReservationAttributes attributes
 ) {
     ChunkID id;
     std::uint64_t data_size;
@@ -149,7 +149,9 @@ std::unique_ptr<Chunk> Chunk::deserialize(
         std::move(metadata),
         br->make_buffer(
             br->stream_pool()->get_stream(),
-            br->reserve_or_fail(data_size, ADDRESSABLE_MEMORY_TYPES)
+            br->reserve_or_fail(
+                data_size, ADDRESSABLE_MEMORY_TYPES, std::move(attributes)
+            )
         )
     ));
 }
@@ -209,7 +211,9 @@ bool PostBox::empty() const noexcept {
     return chunks_.empty();
 }
 
-std::size_t PostBox::spill(BufferResource* br, std::size_t amount) {
+std::size_t PostBox::spill(
+    BufferResource* br, std::size_t amount, ReservationAttributes attributes
+) {
     std::lock_guard lock(mutex_);
     std::vector<Chunk*> spillable_chunks;
     std::size_t max_spillable{0};
@@ -221,8 +225,9 @@ std::size_t PostBox::spill(BufferResource* br, std::size_t amount) {
         }
     }
     auto spill_chunk = [&](Chunk* chunk) -> std::size_t {
-        auto reservation =
-            br->reserve_or_fail(chunk->data_size(), SPILL_TARGET_MEMORY_TYPES);
+        auto reservation = br->reserve_or_fail(
+            chunk->data_size(), SPILL_TARGET_MEMORY_TYPES, attributes
+        );
         chunk->attach_data_buffer(br->move(chunk->release_data_buffer(), reservation));
         return chunk->data_size();
     };

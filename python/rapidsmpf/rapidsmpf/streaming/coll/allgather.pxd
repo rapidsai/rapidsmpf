@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from libc.stdint cimport int32_t, uint64_t
@@ -8,6 +8,7 @@ from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.coll.allgather cimport Ordered as cpp_Ordered
 from rapidsmpf.communicator.communicator cimport Communicator, cpp_Communicator
 from rapidsmpf.memory.packed_data cimport cpp_PackedData
+from rapidsmpf.memory.reservation_attributes cimport cpp_ReservationAttributes
 from rapidsmpf.streaming.core.actor cimport cpp_Actor
 from rapidsmpf.streaming.core.channel cimport cpp_Channel
 from rapidsmpf.streaming.core.context cimport cpp_Context
@@ -22,11 +23,15 @@ cdef extern from "<rapidsmpf/streaming/coll/allgather.hpp>" nogil:
             shared_ptr[cpp_Channel] ch_out,
             int32_t op_id,
             cpp_Ordered ordered,
+            cpp_ReservationAttributes attributes,
         ) except +ex_handler
 
     cdef cppclass cpp_AllGather"rapidsmpf::streaming::AllGather":
-        cpp_Allgather(
-            shared_ptr[cpp_Context] ctx, shared_ptr[cpp_Communicator], int32_t op_id
+        cpp_AllGather(
+            shared_ptr[cpp_Context] ctx,
+            shared_ptr[cpp_Communicator],
+            int32_t op_id,
+            cpp_ReservationAttributes attributes,
         ) except +ex_handler
         void insert(uint64_t, cpp_PackedData) except +ex_handler
         void insert_finished() except +ex_handler

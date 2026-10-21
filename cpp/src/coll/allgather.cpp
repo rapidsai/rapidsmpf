@@ -138,10 +138,12 @@ AllGather::AllGather(
     std::shared_ptr<Communicator> comm,
     OpID op_id,
     BufferResource* br,
-    std::function<void(void)>&& finished_callback
+    std::function<void(void)>&& finished_callback,
+    ReservationAttributes attributes
 )
     : comm_{std::move(comm)},
       br_{br},
+      attributes_{std::move(attributes)},
       finished_callback_{std::move(finished_callback)},
       finish_counter_{comm_->nranks()},
       op_id_{op_id},
@@ -263,7 +265,7 @@ ProgressThread::ProgressState AllGather::event_loop() {
             if (!msg) {
                 break;
             }
-            auto chunk = detail::Chunk::deserialize(*msg, br_);
+            auto chunk = detail::Chunk::deserialize(*msg, br_, attributes_);
             if (chunk->is_finish()) {
                 remote_finish_counter_--;
                 num_expected_messages_ += chunk->sequence();
