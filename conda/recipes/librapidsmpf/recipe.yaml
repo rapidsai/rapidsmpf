@@ -146,6 +146,9 @@ outputs:
           - libkvikio
           - librmm
           - openmpi
+          # ucx's run_export pins ucx to the build-time version (>=1.22.0,<1.23).
+          # The supported UCX range comes from libucxx instead.
+          - ucx
     tests:
       - script:
           - test ! -d "${PREFIX}/include/cucascade"
