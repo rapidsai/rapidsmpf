@@ -458,71 +458,58 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     /**
      * @brief Try to reserve memory, spilling device memory when necessary.
      *
-     * Tries the requested memory types in descending priority. A device reservation is
-     * retained while lower memory tiers are tried; if none are immediately available,
-     * device memory is spilled and retried up to @p num_spill_retries times.
+     * Tries the requested memory types in descending priority. A device reservation
+     * (allowing overbooking) is retained while lower memory tiers are tried; if none are
+     * immediately available, device memory is spilled once to cover the overbooking. The
+     * device reservation is returned only if the spill covered it.
      *
      * @param size The size of the memory to reserve.
      * @param mem_types Memory types to try in descending priority.
-     * @param num_spill_retries Maximum number of device spill attempts.
      * @return A full reservation, or `std::nullopt` if no reservation can be satisfied.
      * @throws std::invalid_argument if @p mem_types is empty.
      */
-    template <std::ranges::input_range Range>
+    template <std::ranges::forward_range Range>
         requires std::convertible_to<std::ranges::range_value_t<Range>, MemoryType>
     [[nodiscard]] std::optional<MemoryReservation> try_reserve_or_spill(
-        std::size_t size, Range mem_types, std::size_t num_spill_retries = 8
+        std::size_t size, Range mem_types
     ) {
-        auto first = std::ranges::begin(mem_types);
-        auto const last = std::ranges::end(mem_types);
         RAPIDSMPF_EXPECTS(
-            first != last, "mem_types cannot be empty", std::invalid_argument
+            !std::ranges::empty(mem_types),
+            "mem_types cannot be empty",
+            std::invalid_argument
         );
 
         if (size == 0) {
-            auto const mem_type = static_cast<MemoryType>(*first);
-            return MemoryReservation{mem_type, this, 0};
+            return MemoryReservation{*std::ranges::begin(mem_types), this, 0};
         }
 
-        std::optional<MemoryReservation> device_reservation;
-        std::size_t device_overbooking{0};
-        std::array<bool, MEMORY_TYPES.size()> seen{};
-
-        for (; first != last; ++first) {
-            auto const mem_type = static_cast<MemoryType>(*first);
-            auto const index = static_cast<std::size_t>(mem_type);
-            RAPIDSMPF_EXPECTS(index < seen.size(), "invalid memory type");
-            if (std::exchange(seen[index], true)) {
-                continue;
-            }
+        std::optional<MemoryReservation> device_res;
+        std::size_t total_ob{0};
+        for (auto const& mem_type : mem_types) {
             if (mem_type == MemoryType::DEVICE) {
-                auto [reservation, overbooking] =
-                    reserve(mem_type, size, AllowOverbooking::YES);
-                if (overbooking == 0) {
-                    return std::move(reservation);
+                auto [res, ob] = reserve(mem_type, size, AllowOverbooking::YES);
+                if (ob == 0) {
+                    return std::move(res);
                 }
-                device_overbooking = overbooking;
-                device_reservation.emplace(std::move(reservation));
+                total_ob = ob;
+                device_res.emplace(std::move(res));
             } else if (auto reservation = try_reserve(size, mem_type)) {
                 return reservation;
             }
         }
 
-        if (!device_reservation.has_value()) {
+        if (!device_res.has_value()) {
             return std::nullopt;
         }
         // `reserve()` reports the total overbooking, other callers' included, so clamp
         // to `size` for the part this reservation added.
-        auto const own_overbooking = std::min(size, device_overbooking);
-        for (std::size_t attempt = 0; attempt < num_spill_retries; ++attempt) {
-            // With a headroom of zero, `deficit` is the overbooking still outstanding
-            // once the spill lock is held, so memory freed by a concurrent spill is not
-            // spilled again. All of it is spilled, but this call is judged only on its
-            // own share.
-            auto const [deficit, spilled] = spill_manager_.spill_to_make_headroom();
-            if (spilled >= std::min(own_overbooking, deficit)) {
-                return device_reservation;
-            }
+        auto const own_overbooking = std::min(size, total_ob);
+        // With a headroom of zero, `deficit` is the overbooking still outstanding once
+        // the spill lock is held, so memory freed by a concurrent spill is not spilled
+        // again. All of it is spilled, but this call is judged only on its own share.
+        auto const [deficit, spilled] = spill_manager_.spill_to_make_headroom();
+        if (spilled >= std::min(own_overbooking, deficit)) {
+            return device_res;
         }
         return std::nullopt;
     }
@@ -532,15 +519,12 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * @param size The size of the memory to reserve.
      * @param mem_type Memory type to reserve.
-     * @param num_spill_retries Maximum number of device spill attempts.
      * @return A full reservation, or `std::nullopt` if unavailable.
      */
     [[nodiscard]] std::optional<MemoryReservation> try_reserve_or_spill(
-        std::size_t size, MemoryType mem_type, std::size_t num_spill_retries = 8
+        std::size_t size, MemoryType mem_type
     ) {
-        return try_reserve_or_spill(
-            size, std::ranges::single_view{mem_type}, num_spill_retries
-        );
+        return try_reserve_or_spill(size, std::ranges::single_view{mem_type});
     }
 
     /**

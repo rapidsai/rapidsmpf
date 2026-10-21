@@ -606,7 +606,7 @@ TEST(BufferResourceTryReserveOrSpill, DeduplicatesAndTriesHostBeforeSpilling) {
     br->spill_manager().remove_spill_function(spill_id);
 }
 
-TEST(BufferResourceTryReserveOrSpill, ReturnsNulloptAfterRetryLimit) {
+TEST(BufferResourceTryReserveOrSpill, ReturnsNulloptWhenSpillFreesNothing) {
     rmm::mr::cuda_memory_resource mr;
     auto br = BufferResource::create(
         mr,
@@ -624,7 +624,7 @@ TEST(BufferResourceTryReserveOrSpill, ReturnsNulloptAfterRetryLimit) {
     );
 
     EXPECT_FALSE(br->try_reserve_or_spill(16, MEMORY_TYPES).has_value());
-    EXPECT_EQ(spill_calls, 8);
+    EXPECT_EQ(spill_calls, 1);
     br->spill_manager().remove_spill_function(spill_id);
 }
 
