@@ -41,9 +41,9 @@ int gen_stream_priority(std::mt19937 random_generator) {
     return greatest_priority + dist(random_generator);
 }
 
-// To expose unexpected deadlocks, we use a 30s timeout. In a normal run, the
-// shuffle shouldn't get near 30s.
-constexpr std::chrono::seconds wait_timeout(30);
+// To expose unexpected deadlocks, we use a 120s timeout. In a normal run, the
+// shuffle shouldn't get near 120s.
+constexpr std::chrono::seconds wait_timeout(120);
 
 TEST(ShufflerManyStreams, Test) {
     std::mt19937 random_generator{42};

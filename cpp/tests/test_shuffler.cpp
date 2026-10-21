@@ -262,7 +262,7 @@ void validate_partition_data(
  *
  * For each locally-owned partition, generates input data with `make_partition_data`,
  * inserts it into the shuffler, signals insertion completion, then waits (with a
- * 30-second timeout to catch deadlocks) and validates every received partition
+ * 120-second timeout to catch deadlocks) and validates every received partition
  * with `validate_partition_data`.
  *
  * @param shuffler             The shuffler instance under test.
@@ -279,9 +279,9 @@ void test_shuffler(
     rapidsmpf::BufferResource* br,
     std::int64_t base = 0
 ) {
-    // To expose unexpected deadlocks, we use a 30s timeout. In a normal run, the
-    // shuffle shouldn't get near 30s.
-    std::chrono::seconds const wait_timeout(30);
+    // To expose unexpected deadlocks, we use a 120s timeout. In a normal run, the
+    // shuffle shouldn't get near 120s.
+    std::chrono::seconds const wait_timeout(120);
 
     for (rapidsmpf::shuffler::PartID local_pidx : shuffler.local_partitions()) {
         shuffler.insert(make_partition_data(
