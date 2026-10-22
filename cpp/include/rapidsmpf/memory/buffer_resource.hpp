@@ -733,6 +733,10 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * enabled), host memory, and disk (when a spill directory was configured), in
      * decreasing order of preference.
      *
+     * @note The result may include `MemoryType::DISK`, so callers must be able to handle
+     * disk-backed buffers. Callers that need addressable spill destinations should use
+     * `SPILL_TARGET_MEMORY_TYPES` instead.
+     *     
      * @return Span of spill destination memory types, valid for the lifetime of this
      * buffer resource.
      */
