@@ -97,7 +97,7 @@ Chunk Chunk::deserialize(
         RAPIDSMPF_EXPECTS(
             br != nullptr, "Deserializing non-control Chunk requires a BufferResource"
         );
-        auto reservation = br->try_reserve_or_spill(data_size, ADDRESSABLE_MEMORY_TYPES);
+        auto reservation = br->try_reserve(data_size, ADDRESSABLE_MEMORY_TYPES);
         RAPIDSMPF_EXPECTS(
             reservation.has_value(),
             "failed to reserve receive buffer after spilling",

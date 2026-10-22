@@ -741,17 +741,18 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     }
 
     /**
-     * @brief Addressable memory types that spilled (e.g., disk-backed) data can be
-     * restored into.
+     * @brief Addressable memory types available to this buffer resource.
      *
-     * Derived at construction from the available resources: device memory, pinned host
-     * memory (when enabled), and host memory, in decreasing order of preference.
+     * These are the memory types that expose an addressable host or device pointer, for
+     * example to restore spilled (e.g., disk-backed) data into. Derived at construction
+     * from the available resources: device memory, pinned host memory (when enabled),
+     * and host memory, in decreasing order of preference.
      *
      * @return Span of addressable memory types, valid for the lifetime of this buffer
      * resource.
      */
-    [[nodiscard]] std::span<MemoryType const> restore_memory_types() const noexcept {
-        return restore_memory_types_;
+    [[nodiscard]] std::span<MemoryType const> addressable_memory_types() const noexcept {
+        return addressable_memory_types_;
     }
 
   private:
@@ -778,7 +779,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     SpillManager spill_manager_;
     std::shared_ptr<Statistics> statistics_;
     std::vector<MemoryType> spill_target_memory_types_;
-    std::vector<MemoryType> restore_memory_types_;
+    std::vector<MemoryType> addressable_memory_types_;
 };
 
 static_assert(StatisticsProvider<BufferResource>);

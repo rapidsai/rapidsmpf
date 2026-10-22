@@ -140,7 +140,7 @@ class Shuffler {
      *
      * @note Spill destinations and the memory types used to restore spilled data are
      * taken from `BufferResource::spill_target_memory_types()` and
-     * `BufferResource::restore_memory_types()`.
+     * `BufferResource::addressable_memory_types()`.
      *
      * @note It is safe to reuse the `op_id` as soon as `wait` has completed
      * locally.
@@ -176,17 +176,6 @@ class Shuffler {
      */
     [[nodiscard]] std::shared_ptr<Communicator> const& comm() const noexcept {
         return comm_;
-    }
-
-    /**
-     * @brief Whether spilling is enabled, i.e., the buffer resource advertises at least
-     * one spill destination.
-     *
-     * @return True if `BufferResource::spill_target_memory_types()` is non-empty,
-     * otherwise false.
-     */
-    [[nodiscard]] bool is_spilling_enabled() const noexcept {
-        return !br_->spill_target_memory_types().empty();
     }
 
     Shuffler(Shuffler const&) = delete;

@@ -234,7 +234,7 @@ Shuffler::Shuffler(
                     op_id,
                     [this](std::size_t size) -> std::unique_ptr<Buffer> {
                         auto reservation =
-                            br_->try_reserve(size, br_->restore_memory_types());
+                            br_->try_reserve(size, br_->addressable_memory_types());
                         if (!reservation.has_value()) {
                             return nullptr;
                         }
@@ -333,8 +333,9 @@ void Shuffler::insert(detail::Chunk&& chunk) {
         // memory, so restore disk-backed data here, in the caller's thread, rather than
         // in the progress thread.
         if (chunk.is_on_disk()) {
-            auto reservation =
-                br_->try_reserve_or_spill(chunk.data_size(), br_->restore_memory_types());
+            auto reservation = br_->try_reserve_or_spill(
+                chunk.data_size(), br_->addressable_memory_types()
+            );
             RAPIDSMPF_EXPECTS(
                 reservation.has_value(),
                 "failed to reserve addressable memory for an outgoing disk-backed chunk",
@@ -360,7 +361,7 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
 
         // Check if we should spill the chunk before inserting into the inbox.
         std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE);
-        if (headroom < 0 && is_spilling_enabled() && packed_data.data
+        if (headroom < 0 && packed_data.data
             && packed_data.data->mem_type() == MemoryType::DEVICE)
         {
             auto chunk = create_chunk(pid, std::move(packed_data));
@@ -445,9 +446,6 @@ void Shuffler::wait(std::optional<std::chrono::milliseconds> timeout) {
 
 std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    if (!is_spilling_enabled()) {
-        return 0;
-    }
     std::size_t spill_need{0};
     if (amount.has_value()) {
         spill_need = amount.value();
