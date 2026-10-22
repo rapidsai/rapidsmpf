@@ -39,13 +39,37 @@ namespace rapidsmpf::communicator {
  * DerivedMetadataPayloadExchange(
  *     std::shared_ptr<Communicator> comm,
  *     OpID op_id,
- *     std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn,
- *     std::shared_ptr<Statistics> statistics
+ *     MetadataPayloadExchange::AllocateBufferFn allocate_buffer_fn,
+ *     std::shared_ptr<Statistics> statistics,
+ *     Duration allocation_timeout,
+ *     AllowOverbooking allow_overbooking
  * );
  * @endcode
+ *
+ * Receive buffers are allocated with `allocate_buffer_fn`, which is called on the
+ * thread calling `progress()` and must not block or spill. Implementations follow
+ * these rules:
+ * - When called with `AllowOverbooking::NO`, the allocator may return `nullptr` to
+ *   indicate that memory is not available right now. The message is kept and the
+ *   allocation is retried on later calls to `progress()`. A message is never dropped
+ *   or delivered without its payload.
+ * - If no allocation succeeds within `allocation_timeout`, one pending message is
+ *   forced: with `allow_overbooking` set to `AllowOverbooking::YES`, the allocator is
+ *   called with `AllowOverbooking::YES` and must return a buffer. Otherwise,
+ *   `progress()` throws `std::runtime_error`. Only one message is forced per timeout.
+ * - The order in which pending allocations are retried is implementation defined.
  */
 class MetadataPayloadExchange {
   public:
+    /**
+     * @brief Function allocating a receive buffer of the given size.
+     *
+     * With `AllowOverbooking::NO`, it may return `nullptr` when memory is not
+     * available right now. With `AllowOverbooking::YES`, it must return a buffer.
+     */
+    using AllocateBufferFn =
+        std::function<std::unique_ptr<Buffer>(std::size_t, AllowOverbooking)>;
+
     /**
      * @brief Message class for communication.
      *
