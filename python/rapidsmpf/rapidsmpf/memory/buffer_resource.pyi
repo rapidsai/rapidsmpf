@@ -4,6 +4,7 @@
 import os
 import pathlib
 from collections.abc import Mapping
+from enum import IntEnum
 from typing import Literal, Self, TypedDict
 
 from rmm.pylibrmm.cuda_stream_pool import CudaStreamPool
@@ -24,6 +25,35 @@ from rapidsmpf.statistics import Statistics
 
 _ReservationAttributeValue = str | int | bool | float
 
+class ReservationEventMemoryType(IntEnum):
+    DEVICE = ...
+    HOST = ...
+    PINNED_HOST = ...
+    DISK = ...
+
+class ReservationRequestPolicy(IntEnum):
+    IMMEDIATE = ...
+    OVERBOOK = ...
+    SPILL = ...
+    WAIT = ...
+    WAIT_OR_OVERBOOK = ...
+    WAIT_OR_FAIL = ...
+
+class ReservationRequestOutcome(IntEnum):
+    GRANTED = ...
+    EMPTY = ...
+    FAILED = ...
+    CANCELLED = ...
+
+class ReservationResizeReason(IntEnum):
+    CONSUMED = ...
+    SPLIT_OFF = ...
+
+class ReservationReleaseReason(IntEnum):
+    CLEARED = ...
+    RELEASED_CONSUMED = ...
+    RELEASED_SPLIT = ...
+
 class _ReservationEventBase(TypedDict):
     sequence: int
     timestamp_ns: int
@@ -32,8 +62,8 @@ class _RequestSubmittedEvent(_ReservationEventBase):
     kind: Literal["request_submitted"]
     id: int
     size: int
-    memory_types: list[int]
-    policy: int
+    memory_types: list[ReservationEventMemoryType]
+    policy: ReservationRequestPolicy
     net_memory_delta: int | None
     attributes: dict[str, _ReservationAttributeValue]
 
@@ -44,9 +74,9 @@ class _RequestWaitingEvent(_ReservationEventBase):
 class _RequestResolvedEvent(_ReservationEventBase):
     kind: Literal["request_resolved"]
     id: int
-    outcome: int
+    outcome: ReservationRequestOutcome
     reservation_id: int
-    memory_type: int
+    memory_type: ReservationEventMemoryType
     size: int
     overbooked_bytes: int
     timed_out: bool
@@ -55,7 +85,7 @@ class _RequestResolvedEvent(_ReservationEventBase):
 class _ReservationCreatedEvent(_ReservationEventBase):
     kind: Literal["reservation_created"]
     id: int
-    memory_type: int
+    memory_type: ReservationEventMemoryType
     size: int
     attributes: dict[str, _ReservationAttributeValue]
     request_id: int
@@ -65,16 +95,16 @@ class _ReservationResizedEvent(_ReservationEventBase):
     kind: Literal["reservation_resized"]
     id: int
     size: int
-    reason: int
+    reason: ReservationResizeReason
 
 class _ReservationReleasedEvent(_ReservationEventBase):
     kind: Literal["reservation_released"]
     id: int
-    reason: int
+    reason: ReservationReleaseReason
 
 class _MemoryLimitChangedEvent(_ReservationEventBase):
     kind: Literal["memory_limit_changed"]
-    memory_type: int
+    memory_type: ReservationEventMemoryType
     configured_limit: int
 
 _ReservationEvent = (

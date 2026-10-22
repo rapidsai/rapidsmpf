@@ -45,27 +45,36 @@ cdef extern from "<rapidsmpf/disk/disk_resource.hpp>" nogil:
         const cpp_path& directory() noexcept
 
 cdef extern from "<rapidsmpf/memory/reservation_events.hpp>" namespace "rapidsmpf":
-    cdef enum class cpp_ReservationEventMemoryType \
-            "rapidsmpf::ReservationEventMemoryType"(unsigned int):
-        pass
-    cdef enum class cpp_ReservationRequestPolicy \
-            "rapidsmpf::ReservationRequestPolicy"(unsigned int):
-        pass
-    cdef enum class cpp_ReservationRequestOutcome \
-            "rapidsmpf::ReservationRequestOutcome"(unsigned int):
-        pass
-    cdef enum class cpp_ReservationResizeReason \
-            "rapidsmpf::ReservationResizeReason"(unsigned int):
-        pass
-    cdef enum class cpp_ReservationReleaseReason \
-            "rapidsmpf::ReservationReleaseReason"(unsigned int):
-        pass
+    cpdef enum class ReservationEventMemoryType(unsigned int):
+        DEVICE
+        HOST
+        PINNED_HOST
+        DISK
+    cpdef enum class ReservationRequestPolicy(unsigned int):
+        IMMEDIATE
+        OVERBOOK
+        SPILL
+        WAIT
+        WAIT_OR_OVERBOOK
+        WAIT_OR_FAIL
+    cpdef enum class ReservationRequestOutcome(unsigned int):
+        GRANTED
+        EMPTY
+        FAILED
+        CANCELLED
+    cpdef enum class ReservationResizeReason(unsigned int):
+        CONSUMED
+        SPLIT_OFF
+    cpdef enum class ReservationReleaseReason(unsigned int):
+        CLEARED
+        RELEASED_CONSUMED
+        RELEASED_SPLIT
 
     cdef cppclass cpp_RequestSubmittedEvent "rapidsmpf::RequestSubmittedEvent":
         uint64_t id
         size_t size
-        vector[cpp_ReservationEventMemoryType] memory_types
-        cpp_ReservationRequestPolicy policy
+        vector[ReservationEventMemoryType] memory_types
+        ReservationRequestPolicy policy
         optional[int64_t] net_memory_delta
         cpp_ReservationAttributeMap attributes
 
@@ -74,9 +83,9 @@ cdef extern from "<rapidsmpf/memory/reservation_events.hpp>" namespace "rapidsmp
 
     cdef cppclass cpp_RequestResolvedEvent "rapidsmpf::RequestResolvedEvent":
         uint64_t id
-        cpp_ReservationRequestOutcome outcome
+        ReservationRequestOutcome outcome
         uint64_t reservation_id
-        cpp_ReservationEventMemoryType memory_type
+        ReservationEventMemoryType memory_type
         size_t size
         size_t overbooked_bytes
         bool_t timed_out
@@ -84,7 +93,7 @@ cdef extern from "<rapidsmpf/memory/reservation_events.hpp>" namespace "rapidsmp
 
     cdef cppclass cpp_ReservationCreatedEvent "rapidsmpf::ReservationCreatedEvent":
         uint64_t id
-        cpp_ReservationEventMemoryType memory_type
+        ReservationEventMemoryType memory_type
         size_t size
         cpp_ReservationAttributeMap attributes
         uint64_t request_id
@@ -93,14 +102,14 @@ cdef extern from "<rapidsmpf/memory/reservation_events.hpp>" namespace "rapidsmp
     cdef cppclass cpp_ReservationResizedEvent "rapidsmpf::ReservationResizedEvent":
         uint64_t id
         size_t size
-        cpp_ReservationResizeReason reason
+        ReservationResizeReason reason
 
     cdef cppclass cpp_ReservationReleasedEvent "rapidsmpf::ReservationReleasedEvent":
         uint64_t id
-        cpp_ReservationReleaseReason reason
+        ReservationReleaseReason reason
 
     cdef cppclass cpp_MemoryLimitChangedEvent "rapidsmpf::MemoryLimitChangedEvent":
-        cpp_ReservationEventMemoryType memory_type
+        ReservationEventMemoryType memory_type
         int64_t configured_limit
 
     cdef cppclass cpp_ReservationEventData "rapidsmpf::ReservationEventData":

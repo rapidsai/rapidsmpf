@@ -184,13 +184,13 @@ cdef dict _reservation_event_to_dict(cpp_ReservationEvent event):
         submitted = cpp_variant_get[cpp_RequestSubmittedEvent](event.data)
         memory_types = []
         for memory_type in submitted.memory_types:
-            memory_types.append(<unsigned int>memory_type)
+            memory_types.append(<ReservationEventMemoryType>memory_type)
         result.update({
             "kind": "request_submitted",
             "id": submitted.id,
             "size": submitted.size,
             "memory_types": memory_types,
-            "policy": <unsigned int>submitted.policy,
+            "policy": <ReservationRequestPolicy>submitted.policy,
             "net_memory_delta": (
                 submitted.net_memory_delta.value()
                 if submitted.net_memory_delta.has_value()
@@ -206,9 +206,9 @@ cdef dict _reservation_event_to_dict(cpp_ReservationEvent event):
         result.update({
             "kind": "request_resolved",
             "id": resolved.id,
-            "outcome": <unsigned int>resolved.outcome,
+            "outcome": <ReservationRequestOutcome>resolved.outcome,
             "reservation_id": resolved.reservation_id,
-            "memory_type": <unsigned int>resolved.memory_type,
+            "memory_type": <ReservationEventMemoryType>resolved.memory_type,
             "size": resolved.size,
             "overbooked_bytes": resolved.overbooked_bytes,
             "timed_out": bool(resolved.timed_out),
@@ -219,7 +219,7 @@ cdef dict _reservation_event_to_dict(cpp_ReservationEvent event):
         result.update({
             "kind": "reservation_created",
             "id": created.id,
-            "memory_type": <unsigned int>created.memory_type,
+            "memory_type": <ReservationEventMemoryType>created.memory_type,
             "size": created.size,
             "attributes": _reservation_attributes_to_dict(created.attributes),
             "request_id": created.request_id,
@@ -231,20 +231,20 @@ cdef dict _reservation_event_to_dict(cpp_ReservationEvent event):
             "kind": "reservation_resized",
             "id": resized.id,
             "size": resized.size,
-            "reason": <unsigned int>resized.reason,
+            "reason": <ReservationResizeReason>resized.reason,
         })
     elif index == 5:
         released = cpp_variant_get[cpp_ReservationReleasedEvent](event.data)
         result.update({
             "kind": "reservation_released",
             "id": released.id,
-            "reason": <unsigned int>released.reason,
+            "reason": <ReservationReleaseReason>released.reason,
         })
     else:
         limit = cpp_variant_get[cpp_MemoryLimitChangedEvent](event.data)
         result.update({
             "kind": "memory_limit_changed",
-            "memory_type": <unsigned int>limit.memory_type,
+            "memory_type": <ReservationEventMemoryType>limit.memory_type,
             "configured_limit": limit.configured_limit,
         })
     return result
