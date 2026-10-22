@@ -281,7 +281,8 @@ Shuffler::Shuffler(
                         return allocate_receive_buffer(br, size, mode);
                     },
                     comm_->progress_thread()->statistics(),
-                    br->memory_reserve_timeout()
+                    br->memory_reserve_timeout(),
+                    br
                 )
       },
       local_partitions_{local_partitions(comm_, total_num_partitions, partition_owner)},
@@ -351,6 +352,14 @@ void Shuffler::insert_into_received(detail::Chunk&& chunk) {
 
 void Shuffler::insert(detail::Chunk&& chunk) {
     Rank dst_rank = partition_owner(comm_, chunk.part_id(), total_num_partitions);
+    // Validate before counting the chunk, so a rejected chunk isn't announced to its
+    // destination in `insert_finished()`.
+    RAPIDSMPF_EXPECTS(
+        dst_rank == comm_->rank() || !chunk.is_data_buffer_set()
+            || chunk.data_memory_type() != MemoryType::DISK,
+        "inserting disk-backed data for another rank is not supported",
+        std::invalid_argument
+    );
     if (!chunk.is_control_message()) {
         std::atomic_ref(outbound_chunk_counter_[safe_cast<std::size_t>(dst_rank)])
             .fetch_add(1, std::memory_order_relaxed);
