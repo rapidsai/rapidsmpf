@@ -25,40 +25,58 @@ constexpr std::array MEMORY_TYPES{
     MemoryType::DEVICE, MemoryType::PINNED_HOST, MemoryType::HOST, MemoryType::DISK
 };
 
-/// @brief Memory type names sorted to match `MemoryType` and `MEMORY_TYPES`.
-constexpr std::array<char const*, MEMORY_TYPES.size()> MEMORY_TYPE_NAMES{
-    {"DEVICE", "PINNED_HOST", "HOST", "DISK"}
-};
-
 /// @brief Memory types that expose an addressable host or device pointer.
 /// @note This is an ordered subset of `MEMORY_TYPES` based on decreasing preference.
 constexpr std::array ADDRESSABLE_MEMORY_TYPES{
     MemoryType::DEVICE, MemoryType::PINNED_HOST, MemoryType::HOST
 };
 
+/// @brief Memory type names sorted to match `MemoryType` and `MEMORY_TYPES`.
+constexpr std::array<char const*, MEMORY_TYPES.size()> MEMORY_TYPE_NAMES{
+    {"DEVICE", "PINNED_HOST", "HOST", "DISK"}
+};
+
 /**
- * @brief Memory types that are valid spill destinations in decreasing order of
- * preference.
+ * @brief A value of type @p T for every memory type, indexed by `MemoryType`.
  *
- * This array defines the preferred targets for spilling when device memory is
- * insufficient. The ordering reflects the policy of spilling in RapidsMPF, where
- * earlier entries are considered more desirable spill destinations.
+ * @tparam T The value type.
  */
-constexpr std::array SPILL_TARGET_MEMORY_TYPES{MemoryType::PINNED_HOST, MemoryType::HOST};
+template <typename T>
+struct PerMemoryType {
+    std::array<T, MEMORY_TYPES.size()> values{};  ///< Values for each memory type
+
+    /**
+     * @brief Access the value of a memory type.
+     *
+     * @param mem_type The memory type.
+     * @return Reference to the value of @p mem_type.
+     */
+    [[nodiscard]] constexpr T& operator[](MemoryType mem_type) noexcept {
+        return values[static_cast<std::size_t>(mem_type)];
+    }
+
+    /// @copydoc operator[](MemoryType)
+    [[nodiscard]] constexpr T const& operator[](MemoryType mem_type) const noexcept {
+        return values[static_cast<std::size_t>(mem_type)];
+    }
+};
 
 /**
  * @brief Get the memory types with preference lower than or equal to @p mem_type.
  *
- * The returned span reflects the predefined ordering used in
- * \c ADDRESSABLE_MEMORY_TYPES, which lists addressable memory types in
+ * The returned span is a suffix of @p mem_types, which must list memory types in
  * decreasing order of preference.
  *
  * @param mem_type The memory type used as the starting point.
+ * @param mem_types The memory types to select from, `ADDRESSABLE_MEMORY_TYPES` by
+ * default.
  * @return A span of memory types whose preference is lower than or equal to
- * the given type.
+ * the given type, empty if @p mem_type is not in @p mem_types.
  */
-constexpr std::span<MemoryType const> leq_memory_types(MemoryType mem_type) noexcept {
-    return std::views::drop_while(ADDRESSABLE_MEMORY_TYPES, [&](MemoryType const& mt) {
+constexpr std::span<MemoryType const> leq_memory_types(
+    MemoryType mem_type, std::span<MemoryType const> mem_types = ADDRESSABLE_MEMORY_TYPES
+) noexcept {
+    return std::views::drop_while(mem_types, [&](MemoryType const& mt) {
         return mt != mem_type;
     });
 }
@@ -76,6 +94,42 @@ static_assert(std::ranges::equal(
 static_assert(std::ranges::equal(
     leq_memory_types(static_cast<MemoryType>(-1)), std::ranges::empty_view<MemoryType>{}
 ));
+static_assert(std::ranges::equal(
+    leq_memory_types(MemoryType::HOST, MEMORY_TYPES),
+    std::array{MemoryType::HOST, MemoryType::DISK}
+));
+
+/**
+ * @brief Get the memory types that data in @p mem_type may be spilled to.
+ *
+ * The targets are the memory types with a lower preference than @p mem_type, in
+ * decreasing order of preference. A target may be unavailable at runtime, e.g. when no
+ * pinned memory resource or disk resource is configured.
+ *
+ * @param mem_type The memory type to spill from.
+ * @return A span of spill target memory types, empty if @p mem_type cannot be spilled.
+ */
+constexpr std::span<MemoryType const> spill_target_memory_types(
+    MemoryType mem_type
+) noexcept {
+    auto const leq = leq_memory_types(mem_type, MEMORY_TYPES);
+    // Drop `mem_type` itself.
+    return leq.empty() ? leq : leq.subspan(1);
+}
+
+static_assert(std::ranges::equal(
+    spill_target_memory_types(MemoryType::DEVICE),
+    std::array{MemoryType::PINNED_HOST, MemoryType::HOST, MemoryType::DISK}
+));
+static_assert(std::ranges::equal(
+    spill_target_memory_types(MemoryType::PINNED_HOST),
+    std::array{MemoryType::HOST, MemoryType::DISK}
+));
+static_assert(std::ranges::equal(
+    spill_target_memory_types(MemoryType::HOST), std::array{MemoryType::DISK}
+));
+static_assert(spill_target_memory_types(MemoryType::DISK).empty());
+static_assert(spill_target_memory_types(static_cast<MemoryType>(-1)).empty());
 
 /**
  * @brief Get the name of a MemoryType.

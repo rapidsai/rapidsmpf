@@ -389,8 +389,9 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
         if (headroom < 0 && packed_data.data
             && packed_data.data->mem_type() == MemoryType::DEVICE)
         {
-            auto reservation =
-                br_->reserve_or_fail(packed_data.data->size, SPILL_TARGET_MEMORY_TYPES);
+            auto reservation = br_->reserve_or_fail(
+                packed_data.data->size, spill_target_memory_types(MemoryType::DEVICE)
+            );
             auto chunk = create_chunk(pid, std::move(packed_data));
             // Spill the new chunk before inserting.
             chunk.set_data_buffer(br_->move(chunk.release_data_buffer(), reservation));

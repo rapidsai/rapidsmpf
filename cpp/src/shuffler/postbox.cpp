@@ -83,7 +83,8 @@ std::size_t ReceivedChunks::spill(BufferResource* br, std::size_t amount) {
             {
                 continue;
             }
-            auto reservation = br->reserve_or_fail(size, SPILL_TARGET_MEMORY_TYPES);
+            auto reservation =
+                br->reserve_or_fail(size, spill_target_memory_types(MemoryType::DEVICE));
             chunk.set_data_buffer(br->move(chunk.release_data_buffer(), reservation));
             if ((total_spilled += size) >= amount) {
                 break;

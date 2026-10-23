@@ -213,6 +213,7 @@ TEST(DiskSpillDirectory, UsesConfiguredPath) {
 TEST(DiskResource, CreateWithoutSpillDirHasNoDiskResource) {
     auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
     EXPECT_EQ(br->disk_resource(), nullptr);
+    EXPECT_FALSE(br->is_reservable(MemoryType::DISK));
 }
 
 TEST(DiskResource, SharedPtrKeepsDiskResourceAlive) {
@@ -225,6 +226,7 @@ TEST(DiskResource, SharedPtrKeepsDiskResourceAlive) {
         Statistics::disabled(),
         test_spill_dir()
     );
+    EXPECT_TRUE(br->is_reservable(MemoryType::DISK));
     std::weak_ptr<DiskResource> weak_disk = br->disk_resource();
     std::weak_ptr<BufferResource> weak_br = br;
 
@@ -349,6 +351,7 @@ TEST(DiskBufferFromOptions, UsesConfiguredDirectory) {
         rmm::mr::get_current_device_resource_ref(), std::move(options)
     );
     EXPECT_EQ(br->disk_resource()->directory().parent_path(), disk_dir.path());
+    EXPECT_TRUE(br->is_reservable(MemoryType::DISK));
 }
 
 TEST(DiskBufferFromOptions, UnsetOptionHasNoDiskResource) {
