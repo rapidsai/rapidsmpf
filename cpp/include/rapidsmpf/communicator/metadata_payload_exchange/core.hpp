@@ -38,7 +38,6 @@ namespace rapidsmpf::communicator {
  *     std::shared_ptr<Communicator> comm,
  *     OpID op_id,
  *     MetadataPayloadExchange::AllocateBufferFn allocate_buffer_fn,
- *     std::shared_ptr<Statistics> statistics,
  *     Duration allocation_timeout,
  *     BufferResource* br
  * );

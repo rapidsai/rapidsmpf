@@ -280,7 +280,6 @@ Shuffler::Shuffler(
                     [br](std::size_t size, AllocationMode mode) {
                         return allocate_receive_buffer(br, size, mode);
                     },
-                    comm_->progress_thread()->statistics(),
                     br->memory_reserve_timeout(),
                     br
                 )

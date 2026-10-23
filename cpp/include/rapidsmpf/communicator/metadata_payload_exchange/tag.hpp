@@ -36,15 +36,14 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      * @param comm The communicator to use for operations.
      * @param op_id The operation ID for tagging messages.
      * @param allocate_buffer_fn Function to allocate buffers for incoming data.
-     * @param statistics The statistics to use for tracking communication operations.
      * @param allocation_timeout Progress timeout for receive buffer allocations.
-     * @param br Buffer resource used to move payloads to disk. Must not be `nullptr`.
+     * @param br Buffer resource used to move payloads to disk and whose statistics track
+     * communication operations. Must not be `nullptr`.
      */
     TagMetadataPayloadExchange(
         std::shared_ptr<Communicator> comm,
         OpID op_id,
         AllocateBufferFn allocate_buffer_fn,
-        std::shared_ptr<Statistics> statistics,
         Duration allocation_timeout,
         BufferResource* br
     );
@@ -240,19 +239,15 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
     void force_allocation_progress_if_stalled();
 
     /**
-     * @brief Move the received payload of a forced allocation to disk.
+     * @brief Move a received payload to disk, if possible.
      *
-     * Only payloads whose receive buffer was a forced allocation are moved, and only if
-     * the buffer resource has a disk resource and disk space can be reserved. The move
-     * blocks until the payload is written.
+     * The payload is moved only if the buffer resource has a disk resource and disk
+     * space can be reserved. The move blocks until the payload is written.
      *
-     * @param tag_msg The message whose data transfer just completed.
-     * @param buffer The received payload.
-     * @return The payload, on disk if it was moved.
+     * @param buffer The received payload, replaced by the on-disk payload if it was
+     * moved.
      */
-    std::unique_ptr<Buffer> move_forced_payload_to_disk(
-        TagMessage const& tag_msg, std::unique_ptr<Buffer> buffer
-    );
+    void try_move_to_disk(std::unique_ptr<Buffer>& buffer);
 
     /**
      * @brief Complete data transfers for in-transit messages.

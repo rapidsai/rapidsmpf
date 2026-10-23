@@ -21,7 +21,6 @@ TagMetadataPayloadExchange::TagMetadataPayloadExchange(
     std::shared_ptr<Communicator> comm,
     OpID op_id,
     AllocateBufferFn allocate_buffer_fn,
-    std::shared_ptr<Statistics> statistics,
     Duration allocation_timeout,
     BufferResource* br
 )
@@ -37,9 +36,9 @@ TagMetadataPayloadExchange::TagMetadataPayloadExchange(
       messages_sent_to_(safe_cast<std::size_t>(nranks_), 0),
       peer_received_(safe_cast<std::size_t>(nranks_), 0),
       peer_expected_(safe_cast<std::size_t>(nranks_), 0),
-      peer_terminated_(safe_cast<std::size_t>(nranks_), false),
-      statistics_{std::move(statistics)} {
+      peer_terminated_(safe_cast<std::size_t>(nranks_), false) {
     RAPIDSMPF_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be NULL");
+    statistics_ = br_->statistics();
 }
 
 void TagMetadataPayloadExchange::send(
@@ -414,9 +413,11 @@ TagMetadataPayloadExchange::complete_data_transfers() {
                     auto future = std::move(future_it->second);
                     auto received_buffer = comm_->release_data(std::move(future));
 
-                    tag_msg.message->set_data(
-                        move_forced_payload_to_disk(tag_msg, std::move(received_buffer))
-                    );
+                    if (tag_msg.forced_allocation) {
+                        try_move_to_disk(received_buffer);
+                    }
+                    tag_msg.message->set_data(std::move(received_buffer));
+
                     completed_messages.push_back(std::move(tag_msg.message));
 
                     in_transit_futures_.erase(future_it);
@@ -502,18 +503,16 @@ void TagMetadataPayloadExchange::force_allocation_progress_if_stalled() {
     oldest->forced_allocation = true;
 }
 
-std::unique_ptr<Buffer> TagMetadataPayloadExchange::move_forced_payload_to_disk(
-    TagMessage const& tag_msg, std::unique_ptr<Buffer> buffer
-) {
-    if (!tag_msg.forced_allocation || br_->disk_resource() == nullptr) {
-        return buffer;
+void TagMetadataPayloadExchange::try_move_to_disk(std::unique_ptr<Buffer>& buffer) {
+    if (br_->disk_resource() == nullptr) {
+        return;
     }
     auto reservation = br_->try_reserve(buffer->size, MemoryType::DISK);
     if (!reservation.has_value()) {
-        return buffer;
+        return;
     }
     statistics_->add_bytes_stat("metadata-payload-exchange-moved-to-disk", buffer->size);
-    return br_->move(std::move(buffer), *reservation);
+    buffer = br_->move(std::move(buffer), *reservation);
 }
 
 void TagMetadataPayloadExchange::cleanup_completed_operations() {
