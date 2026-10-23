@@ -18,6 +18,8 @@ from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import (
     BufferResource,
     OwningDeviceMemoryResource,
+    allow_overbooking_by_default_from_options,
+    memory_reserve_timeout_from_options,
     spill_dir_from_options,
 )
 from rapidsmpf.memory.memory_reservation import opaque_memory_usage
@@ -356,6 +358,35 @@ def test_spill_directory(tmp_path: pathlib.Path, *, as_str: bool) -> None:
         spill_directory=str(tmp_path) if as_str else tmp_path,
     )
     check_spill_directory(br, tmp_path)
+
+
+def test_reservation_policy_defaults() -> None:
+    br = BufferResource(rmm.mr.CudaMemoryResource())
+    assert br.memory_reserve_timeout == pytest.approx(0.1)
+    assert br.allow_overbooking_by_default is True
+
+    br = BufferResource.from_options(rmm.mr.CudaMemoryResource(), Options())
+    assert br.memory_reserve_timeout == pytest.approx(0.1)
+    assert br.allow_overbooking_by_default is True
+
+
+def test_reservation_policy_from_options() -> None:
+    options = Options(
+        {"memory_reserve_timeout": "250ms", "allow_overbooking_by_default": "false"}
+    )
+    assert memory_reserve_timeout_from_options(options) == pytest.approx(0.25)
+    assert allow_overbooking_by_default_from_options(options) is False
+    br = BufferResource.from_options(rmm.mr.CudaMemoryResource(), options)
+    assert br.memory_reserve_timeout == pytest.approx(0.25)
+    assert br.allow_overbooking_by_default is False
+
+    br = BufferResource(
+        rmm.mr.CudaMemoryResource(),
+        memory_reserve_timeout=2.0,
+        allow_overbooking_by_default=False,
+    )
+    assert br.memory_reserve_timeout == pytest.approx(2.0)
+    assert br.allow_overbooking_by_default is False
 
 
 def test_spill_directory_from_options(tmp_path: pathlib.Path) -> None:

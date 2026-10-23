@@ -1413,3 +1413,70 @@ TEST_F(BufferSpillStatistics, NotRecordedWhenEnabledMidInterval) {
         std::ignore = disabled_stats->get_stat("buffer-spilled-time"), std::out_of_range
     );
 }
+
+TEST(BufferResource, TryReserve) {
+    auto br = BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        PinnedMemoryDisabled,
+        {{MemoryType::DEVICE, 10_KiB}, {MemoryType::HOST, 10_KiB}}
+    );
+
+    // Falls back to the next memory type with room.
+    auto dev = br->try_reserve(8_KiB, MemoryType::DEVICE);
+    ASSERT_TRUE(dev.has_value());
+    EXPECT_EQ(dev->mem_type(), MemoryType::DEVICE);
+    auto host = br->try_reserve(8_KiB, std::array{MemoryType::DEVICE, MemoryType::HOST});
+    ASSERT_TRUE(host.has_value());
+    EXPECT_EQ(host->mem_type(), MemoryType::HOST);
+
+    // Returns nothing, instead of throwing, when no memory type has room.
+    EXPECT_FALSE(br->try_reserve(8_KiB, std::array{MemoryType::DEVICE, MemoryType::HOST})
+                     .has_value());
+    EXPECT_THROW(
+        std::ignore =
+            br->reserve_or_fail(8_KiB, std::array{MemoryType::DEVICE, MemoryType::HOST}),
+        std::runtime_error
+    );
+
+    // Memory types without a backing resource are skipped.
+    EXPECT_FALSE(br->try_reserve(1_KiB, MemoryType::PINNED_HOST).has_value());
+    EXPECT_FALSE(br->try_reserve(1_KiB, MemoryType::DISK).has_value());
+}
+
+TEST(BufferResource, ReservationPolicyDefaults) {
+    auto const defaults =
+        BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    EXPECT_DOUBLE_EQ(defaults->memory_reserve_timeout().count(), 0.1);
+    EXPECT_EQ(defaults->allow_overbooking_by_default(), AllowOverbooking::YES);
+
+    auto const from_empty_options = BufferResource::from_options(
+        rmm::mr::get_current_device_resource_ref(), config::Options{}
+    );
+    EXPECT_DOUBLE_EQ(from_empty_options->memory_reserve_timeout().count(), 0.1);
+    EXPECT_EQ(from_empty_options->allow_overbooking_by_default(), AllowOverbooking::YES);
+}
+
+TEST(BufferResource, ReservationPolicyFromOptions) {
+    auto const br = BufferResource::from_options(
+        rmm::mr::get_current_device_resource_ref(),
+        config::Options{std::unordered_map<std::string, std::string>{
+            {"memory_reserve_timeout", "250ms"}, {"allow_overbooking_by_default", "false"}
+        }}
+    );
+    EXPECT_DOUBLE_EQ(br->memory_reserve_timeout().count(), 0.25);
+    EXPECT_EQ(br->allow_overbooking_by_default(), AllowOverbooking::NO);
+
+    auto const created = BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        PinnedMemoryDisabled,
+        {},
+        std::nullopt,
+        std::make_shared<StreamPool>(1),
+        Statistics::disabled(),
+        std::nullopt,
+        std::chrono::seconds{2},
+        AllowOverbooking::NO
+    );
+    EXPECT_DOUBLE_EQ(created->memory_reserve_timeout().count(), 2.0);
+    EXPECT_EQ(created->allow_overbooking_by_default(), AllowOverbooking::NO);
+}

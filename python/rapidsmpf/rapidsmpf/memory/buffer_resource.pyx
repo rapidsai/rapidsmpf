@@ -182,6 +182,12 @@ cdef class BufferResource:
         disk spilling is enabled and spill files are written to a uniquely named
         subdirectory ``<spill_directory>/<pid>-XXXXXX`` owned by this buffer
         resource (see :attr:`spill_directory`). If None, disk spilling is disabled.
+    memory_reserve_timeout
+        Progress timeout for memory reservation requests, in seconds. See the
+        ``memory_reserve_timeout`` configuration option.
+    allow_overbooking_by_default
+        Whether reservation requests that don't specify an overbooking policy may
+        overbook memory. See the ``allow_overbooking_by_default`` configuration option.
 
     Notes
     -----
@@ -206,6 +212,8 @@ cdef class BufferResource:
         CudaStreamPool stream_pool = None,
         statistics = None,
         spill_directory = None,
+        memory_reserve_timeout = 0.1,
+        allow_overbooking_by_default = True,
     ):
         cdef unordered_map[MemoryType, int64_t] _mem_limits
         if memory_limits is not None:
@@ -255,6 +263,12 @@ cdef class BufferResource:
             if pinned_pool_properties.numa_id is not None:
                 _props.numa_id = <int>pinned_pool_properties.numa_id
             cpp_pinned_pool = _props
+        cdef cpp_Duration cpp_memory_reserve_timeout = cpp_Duration(
+            memory_reserve_timeout
+        )
+        cdef AllowOverbooking cpp_allow_overbooking = (
+            AllowOverbooking.YES if allow_overbooking_by_default else AllowOverbooking.NO
+        )
         cdef optional[cpp_path] cpp_spill_directory
         if spill_directory is not None:
             cpp_spill_directory = cpp_path(<string>os.fsencode(spill_directory))
@@ -269,6 +283,8 @@ cdef class BufferResource:
                 make_shared[cpp_StreamPool](stream_pool.c_obj),
                 stats_handle,
                 cpp_spill_directory,
+                cpp_memory_reserve_timeout,
+                cpp_allow_overbooking,
             )
         self.spill_manager = SpillManager._create(self)
 
@@ -324,6 +340,10 @@ cdef class BufferResource:
             stream_pool=stream_pool_from_options(options),
             statistics=statistics,
             spill_directory=spill_dir_from_options(options),
+            memory_reserve_timeout=memory_reserve_timeout_from_options(options),
+            allow_overbooking_by_default=allow_overbooking_by_default_from_options(
+                options
+            ),
         )
 
     def __dealloc__(self):
@@ -446,6 +466,31 @@ cdef class BufferResource:
         if disk.get() == NULL:
             return None
         return pathlib.Path(os.fsdecode(deref(disk).directory().string()))
+
+    @property
+    def memory_reserve_timeout(self):
+        """
+        Progress timeout for memory reservation requests.
+
+        Returns
+        -------
+        The timeout in seconds.
+        """
+        return deref(self._handle).memory_reserve_timeout().count()
+
+    @property
+    def allow_overbooking_by_default(self):
+        """
+        Overbooking policy for reservation requests that don't specify one.
+
+        Returns
+        -------
+        True if such requests may overbook memory, otherwise False.
+        """
+        return (
+            deref(self._handle).allow_overbooking_by_default()
+            == AllowOverbooking.YES
+        )
 
     def memory_available_for_reservation(self, MemoryType mem_type):
         """
@@ -699,6 +744,16 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
             cpp_Options options
         ) except +ex_handler
 
+    cdef cpp_Duration cpp_memory_reserve_timeout_from_options \
+        "rapidsmpf::memory_reserve_timeout_from_options"(
+            cpp_Options options
+        ) except +ex_handler
+
+    cdef AllowOverbooking cpp_allow_overbooking_by_default_from_options \
+        "rapidsmpf::allow_overbooking_by_default_from_options"(
+            cpp_Options options
+        ) except +ex_handler
+
 
 cdef extern from "<rapidsmpf/disk/disk_resource.hpp>" nogil:
     cdef optional[cpp_path] cpp_spill_dir_from_options \
@@ -780,6 +835,45 @@ def periodic_spill_check_from_options(Options options not None):
     with nogil:
         ret = cpp_periodic_spill_check_from_options(options._handle)
     return ret.value().count() if ret.has_value() else None
+
+
+def memory_reserve_timeout_from_options(Options options not None):
+    """
+    Get the ``memory_reserve_timeout`` parameter from configuration options.
+
+    Parameters
+    ----------
+    options
+        Configuration options.
+
+    Returns
+    -------
+    The progress timeout for memory reservation requests, in seconds.
+    """
+    cdef cpp_Duration ret
+    with nogil:
+        ret = cpp_memory_reserve_timeout_from_options(options._handle)
+    return ret.count()
+
+
+def allow_overbooking_by_default_from_options(Options options not None):
+    """
+    Get the ``allow_overbooking_by_default`` parameter from configuration options.
+
+    Parameters
+    ----------
+    options
+        Configuration options.
+
+    Returns
+    -------
+    True if reservation requests that don't specify an overbooking policy may
+    overbook memory, otherwise False.
+    """
+    cdef AllowOverbooking ret
+    with nogil:
+        ret = cpp_allow_overbooking_by_default_from_options(options._handle)
+    return ret == AllowOverbooking.YES
 
 
 def spill_dir_from_options(Options options not None):

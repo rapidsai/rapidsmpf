@@ -495,6 +495,21 @@ INSTANTIATE_TEST_SUITE_P(
     }
 );
 
+TEST(Shuffler, RejectsNullCommunicator) {
+    auto br =
+        rapidsmpf::BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    EXPECT_THROW(
+        rapidsmpf::shuffler::Shuffler(nullptr, 0, 1, br.get()), std::logic_error
+    );
+}
+
+TEST(Shuffler, RejectsNullBufferResource) {
+    EXPECT_THROW(
+        rapidsmpf::shuffler::Shuffler(GlobalEnvironment->comm_, 0, 1, nullptr),
+        std::logic_error
+    );
+}
+
 TEST(Shuffler, SpillOnInsertAndExtraction) {
     rapidsmpf::shuffler::PartID const total_num_partitions = 2;
     auto stream = cuda::stream_ref{cudaStreamLegacy};

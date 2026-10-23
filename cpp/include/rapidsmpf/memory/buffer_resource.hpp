@@ -171,6 +171,10 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @param spill_directory Directory for disk files. When set, a
      * `DiskResource` is created with an exclusively owned subdirectory under this
      * path. `std::nullopt` disables disk I/O.
+     * @param memory_reserve_timeout Progress timeout for memory reservation requests.
+     * See `memory_reserve_timeout_from_options()`.
+     * @param allow_overbooking_by_default Overbooking policy for reservation requests
+     * that don't specify one. See `allow_overbooking_by_default_from_options()`.
      * @return A newly constructed `BufferResource` owned by `std::shared_ptr`.
      * @throws std::runtime_error if `pinned_pool_properties` has a value but pinned
      * host memory is not supported on this system.
@@ -182,7 +186,9 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         std::optional<Duration> periodic_spill_check = std::chrono::milliseconds{1},
         std::shared_ptr<StreamPool> stream_pool = std::make_shared<StreamPool>(16),
         std::shared_ptr<Statistics> statistics = Statistics::disabled(),
-        std::optional<std::filesystem::path> spill_directory = std::nullopt
+        std::optional<std::filesystem::path> spill_directory = std::nullopt,
+        Duration memory_reserve_timeout = std::chrono::milliseconds{100},
+        AllowOverbooking allow_overbooking_by_default = AllowOverbooking::YES
     );
 
     /**
@@ -413,6 +419,55 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     );
 
     /**
+     * @brief Try to make a memory reservation based on the given order of memory types.
+     *
+     * The function attempts to reserve memory by iterating over @p mem_types in the given
+     * order of preference. For each memory type, it requests a reservation without
+     * overbooking. Memory types without a backing resource are skipped.
+     *
+     * @param size The size of the buffer to allocate.
+     * @param mem_types Range of memory types to try to reserve memory from.
+     * @return A memory reservation, or `std::nullopt` if no memory type can satisfy the
+     * request.
+     */
+    template <std::ranges::input_range Range>
+        requires std::convertible_to<std::ranges::range_value_t<Range>, MemoryType>
+    [[nodiscard]] std::optional<MemoryReservation> try_reserve(
+        std::size_t size, Range mem_types
+    ) {
+        // try to reserve memory from the given order
+        for (auto const& mem_type : mem_types) {
+            if (mem_type == MemoryType::DISK && disk_resource_ == nullptr) {
+                continue;
+            }
+            if (mem_type == MemoryType::PINNED_HOST && !pinned_mr_.has_value()) {
+                // Pinned host memory is only available if the memory resource is
+                // available.
+                continue;
+            }
+            auto [res, _] = reserve(mem_type, size, AllowOverbooking::NO);
+            if (res.size() == size) {
+                return std::move(res);
+            }
+        }
+        return std::nullopt;
+    }
+
+    /**
+     * @brief Try to make a memory reservation.
+     *
+     * @param size The size of the buffer to allocate.
+     * @param mem_type The memory type to try to reserve memory from.
+     * @return A memory reservation, or `std::nullopt` if the request cannot be
+     * satisfied.
+     */
+    [[nodiscard]] std::optional<MemoryReservation> try_reserve(
+        std::size_t size, MemoryType mem_type
+    ) {
+        return try_reserve(size, std::ranges::single_view{mem_type});
+    }
+
+    /**
      * @brief Make a memory reservation or fail based on the given order of memory types.
      *
      * The function attempts to reserve memory by iterating over @p mem_types in the given
@@ -428,20 +483,8 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     template <std::ranges::input_range Range>
         requires std::convertible_to<std::ranges::range_value_t<Range>, MemoryType>
     [[nodiscard]] MemoryReservation reserve_or_fail(std::size_t size, Range mem_types) {
-        // try to reserve memory from the given order
-        for (auto const& mem_type : mem_types) {
-            if (mem_type == MemoryType::DISK && disk_resource_ == nullptr) {
-                continue;
-            }
-            if (mem_type == MemoryType::PINNED_HOST && !pinned_mr_.has_value()) {
-                // Pinned host memory is only available if the memory resource is
-                // available.
-                continue;
-            }
-            auto [res, _] = reserve(mem_type, size, AllowOverbooking::NO);
-            if (res.size() == size) {
-                return std::move(res);
-            }
+        if (auto res = try_reserve(size, std::move(mem_types))) {
+            return std::move(*res);
         }
         RAPIDSMPF_FAIL("failed to reserve memory", std::runtime_error);
     }
@@ -625,6 +668,31 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         return disk_resource_;
     }
 
+    /**
+     * @brief Progress timeout for memory reservation requests.
+     *
+     * The longest time a component waiting for memory may go without any of its
+     * pending reservations being satisfied before it forces progress. See the
+     * `memory_reserve_timeout` option.
+     *
+     * @return The timeout.
+     */
+    [[nodiscard]] Duration memory_reserve_timeout() const noexcept {
+        return memory_reserve_timeout_;
+    }
+
+    /**
+     * @brief Overbooking policy for reservation requests that don't specify one.
+     *
+     * Decides whether forcing progress after `memory_reserve_timeout()` may overbook
+     * memory. See the `allow_overbooking_by_default` option.
+     *
+     * @return The overbooking policy.
+     */
+    [[nodiscard]] AllowOverbooking allow_overbooking_by_default() const noexcept {
+        return allow_overbooking_by_default_;
+    }
+
   private:
     /** @brief Private constructor, use `create()` or `from_options()`. */
     BufferResource(
@@ -634,7 +702,9 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         std::optional<Duration> periodic_spill_check,
         std::shared_ptr<StreamPool> stream_pool,
         std::shared_ptr<Statistics> statistics,
-        std::shared_ptr<DiskResource> disk_resource
+        std::shared_ptr<DiskResource> disk_resource,
+        Duration memory_reserve_timeout,
+        AllowOverbooking allow_overbooking_by_default
     );
 
     mutable std::mutex mutex_;
@@ -648,6 +718,8 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     std::shared_ptr<StreamPool> stream_pool_;
     SpillManager spill_manager_;
     std::shared_ptr<Statistics> statistics_;
+    Duration memory_reserve_timeout_;
+    AllowOverbooking allow_overbooking_by_default_;
 };
 
 static_assert(StatisticsProvider<BufferResource>);
@@ -696,6 +768,22 @@ std::optional<Duration> periodic_spill_check_from_options(config::Options option
  * not take an explicit CUDA stream.
  */
 std::shared_ptr<StreamPool> stream_pool_from_options(config::Options options);
+
+/**
+ * @brief Get the `memory_reserve_timeout` parameter from configuration options.
+ *
+ * @param options Configuration options.
+ * @return The progress timeout for memory reservation requests.
+ */
+Duration memory_reserve_timeout_from_options(config::Options options);
+
+/**
+ * @brief Get the `allow_overbooking_by_default` parameter from configuration options.
+ *
+ * @param options Configuration options.
+ * @return The overbooking policy for reservation requests that don't specify one.
+ */
+AllowOverbooking allow_overbooking_by_default_from_options(config::Options options);
 
 
 }  // namespace rapidsmpf
