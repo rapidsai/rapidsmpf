@@ -88,7 +88,7 @@ using AllocationMode = communicator::MetadataPayloadExchange::AllocationMode;
 std::unique_ptr<Buffer> allocate_receive_buffer(
     BufferResource* br, std::size_t size, AllocationMode mode
 ) {
-    auto res = br->try_reserve(size, br->addressable_memory_types());
+    auto res = br->try_reserve(size, ADDRESSABLE_MEMORY_TYPES);
     if (!res.has_value()) {
         if (mode == AllocationMode::MAY_FAIL) {
             return nullptr;
@@ -351,14 +351,6 @@ void Shuffler::insert_into_received(detail::Chunk&& chunk) {
 
 void Shuffler::insert(detail::Chunk&& chunk) {
     Rank dst_rank = partition_owner(comm_, chunk.part_id(), total_num_partitions);
-    // Validate before counting the chunk, so a rejected chunk isn't announced to its
-    // destination in `insert_finished()`.
-    RAPIDSMPF_EXPECTS(
-        dst_rank == comm_->rank() || !chunk.is_data_buffer_set()
-            || chunk.data_memory_type() != MemoryType::DISK,
-        "inserting disk-backed data for another rank is not supported",
-        std::invalid_argument
-    );
     if (!chunk.is_control_message()) {
         std::atomic_ref(outbound_chunk_counter_[safe_cast<std::size_t>(dst_rank)])
             .fetch_add(1, std::memory_order_relaxed);
@@ -367,7 +359,20 @@ void Shuffler::insert(detail::Chunk&& chunk) {
         // this is a local chunk, so we can move it straight to received.
         insert_into_received(std::move(chunk));
     } else {
-        // this is a remote chunk, so we need to send it
+        // this is a remote chunk, so we need to send it. Sending needs addressable
+        // memory, so restore disk-backed data here, in the caller's thread, rather than
+        // in the progress thread. This may spill.
+        if (chunk.is_on_disk()) {
+            auto reservation = br_->try_reserve_or_spill(
+                chunk.data_size(), br_->addressable_memory_types()
+            );
+            RAPIDSMPF_EXPECTS(
+                reservation.has_value(),
+                "failed to reserve addressable memory for an outgoing disk-backed chunk",
+                std::runtime_error
+            );
+            chunk.set_data_buffer(br_->move(chunk.release_data_buffer(), *reservation));
+        }
         to_send_.insert(std::make_unique<detail::Chunk>(std::move(chunk)));
     }
 }

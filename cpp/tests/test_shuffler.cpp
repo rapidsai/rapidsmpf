@@ -530,7 +530,7 @@ TEST(Shuffler, RejectsNullBufferResource) {
     );
 }
 
-TEST(Shuffler, RejectsDiskBackedInsertForOtherRank) {
+TEST(Shuffler, RestoresDiskBackedInsertForOtherRank) {
     auto const& comm = GlobalEnvironment->comm_;
     if (comm->nranks() == 1) {
         GTEST_SKIP() << "Test requires multiple ranks";
@@ -560,9 +560,9 @@ TEST(Shuffler, RejectsDiskBackedInsertForOtherRank) {
     packed.data = br->move(std::move(packed.data), disk_res);
     std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> chunks;
     chunks.emplace(remote_pid, std::move(packed));
-    EXPECT_THROW(shuffler.insert(std::move(chunks)), std::invalid_argument);
+    EXPECT_NO_THROW(shuffler.insert(std::move(chunks)));
 
-    // The rejected chunk isn't counted, so the shuffle still completes.
+    // The disk-backed chunk was restored and sent, so the shuffle completes.
     shuffler.insert_finished();
     EXPECT_NO_THROW(shuffler.wait(std::chrono::seconds{30}));
 }

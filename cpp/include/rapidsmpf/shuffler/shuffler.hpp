@@ -196,8 +196,8 @@ class Shuffler {
      *
      * @param chunks A map of partition IDs and their packed chunks.
      *
-     * @throws std::invalid_argument If a chunk for a partition owned by another rank
-     * is disk-backed.
+     * @note Disk-backed chunks for partitions owned by another rank are restored to
+     * addressable memory in the calling thread before being sent, which may spill.
      */
     void insert(std::unordered_map<PartID, PackedData>&& chunks);
 
