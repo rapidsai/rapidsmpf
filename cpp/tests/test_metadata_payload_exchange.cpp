@@ -4,7 +4,6 @@
  */
 
 #include <algorithm>
-#include <atomic>
 #include <chrono>
 #include <vector>
 
@@ -453,7 +452,7 @@ TEST_F(MetadataPayloadExchangeTest, RetriesDeferredAllocation) {
     // Fail the first allocations, then succeed. No timeout, so no overbooking. The
     // payload sizes are distinct, so the requested sizes show the allocation order.
     std::vector<std::size_t> requested_sizes;
-    std::atomic<int> num_overbooked{0};
+    int num_overbooked{0};
     reset_exchange(
         [&](std::size_t size, AllocationMode mode) -> std::unique_ptr<Buffer> {
             if (mode == AllocationMode::MUST_SUCCEED) {
@@ -501,7 +500,7 @@ TEST_F(MetadataPayloadExchangeTest, OverbooksOnTimeout) {
 
     // Allocation only succeeds when overbooking is allowed, so every message has to
     // wait for the timeout and is then overbooked, one at a time, in order.
-    std::atomic<int> num_overbooked{0};
+    int num_overbooked{0};
     reset_exchange(
         [&](std::size_t size, AllocationMode mode) -> std::unique_ptr<Buffer> {
             if (mode == AllocationMode::MAY_FAIL) {
@@ -543,7 +542,7 @@ TEST_F(MetadataPayloadExchangeTest, ThrowsOnTimeoutWithoutOverbooking) {
     OpID const op_id{43};
 
     // The allocator does not allow forcing an allocation, so it throws when forced.
-    std::atomic<int> num_forced{0};
+    int num_forced{0};
     reset_exchange(
         [&](std::size_t, AllocationMode mode) -> std::unique_ptr<Buffer> {
             if (mode == AllocationMode::MUST_SUCCEED) {
