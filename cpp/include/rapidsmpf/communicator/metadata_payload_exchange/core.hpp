@@ -19,27 +19,6 @@
 namespace rapidsmpf::communicator {
 
 /**
- * @brief Whether a receive buffer allocation may fail.
- *
- * See `AllocateBufferFn`.
- */
-enum class AllocationMode : bool {
-    MAY_FAIL,  ///< The allocator may return `nullptr` if memory is not available now.
-    MUST_SUCCEED,  ///< The allocator must return a buffer or throw.
-};
-
-/**
- * @brief Function allocating a receive buffer of the given size.
- *
- * With `AllocationMode::MAY_FAIL`, it may return `nullptr` when memory is not
- * available right now. With `AllocationMode::MUST_SUCCEED`, it must return a buffer,
- * for example by overbooking memory, or throw if its policy does not allow forcing
- * an allocation.
- */
-using AllocateBufferFn =
-    std::function<std::unique_ptr<Buffer>(std::size_t, AllocationMode)>;
-
-/**
  * @brief Interface for exchanging serialized metadata and payload between ranks.
  *
  * The `MetadataPayloadExchange` class defines an abstract interface for transmitting
@@ -60,7 +39,7 @@ using AllocateBufferFn =
  * DerivedMetadataPayloadExchange(
  *     std::shared_ptr<Communicator> comm,
  *     OpID op_id,
- *     AllocateBufferFn allocate_buffer_fn,
+ *     MetadataPayloadExchange::AllocateBufferFn allocate_buffer_fn,
  *     std::shared_ptr<Statistics> statistics,
  *     Duration allocation_timeout
  * );
@@ -81,6 +60,27 @@ using AllocateBufferFn =
  */
 class MetadataPayloadExchange {
   public:
+    /**
+     * @brief Whether a receive buffer allocation may fail.
+     *
+     * See `AllocateBufferFn`.
+     */
+    enum class AllocationMode : bool {
+        MAY_FAIL,  ///< The allocator may return `nullptr` if memory is not available now.
+        MUST_SUCCEED,  ///< The allocator must return a buffer or throw.
+    };
+
+    /**
+     * @brief Function allocating a receive buffer of the given size.
+     *
+     * With `AllocationMode::MAY_FAIL`, it may return `nullptr` when memory is not
+     * available right now. With `AllocationMode::MUST_SUCCEED`, it must return a
+     * buffer, for example by overbooking memory, or throw if its policy does not allow
+     * forcing an allocation.
+     */
+    using AllocateBufferFn =
+        std::function<std::unique_ptr<Buffer>(std::size_t, AllocationMode)>;
+
     /**
      * @brief Message class for communication.
      *

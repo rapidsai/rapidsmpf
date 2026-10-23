@@ -29,6 +29,9 @@
 using namespace rapidsmpf;
 using namespace rapidsmpf::communicator;
 
+using AllocationMode = MetadataPayloadExchange::AllocationMode;
+using AllocateBufferFn = MetadataPayloadExchange::AllocateBufferFn;
+
 class MetadataPayloadExchangeTest : public ::testing::Test {
   protected:
     void SetUp() override {

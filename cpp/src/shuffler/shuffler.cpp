@@ -66,11 +66,13 @@ convert_chunks_to_messages(
     return messages;
 }
 
+using AllocationMode = communicator::MetadataPayloadExchange::AllocationMode;
+
 /**
  * @brief Allocate a shuffler receive buffer.
  *
- * See `communicator::AllocateBufferFn`. A forced allocation overbooks host memory
- * when nothing else fits, unless overbooking is disallowed.
+ * See `communicator::MetadataPayloadExchange::AllocateBufferFn`. A forced allocation
+ * overbooks host memory when nothing else fits, unless overbooking is disallowed.
  *
  * @param br The buffer resource to allocate from.
  * @param size The size of the buffer in bytes.
@@ -81,11 +83,11 @@ convert_chunks_to_messages(
  * overbooking is not allowed.
  */
 std::unique_ptr<Buffer> allocate_receive_buffer(
-    BufferResource* br, std::size_t size, communicator::AllocationMode mode
+    BufferResource* br, std::size_t size, AllocationMode mode
 ) {
     auto res = br->try_reserve(size, ADDRESSABLE_MEMORY_TYPES);
     if (!res.has_value()) {
-        if (mode == communicator::AllocationMode::MAY_FAIL) {
+        if (mode == AllocationMode::MAY_FAIL) {
             return nullptr;
         }
         RAPIDSMPF_EXPECTS(
@@ -266,7 +268,7 @@ Shuffler::Shuffler(
               : std::make_unique<communicator::TagMetadataPayloadExchange>(
                     comm_,
                     op_id,
-                    [br](std::size_t size, communicator::AllocationMode mode) {
+                    [br](std::size_t size, AllocationMode mode) {
                         return allocate_receive_buffer(br, size, mode);
                     },
                     comm_->progress_thread()->statistics(),
