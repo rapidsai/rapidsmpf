@@ -21,8 +21,8 @@ TagMetadataPayloadExchange::TagMetadataPayloadExchange(
     std::shared_ptr<Communicator> comm,
     OpID op_id,
     AllocateBufferFn allocate_buffer_fn,
-    std::shared_ptr<Statistics> statistics,
-    Duration allocation_timeout
+    Duration allocation_timeout,
+    BufferResource* br
 )
     : comm_(std::move(comm)),
       nranks_(comm_->nranks()),
@@ -31,12 +31,15 @@ TagMetadataPayloadExchange::TagMetadataPayloadExchange(
       gpu_data_tag_{op_id, 1},
       allocate_buffer_fn_(std::move(allocate_buffer_fn)),
       allocation_timeout_(allocation_timeout),
+      br_(br),
       num_awaiting_buffer_(safe_cast<std::size_t>(nranks_), 0),
       messages_sent_to_(safe_cast<std::size_t>(nranks_), 0),
       peer_received_(safe_cast<std::size_t>(nranks_), 0),
       peer_expected_(safe_cast<std::size_t>(nranks_), 0),
-      peer_terminated_(safe_cast<std::size_t>(nranks_), false),
-      statistics_{std::move(statistics)} {}
+      peer_terminated_(safe_cast<std::size_t>(nranks_), false) {
+    RAPIDSMPF_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be NULL");
+    statistics_ = br_->statistics();
+}
 
 void TagMetadataPayloadExchange::send(
     std::unique_ptr<MetadataPayloadExchange::Message> message
@@ -53,6 +56,14 @@ void TagMetadataPayloadExchange::send(
     auto const t0 = Clock::now();
 
     RAPIDSMPF_EXPECTS(!finished_, "send() called after finish()");
+
+    for (auto const& message : messages) {
+        RAPIDSMPF_EXPECTS(
+            message->data() == nullptr || message->data()->mem_type() != MemoryType::DISK,
+            "sending disk-backed payloads is not supported",
+            std::invalid_argument
+        );
+    }
 
     // Send metadata followed immediately by data for each message
     for (auto&& message : messages) {
@@ -402,7 +413,11 @@ TagMetadataPayloadExchange::complete_data_transfers() {
                     auto future = std::move(future_it->second);
                     auto received_buffer = comm_->release_data(std::move(future));
 
+                    if (tag_msg.forced_allocation) {
+                        try_move_to_disk(received_buffer);
+                    }
                     tag_msg.message->set_data(std::move(received_buffer));
+
                     completed_messages.push_back(std::move(tag_msg.message));
 
                     in_transit_futures_.erase(future_it);
@@ -485,6 +500,19 @@ void TagMetadataPayloadExchange::force_allocation_progress_if_stalled() {
     }
     try_attach_receive_buffer(*oldest, AllocationMode::MUST_SUCCEED);
     statistics_->add_stat("metadata-payload-exchange-forced-allocations", 1);
+    oldest->forced_allocation = true;
+}
+
+void TagMetadataPayloadExchange::try_move_to_disk(std::unique_ptr<Buffer>& buffer) {
+    if (br_->disk_resource() == nullptr) {
+        return;
+    }
+    auto reservation = br_->try_reserve(buffer->size, MemoryType::DISK);
+    if (!reservation.has_value()) {
+        return;
+    }
+    statistics_->add_bytes_stat("metadata-payload-exchange-moved-to-disk", buffer->size);
+    buffer = br_->move(std::move(buffer), *reservation);
 }
 
 void TagMetadataPayloadExchange::cleanup_completed_operations() {

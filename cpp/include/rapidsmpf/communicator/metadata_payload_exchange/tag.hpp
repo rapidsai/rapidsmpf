@@ -30,21 +30,22 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
     /**
      * @brief Constructor for TagMetadataPayloadExchange.
      *
-     * See `MetadataPayloadExchange` for how receive buffers are allocated and how the
-     * allocation timeout forces progress.
+     * See `MetadataPayloadExchange` for how receive buffers are allocated, how the
+     * allocation timeout forces progress, and when payloads are moved to disk.
      *
      * @param comm The communicator to use for operations.
      * @param op_id The operation ID for tagging messages.
      * @param allocate_buffer_fn Function to allocate buffers for incoming data.
-     * @param statistics The statistics to use for tracking communication operations.
      * @param allocation_timeout Progress timeout for receive buffer allocations.
+     * @param br Buffer resource used to move payloads to disk and whose statistics track
+     * communication operations. Must not be `nullptr`.
      */
     TagMetadataPayloadExchange(
         std::shared_ptr<Communicator> comm,
         OpID op_id,
         AllocateBufferFn allocate_buffer_fn,
-        std::shared_ptr<Statistics> statistics,
-        Duration allocation_timeout
+        Duration allocation_timeout,
+        BufferResource* br
     );
 
     /**
@@ -52,6 +53,7 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      *
      * @throw std::runtime_error if a message is sent to itself or if an outgoing
      * message already exists.
+     * @throw std::invalid_argument if the message's payload is disk-backed.
      */
     void send(std::unique_ptr<Message> message) override;
 
@@ -61,6 +63,7 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      *
      * @throw std::runtime_error if a message is sent to itself or if an outgoing
      * message already exists.
+     * @throw std::invalid_argument if a message's payload is disk-backed.
      */
     // clang-format on
     void send(std::vector<std::unique_ptr<Message>>&& messages) override;
@@ -80,6 +83,9 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      * Any exception thrown by the receive buffer allocator, for example when it is not
      * allowed to force an allocation, propagates out of this function and is a fatal,
      * unrecoverable error.
+     *
+     * When a forced receive buffer is moved to disk, this call blocks until the payload
+     * is written.
      */
     void progress() override;
 
@@ -111,6 +117,8 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
         std::uint64_t message_id{0};
         std::size_t expected_payload_size{0};
         std::uint64_t arrival{0};  ///< Local arrival order, used to pick the oldest.
+        /// Whether the receive buffer was allocated by forcing progress.
+        bool forced_allocation{false};
 
         TagMessage(
             std::unique_ptr<Message> msg,
@@ -141,6 +149,7 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
     Tag const gpu_data_tag_;
     AllocateBufferFn allocate_buffer_fn_;
     Duration const allocation_timeout_;
+    BufferResource* br_;
 
     // Receive buffer allocation state:
     // - `num_awaiting_buffer_`: messages waiting for a buffer, per peer (by Rank).
@@ -228,6 +237,17 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      * exception thrown by the allocator propagates.
      */
     void force_allocation_progress_if_stalled();
+
+    /**
+     * @brief Move a received payload to disk, if possible.
+     *
+     * The payload is moved only if the buffer resource has a disk resource and disk
+     * space can be reserved. The move blocks until the payload is written.
+     *
+     * @param buffer The received payload, replaced by the on-disk payload if it was
+     * moved.
+     */
+    void try_move_to_disk(std::unique_ptr<Buffer>& buffer);
 
     /**
      * @brief Complete data transfers for in-transit messages.

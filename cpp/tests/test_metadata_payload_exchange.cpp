@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <limits>
 #include <vector>
 
 #include <gmock/gmock.h>
@@ -38,7 +39,6 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
         mr = std::make_unique<rmm::mr::cuda_memory_resource>();
         br = BufferResource::create(*mr);
         stream = cuda::stream_ref{cudaStreamLegacy};
-        statistics = Statistics::create();
 
         reset_exchange(
             [this](std::size_t size, AllocationMode) {
@@ -52,15 +52,18 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
 
     /// Replace the exchange under test with one using the given allocation settings.
     void reset_exchange(
-        AllocateBufferFn allocate_fn, Duration allocation_timeout, OpID op_id = OpID{42}
+        AllocateBufferFn allocate_fn,
+        Duration allocation_timeout,
+        OpID op_id = OpID{42},
+        BufferResource* exchange_br = nullptr
     ) {
         comm_interface.reset();
         comm_interface = std::make_unique<TagMetadataPayloadExchange>(
             GlobalEnvironment->comm_,
             op_id,
             std::move(allocate_fn),
-            statistics,
-            allocation_timeout
+            allocation_timeout,
+            exchange_br != nullptr ? exchange_br : br.get()
         );
     }
 
@@ -107,6 +110,22 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
         );
     }
 
+    /// Create a buffer resource that can spill to disk under @p temp_dir.
+    std::shared_ptr<BufferResource> make_disk_br(
+        TempDir const& temp_dir,
+        std::int64_t disk_limit = std::numeric_limits<std::int64_t>::max()
+    ) {
+        return BufferResource::create(
+            *mr,
+            PinnedMemoryDisabled,
+            {{MemoryType::DISK, disk_limit}},
+            std::nullopt,
+            std::make_shared<StreamPool>(1),
+            Statistics::disabled(),
+            temp_dir.path()
+        );
+    }
+
     std::unique_ptr<Buffer> allocate_receive_buffer(std::size_t size) {
         return br->make_buffer(stream, br->reserve_or_fail(size, MemoryType::DEVICE));
     }
@@ -137,7 +156,6 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
     std::unique_ptr<rmm::mr::cuda_memory_resource> mr;
     cuda::stream_ref stream{cudaStreamLegacy};
     std::shared_ptr<BufferResource> br;
-    std::shared_ptr<Statistics> statistics;
     std::unique_ptr<TagMetadataPayloadExchange> comm_interface;
 };
 
@@ -581,4 +599,112 @@ TEST_F(MetadataPayloadExchangeTest, ThrowsOnTimeoutWithoutOverbooking) {
     // destroying the exchange and its send buffers is safe.
     GlobalEnvironment->barrier();
     comm_interface.reset();
+}
+
+TEST_F(MetadataPayloadExchangeTest, MovesForcedReceiveToDisk) {
+    if (comm->nranks() < 2) {
+        GTEST_SKIP() << "Test requires at least 2 ranks";
+    }
+    Rank next_rank = (comm->rank() + 1) % comm->nranks();
+    constexpr int num_messages = 3;
+    constexpr std::size_t forced_size = 64;
+
+    TempDir temp_dir;
+    auto disk_br = make_disk_br(temp_dir);
+
+    // Only the first message has to wait for the timeout, so only its payload is moved
+    // to disk. The later messages wait behind it, but their allocations never fail, so
+    // they are never forced and stay in device memory.
+    reset_exchange(
+        [&](std::size_t size, AllocationMode mode) -> std::unique_ptr<Buffer> {
+            if (size == forced_size && mode == AllocationMode::MAY_FAIL) {
+                return nullptr;
+            }
+            return allocate_receive_buffer(size);
+        },
+        std::chrono::milliseconds{10},
+        OpID{42},
+        disk_br.get()
+    );
+    GlobalEnvironment->barrier();
+
+    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> messages;
+    for (int i = 0; i < num_messages; ++i) {
+        messages.push_back(create_test_message(
+            next_rank,
+            {static_cast<std::uint8_t>(i)},
+            forced_size * safe_cast<std::size_t>(i + 1)
+        ));
+    }
+    comm_interface->send(std::move(messages));
+
+    auto received = receive(num_messages);
+    ASSERT_EQ(received.size(), num_messages);
+    for (int i = 0; i < num_messages; ++i) {
+        EXPECT_EQ(received[i]->metadata(), std::vector{static_cast<std::uint8_t>(i)});
+    }
+
+    auto on_disk = received[0]->release_data();
+    ASSERT_NE(on_disk, nullptr);
+    EXPECT_EQ(on_disk->mem_type(), MemoryType::DISK);
+    auto host_res = disk_br->reserve_or_fail(forced_size, MemoryType::HOST);
+    auto in_memory = disk_br->move(std::move(on_disk), host_res);
+    in_memory->stream().sync();
+    verify_data_content(in_memory.get(), forced_size);
+    for (int i = 1; i < num_messages; ++i) {
+        EXPECT_EQ(received[i]->data()->mem_type(), MemoryType::DEVICE);
+        verify_data_content(
+            received[i]->data(), forced_size * safe_cast<std::size_t>(i + 1)
+        );
+    }
+    wait_for_communication_complete();
+}
+
+TEST_F(MetadataPayloadExchangeTest, KeepsForcedReceiveInMemoryWithoutDiskSpace) {
+    if (comm->nranks() < 2) {
+        GTEST_SKIP() << "Test requires at least 2 ranks";
+    }
+    Rank next_rank = (comm->rank() + 1) % comm->nranks();
+    constexpr std::size_t data_size = 64;
+
+    // No disk space can be reserved, so the forced payload is delivered in memory.
+    TempDir temp_dir;
+    auto disk_br = make_disk_br(temp_dir, 0);
+    reset_exchange(
+        [&](std::size_t size, AllocationMode mode) -> std::unique_ptr<Buffer> {
+            if (mode == AllocationMode::MAY_FAIL) {
+                return nullptr;
+            }
+            return allocate_receive_buffer(size);
+        },
+        std::chrono::milliseconds{10},
+        OpID{42},
+        disk_br.get()
+    );
+    GlobalEnvironment->barrier();
+
+    comm_interface->send(create_test_message(next_rank, {0x01}, data_size));
+    auto received = receive(1);
+    ASSERT_EQ(received.size(), 1);
+    EXPECT_EQ(received[0]->data()->mem_type(), MemoryType::DEVICE);
+    verify_data_content(received[0]->data(), data_size);
+    wait_for_communication_complete();
+}
+
+TEST_F(MetadataPayloadExchangeTest, RejectsDiskBackedSend) {
+    Rank next_rank = (comm->rank() + 1) % comm->nranks();
+
+    TempDir temp_dir;
+    auto disk_br = make_disk_br(temp_dir);
+    auto data =
+        disk_br->make_buffer(stream, disk_br->reserve_or_fail(64, MemoryType::DISK));
+    EXPECT_THROW(
+        comm_interface->send(
+            std::make_unique<MetadataPayloadExchange::Message>(
+                next_rank, std::vector<std::uint8_t>{0x01}, std::move(data)
+            )
+        ),
+        std::invalid_argument
+    );
+    EXPECT_TRUE(comm_interface->is_idle());
 }

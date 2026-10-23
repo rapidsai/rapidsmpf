@@ -38,8 +38,8 @@ namespace rapidsmpf::communicator {
  *     std::shared_ptr<Communicator> comm,
  *     OpID op_id,
  *     MetadataPayloadExchange::AllocateBufferFn allocate_buffer_fn,
- *     std::shared_ptr<Statistics> statistics,
- *     Duration allocation_timeout
+ *     Duration allocation_timeout,
+ *     BufferResource* br
  * );
  * @endcode
  *
@@ -58,6 +58,14 @@ namespace rapidsmpf::communicator {
  *   without any successful allocation, not how long a single message has waited, so
  *   a message can wait longer while other allocations keep succeeding.
  * - The order in which pending allocations are retried is implementation defined.
+ *
+ * Payloads at rest may live on disk:
+ * - When `br` has a disk resource, the payload of a message whose receive buffer was
+ *   forced by the timeout is moved to disk before the message is delivered, so
+ *   received messages may be disk-backed. The move blocks `progress()` while the
+ *   payload is written. Without a disk resource, the payload is delivered in the
+ *   forced buffer.
+ * - Sending disk-backed payloads is not supported.
  */
 class MetadataPayloadExchange {
   public:
