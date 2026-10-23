@@ -578,5 +578,8 @@ TEST_F(MetadataPayloadExchangeTest, ThrowsOnTimeoutWithoutOverbooking) {
         prev_rank, Tag{op_id, 1}, allocate_receive_buffer(data_size)
     );
     std::ignore = GlobalEnvironment->comm_->wait(std::move(future));
+    // Once every rank has received its payload, every send has delivered its data, so
+    // destroying the exchange and its send buffers is safe.
+    GlobalEnvironment->barrier();
     comm_interface.reset();
 }
