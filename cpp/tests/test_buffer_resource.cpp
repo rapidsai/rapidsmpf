@@ -321,9 +321,7 @@ TEST(BufferResource, MemoryAvailableForReservationOfAllTypes) {
     EXPECT_EQ(available[MemoryType::PINNED_HOST], 0);
     EXPECT_EQ(available[MemoryType::DISK], 0);
     for (auto mem_type : MEMORY_TYPES) {
-        EXPECT_EQ(
-            available[mem_type], br->memory_available_for_reservation(mem_type)
-        );
+        EXPECT_EQ(available[mem_type], br->memory_available_for_reservation(mem_type));
     }
 }
 
