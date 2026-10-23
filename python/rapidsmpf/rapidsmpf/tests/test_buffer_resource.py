@@ -349,6 +349,10 @@ def check_spill_directory(br: BufferResource, parent: pathlib.Path) -> None:
 def test_spill_directory_default() -> None:
     br = BufferResource(rmm.mr.CudaMemoryResource())
     assert br.spill_directory is None
+    assert br.is_reservable(MemoryType.DEVICE)
+    assert not br.is_reservable(MemoryType.PINNED_HOST)
+    assert br.is_reservable(MemoryType.HOST)
+    assert not br.is_reservable(MemoryType.DISK)
 
 
 @pytest.mark.parametrize("as_str", [False, True])
@@ -358,6 +362,7 @@ def test_spill_directory(tmp_path: pathlib.Path, *, as_str: bool) -> None:
         spill_directory=str(tmp_path) if as_str else tmp_path,
     )
     check_spill_directory(br, tmp_path)
+    assert br.is_reservable(MemoryType.DISK)
 
 
 def test_reservation_policy_defaults() -> None:

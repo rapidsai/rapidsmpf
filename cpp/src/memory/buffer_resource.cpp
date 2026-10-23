@@ -148,6 +148,19 @@ std::shared_ptr<BufferResource> BufferResource::from_options(
     );
 }
 
+bool BufferResource::is_reservable(MemoryType mem_type) const noexcept {
+    switch (mem_type) {
+    case MemoryType::DEVICE:
+    case MemoryType::HOST:
+        return true;
+    case MemoryType::PINNED_HOST:
+        return pinned_mr_.has_value();
+    case MemoryType::DISK:
+        return disk_resource_ != nullptr;
+    }
+    return false;
+}
+
 std::int64_t BufferResource::memory_available(MemoryType mem_type) const noexcept {
     std::int64_t const limit = memory_limits_[static_cast<std::size_t>(mem_type)].load(
         std::memory_order_acquire
@@ -204,10 +217,20 @@ std::int64_t BufferResource::memory_available_for_reservation(MemoryType mem_typ
     // Sample availability before taking the lock, matching `reserve()`.
     std::int64_t const available = memory_available(mem_type);
     std::lock_guard<std::mutex> lock(mutex_);
-    return available
-           - safe_cast<std::int64_t>(
-               memory_reserved_[static_cast<std::size_t>(mem_type)]
-           );
+    return available - safe_cast<std::int64_t>(memory_reserved_[mem_type]);
+}
+
+PerMemoryType<std::int64_t> BufferResource::memory_available_for_reservation() const {
+    // Sample availability before taking the lock, matching `reserve()`.
+    PerMemoryType<std::int64_t> ret;
+    for (auto mem_type : MEMORY_TYPES) {
+        ret[mem_type] = memory_available(mem_type);
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (auto mem_type : MEMORY_TYPES) {
+        ret[mem_type] -= safe_cast<std::int64_t>(memory_reserved_[mem_type]);
+    }
+    return ret;
 }
 
 std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
@@ -226,7 +249,7 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
 
     std::int64_t const available = memory_available(mem_type);
     std::lock_guard<std::mutex> lock(mutex_);
-    std::size_t& reserved = memory_reserved_[static_cast<std::size_t>(mem_type)];
+    std::size_t& reserved = memory_reserved_[mem_type];
 
     // Calculate the available memory _after_ the memory has been reserved.
     std::int64_t headroom =
@@ -277,8 +300,7 @@ std::size_t BufferResource::release(MemoryReservation& reservation, std::size_t 
             + format_nbytes(size) + ")",
         rapidsmpf::reservation_error
     );
-    std::size_t& reserved =
-        memory_reserved_[static_cast<std::size_t>(reservation.mem_type_)];
+    std::size_t& reserved = memory_reserved_[reservation.mem_type_];
     RAPIDSMPF_EXPECTS(reserved >= size, "corrupted reservation stat");
     reserved -= size;
     return reservation.size_ -= size;
