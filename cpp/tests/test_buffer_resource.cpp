@@ -299,6 +299,10 @@ TEST(BufferResource, HostMemoryAvailabilityTracksLiveAllocations) {
 }
 
 TEST(BufferResource, RejectsZeroPinnedMaxPoolSize) {
+    if (!is_pinned_memory_resources_supported()) {
+        GTEST_SKIP() << "Pinned memory not supported on this system";
+    }
+
     rmm::mr::cuda_memory_resource cuda_mr;
     EXPECT_THROW(
         std::ignore = BufferResource::create(
