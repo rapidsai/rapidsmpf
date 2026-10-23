@@ -219,3 +219,12 @@ TEST(ErrorMacrosTest, ActualCudaOperationsFatal) {
 
     EXPECT_NO_THROW(RAPIDSMPF_CUDA_TRY_FATAL(cudaFree(d_data)));
 }
+
+TEST(ErrorHelpersTest, ExceptionMessage) {
+    using rapidsmpf::detail::exception_message;
+    EXPECT_EQ(exception_message(nullptr), "no exception");
+    EXPECT_EQ(
+        exception_message(std::make_exception_ptr(std::runtime_error("boom"))), "boom"
+    );
+    EXPECT_EQ(exception_message(std::make_exception_ptr(42)), "unknown exception");
+}
