@@ -321,17 +321,15 @@ cdef class BufferResource:
 
         # Derive the pinned pool configuration from the options; an empty optional
         # means pinned host memory is disabled.
-        cdef optional[cpp_PinnedPoolProperties] props = \
-            pinned_pool_properties_from_options(options._handle)
-        pinned_pool_properties = None
-        if props.has_value():
-            pinned_pool_properties = create_pinned_pool_properties_from_cpp(
-                props.value()
-            )
-
+        cdef optional[cpp_PinnedPoolProperties] props
         cdef unordered_map[MemoryType, int64_t] limits
         with nogil:
+            props = pinned_pool_properties_from_options(options._handle)
             limits = cpp_memory_limits_from_options(options._handle, props)
+        pinned_pool_properties = (
+            create_pinned_pool_properties_from_cpp(props.value())
+            if props.has_value() else None
+        )
         memory_limits = {kv.first: kv.second for kv in limits}
 
         return cls(
@@ -392,9 +390,10 @@ cdef class BufferResource:
         -------
         The tracked device memory resource.
         """
-        return OwningDeviceMemoryResource._create(
-            any_resource[device_accessible](deref(self._handle).device_mr())
-        )
+        cdef optional[any_resource[device_accessible]] mr
+        with nogil:
+            mr = any_resource[device_accessible](deref(self._handle).device_mr())
+        return OwningDeviceMemoryResource._create(mr.value())
 
     cpdef RmmResourceAdaptor device_mr_adaptor(self):
         """
@@ -815,9 +814,7 @@ def host_limit_from_options(Options options not None):
     cdef optional[int64_t] ret
     with nogil:
         ret = cpp_host_limit_from_options(options._handle)
-    if not ret.has_value():
-        return None
-    return ret.value()
+    return ret.value() if ret.has_value() else None
 
 
 def periodic_spill_check_from_options(Options options not None):
@@ -837,9 +834,7 @@ def periodic_spill_check_from_options(Options options not None):
     cdef optional[cpp_Duration] ret
     with nogil:
         ret = cpp_periodic_spill_check_from_options(options._handle)
-    if not ret.has_value():
-        return None
-    return ret.value().count()
+    return ret.value().count() if ret.has_value() else None
 
 
 def memory_reserve_timeout_from_options(Options options not None):
@@ -905,9 +900,9 @@ def spill_dir_from_options(Options options not None):
     cdef optional[cpp_path] ret
     with nogil:
         ret = cpp_spill_dir_from_options(options._handle)
-    if not ret.has_value():
-        return None
-    return pathlib.Path(os.fsdecode(ret.value().string()))
+    return (
+        pathlib.Path(os.fsdecode(ret.value().string())) if ret.has_value() else None
+    )
 
 
 def stream_pool_from_options(Options options not None):
