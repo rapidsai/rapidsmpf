@@ -262,10 +262,16 @@ Shuffler::Shuffler(
 )
     : total_num_partitions{total_num_partitions},
       partition_owner{std::move(partition_owner_fn)},
-      br_{br},
+      br_{[br] {
+          RAPIDSMPF_EXPECTS(br != nullptr, "the buffer resource pointer cannot be NULL");
+          return br;
+      }()},
       to_send_{},
       received_{safe_cast<std::size_t>(total_num_partitions)},
-      comm_{std::move(comm)},
+      comm_{[&comm] {
+          RAPIDSMPF_EXPECTS(comm != nullptr, "the communicator pointer cannot be NULL");
+          return std::move(comm);
+      }()},
       mpe_{
           mpe ? std::move(mpe)
               : std::make_unique<communicator::TagMetadataPayloadExchange>(
@@ -275,9 +281,7 @@ Shuffler::Shuffler(
                         return allocate_receive_buffer(br, size, mode);
                     },
                     comm_->progress_thread()->statistics(),
-                    // `br` must not be nullptr, but that is only checked later, in the
-                    // constructor body.
-                    br != nullptr ? br->memory_reserve_timeout() : Duration{}
+                    br->memory_reserve_timeout()
                 )
       },
       local_partitions_{local_partitions(comm_, total_num_partitions, partition_owner)},
@@ -287,8 +291,6 @@ Shuffler::Shuffler(
     RAPIDSMPF_EXPECTS(
         total_num_partitions > 0, "number of partitions must be strictly positive"
     );
-    RAPIDSMPF_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be NULL");
-    RAPIDSMPF_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be NULL");
 
     // We need to register the progress function with the progress thread, but
     // that cannot be done in the constructor's initializer list because the
