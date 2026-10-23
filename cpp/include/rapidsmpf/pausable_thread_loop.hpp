@@ -5,21 +5,41 @@
 
 #pragma once
 
-#include <atomic>
-#include <cstdint>
+#include <exception>
 #include <functional>
+#include <memory>
 #include <thread>
 
 #include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf::detail {
+
+/// @brief The state machine of a `PausableThreadLoop`, internal to its implementation.
+class LoopState;
+
 /**
  * @brief A thread loop that can be paused, resumed, and stopped.
  *
  * This class runs a provided function repeatedly in a separate thread.
+ *
+ * Exceptions never escape the thread: if the loop function (or the per-thread
+ * initialization) throws, the exception is captured, the loop becomes failed or
+ * stopped, and the exception is reported to the error handler. The loop is stopped if
+ * the failure happens while it is being stopped, in which case the stop completes
+ * early, otherwise it enters a terminal failed state. Either way, it never calls the
+ * loop function again and cannot be paused or resumed. A failed loop is still stopped
+ * (and its thread joined) as usual, by `stop()` or the destructor.
  */
 class PausableThreadLoop {
   public:
+    /**
+     * @brief Handler invoked on the loop thread when the loop function throws.
+     *
+     * The handler receives the captured exception. It must not throw, the process is
+     * terminated if it does. It may call `stop()`, but must not destroy the loop.
+     */
+    using ErrorHandler = std::function<void(std::exception_ptr)>;
+
     /**
      * @brief Constructs a thread to run the specified function in a loop.
      *
@@ -36,19 +56,32 @@ class PausableThreadLoop {
      * @param func The function to execute repeatedly in the thread.
      * @param sleep The duration to sleep between executions of the task. By default, the
      * thread yields execution instead of sleeping.
+     * @param on_error Handler invoked on the loop thread with the exception thrown by
+     * `func` (or by the per-thread initialization). By the time it is invoked, the loop
+     * has already become failed or stopped (see `error()`). If empty, an exception
+     * escaping `func` is fatal and terminates the process with a descriptive message.
      */
     PausableThreadLoop(
-        std::function<void()> func, Duration sleep = std::chrono::seconds{0}
+        std::function<void()> func,
+        Duration sleep = std::chrono::seconds{0},
+        ErrorHandler on_error = nullptr
     );
+
+    /**
+     * @brief Stops and joins the thread.
+     *
+     * Must not be called from the loop thread, i.e., from the loop function or the error
+     * handler, since a thread cannot join itself. Doing so terminates the process.
+     */
     ~PausableThreadLoop() noexcept;
 
     /**
-     * @brief Checks if the thread is currently running (not paused or stopped).
+     * @brief Checks if the thread is currently running (not paused, failed or stopped).
      *
      * @note If false, the loop function might still be in the middle of running its
      * last iteration before being paused or stopped.
      *
-     * @return True if the thread is running, false if paused or stopped.
+     * @return True if the thread is running, false if paused, failed or stopped.
      */
     [[nodiscard]] bool is_running() const noexcept;
 
@@ -80,11 +113,25 @@ class PausableThreadLoop {
     /**
      * @brief Resumes execution of the thread after being paused.
      *
-     * Calling resume on an already running loop is a no-op and is allowed.
+     * Calling resume on an already running loop is a no-op and is allowed. Resuming a
+     * loop that has failed (see `error()`) is a no-op.
      *
      * @return True if the state is changed to Running, false otherwise.
      */
     bool resume() noexcept;
+
+    /**
+     * @brief Get the exception that caused the loop to fail, if any.
+     *
+     * Once this returns an exception, the loop has already failed or stopped: from then
+     * on `is_running()` returns false, and pausing or resuming it are no-ops. This holds
+     * even if the failure happened while the loop was being stopped, in which case the
+     * stop completes early. The error handler may still be running on the loop thread.
+     *
+     * @return The captured exception, or a null `std::exception_ptr` if the loop
+     * function has never thrown.
+     */
+    [[nodiscard]] std::exception_ptr error() const noexcept;
 
     /**
      * @brief Stops the execution of the thread and joins it.
@@ -92,7 +139,12 @@ class PausableThreadLoop {
      * Once stopped, the thread cannot be resumed.
      *
      * @note This function is blocking and will wait on the loop function
-     * to finish its current execution.
+     * to finish its current execution, or for the sleep between iterations to elapse
+     * if called during that sleep.
+     *
+     * @note If called from the loop thread, i.e., from the loop function or the error
+     * handler, the thread is not joined: it exits once the current iteration returns,
+     * without sleeping, and the destructor joins it.
      *
      * @return True if the thread is stopped by this call, false otherwise (if it was
      * already stopping/stopped).
@@ -101,39 +153,17 @@ class PausableThreadLoop {
 
   private:
     /**
-     * @brief The state of the thread loop.
+     * @brief Record a failure of the loop function and report it to `on_error_`.
+     *
+     * Called on the loop thread only.
+     *
+     * @param error The captured exception.
      */
-    enum State : std::uint8_t {
-        Stopped,  ///< Thread stopped (cannot be resumed)
-        Stopping,  ///< Thread is stopping (transitioning to Stopped)
-        Paused,  ///< Thread is paused (can be resumed)
-        Pausing,  ///< Thread is pausing (transitioning to Paused)
-        Running,  ///< Thread is running
-    };
+    void fail(std::exception_ptr error) noexcept;
 
-    // State transition matrix:
-    // | cur_state |         |          | nxt_state |          |         || Ops     |
-    // |           |---------|----------|-----------|----------|---------||         |
-    // |           | STOPPED | STOPPING | PAUSED    | PAUSING  | RUNNING ||---------|
-    // |-----------|---------|----------|-----------|----------|---------|| e_loop  |
-    // | STOPPED   | no_op   | X        | X         | X        | X       || pause   |
-    // | STOPPING  | e_loop  | no_op    | X         | X        | X       || resume  |
-    // | PAUSED    | X       | stop     | no_op     | X        | resume  || stop    |
-    // | PAUSING   | e_loop  | stop     | e_loop    | no_op    | resume  || no_op   |
-    // | RUNNING   | X       | stop     | X         | pause    | no_op   || X       |
-    //
-    // pause():
-    //  RUNNING -> PAUSING
-    // stop():
-    //  RUNNING -> STOPPING | PAUSING -> STOPPING | PAUSED -> STOPPING
-    // resume():
-    //  PAUSING -> RUNNING | PAUSED -> RUNNING
-    // automatic transition via event loop:
-    //  PAUSING -> PAUSED
-    //  STOPPING -> STOPPED
-
+    ErrorHandler on_error_;  ///< Handler for exceptions thrown by the loop function.
+    std::unique_ptr<LoopState> state_;  ///< Created before the thread starts.
     std::thread thread_;
-    std::atomic<State> state_{State::Paused};
 };
 
 }  // namespace rapidsmpf::detail
