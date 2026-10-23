@@ -43,7 +43,7 @@ constexpr std::array<char const*, MEMORY_TYPES.size()> MEMORY_TYPE_NAMES{
  */
 template <typename T>
 struct PerMemoryType {
-    std::array<T, MEMORY_TYPES.size()> values{};
+    std::array<T, MEMORY_TYPES.size()> values{};  ///< Values for each memory type
 
     /**
      * @brief Access the value of a memory type.
