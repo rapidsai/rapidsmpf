@@ -71,8 +71,11 @@ using AllocationMode = communicator::MetadataPayloadExchange::AllocationMode;
 /**
  * @brief Allocate a shuffler receive buffer.
  *
- * See `communicator::MetadataPayloadExchange::AllocateBufferFn`. A forced allocation
- * overbooks host memory when nothing else fits, unless overbooking is disallowed.
+ * See `communicator::MetadataPayloadExchange::AllocateBufferFn`. The shuffler's policy
+ * is to overbook host memory as a last resort: a forced allocation that doesn't fit in
+ * any memory type is made in host memory, beyond the host memory limit. If
+ * `allow_overbooking_by_default` is disabled, it throws instead, which is a fatal,
+ * unrecoverable error.
  *
  * @param br The buffer resource to allocate from.
  * @param size The size of the buffer in bytes.
