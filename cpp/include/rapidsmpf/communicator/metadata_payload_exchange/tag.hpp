@@ -4,7 +4,6 @@
  */
 #pragma once
 
-#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -31,21 +30,22 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
     /**
      * @brief Constructor for TagMetadataPayloadExchange.
      *
+     * See `MetadataPayloadExchange` for how receive buffers are allocated, how the
+     * allocation timeout forces progress, and when payloads are moved to disk.
+     *
      * @param comm The communicator to use for operations.
      * @param op_id The operation ID for tagging messages.
-     * @param allocate_buffer_fn Function to allocate buffers for incoming data. May
-     * return `nullptr` when allocation is temporarily unavailable; allocation is
-     * retried by subsequent calls to `progress()` until `allocation_timeout` expires.
-     * @param statistics The statistics to use for tracking communication operations.
-     * @param allocation_timeout How long receive-buffer allocation for a message may
-     * keep failing before `progress()` throws.
+     * @param allocate_buffer_fn Function to allocate buffers for incoming data.
+     * @param allocation_timeout Progress timeout for receive buffer allocations.
+     * @param br Buffer resource used to move payloads to disk and whose statistics track
+     * communication operations. Must not be `nullptr`.
      */
     TagMetadataPayloadExchange(
         std::shared_ptr<Communicator> comm,
         OpID op_id,
-        std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn,
-        std::shared_ptr<Statistics> statistics,
-        Duration allocation_timeout = std::chrono::seconds{30}
+        AllocateBufferFn allocate_buffer_fn,
+        Duration allocation_timeout,
+        BufferResource* br
     );
 
     /**
@@ -53,6 +53,7 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      *
      * @throw std::runtime_error if a message is sent to itself or if an outgoing
      * message already exists.
+     * @throw std::invalid_argument if the message's payload is disk-backed.
      */
     void send(std::unique_ptr<Message> message) override;
 
@@ -62,6 +63,7 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      *
      * @throw std::runtime_error if a message is sent to itself or if an outgoing
      * message already exists.
+     * @throw std::invalid_argument if a message's payload is disk-backed.
      */
     // clang-format on
     void send(std::vector<std::unique_ptr<Message>>&& messages) override;
@@ -75,7 +77,15 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      * - Handling completed data transfers
      * - Cleaning up completed operations
      *
-     * @throws std::runtime_error if receive-buffer allocation times out.
+     * Receive buffers are allocated in message order per peer. While a message from a
+     * peer waits for a buffer, later messages from that peer wait behind it.
+     *
+     * Any exception thrown by the receive buffer allocator, for example when it is not
+     * allowed to force an allocation, propagates out of this function and is a fatal,
+     * unrecoverable error.
+     *
+     * When a forced receive buffer is moved to disk, this call blocks until the payload
+     * is written.
      */
     void progress() override;
 
@@ -106,48 +116,28 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
         std::unique_ptr<Message> message;
         std::uint64_t message_id{0};
         std::size_t expected_payload_size{0};
-        /// Time of the first failed buffer allocation, used to time out retries.
-        std::optional<Clock::time_point> first_allocation_failure;
+        std::uint64_t arrival{0};  ///< Local arrival order, used to pick the oldest.
+        /// Whether the receive buffer was allocated by forcing progress.
+        bool forced_allocation{false};
 
-        /**
-         * @brief Construct a TagMessage.
-         *
-         * @param msg The wrapped message.
-         * @param id The message ID.
-         * @param size The expected payload size in bytes.
-         */
         TagMessage(
-            std::unique_ptr<Message> msg, std::uint64_t id = 0, std::size_t size = 0
-        );
+            std::unique_ptr<Message> msg,
+            std::uint64_t id = 0,
+            std::size_t size = 0,
+            std::uint64_t arrival_order = 0
+        )
+            : message(std::move(msg)),
+              message_id(id),
+              expected_payload_size(size),
+              arrival(arrival_order) {}
 
         /**
-         * @brief Set the receive buffer of the message.
+         * @brief Whether the message is waiting for a receive buffer.
          *
-         * The message's data buffer must not already be set. A `nullptr` buffer
-         * marks a failed allocation attempt. The first failed attempt starts the
-         * allocation timer; subsequent failed attempts throw once `timeout` has
-         * elapsed.
-         *
-         * @param buffer The allocated buffer, or `nullptr` if allocation failed.
-         * @param timeout How long allocation may keep failing before throwing.
-         * @return `true` if the buffer was set, `false` if allocation failed.
-         *
-         * @throw std::logic_error if the message's data buffer is already set.
-         * @throw std::runtime_error if `buffer` is `nullptr` and the allocation
-         * timeout has elapsed.
+         * @return True if the message has a payload but no buffer yet.
          */
-        bool set_buffer(std::unique_ptr<Buffer> buffer, Duration timeout);
-
-        /**
-         * @brief Whether the message's data buffer is set.
-         *
-         * A message without a payload never needs a buffer, so it is considered set.
-         *
-         * @return True if the message has no payload or its data buffer is set,
-         * false otherwise.
-         */
-        [[nodiscard]] bool is_buffer_set() const {
-            return expected_payload_size == 0 || message->data() != nullptr;
+        [[nodiscard]] bool is_awaiting_buffer() const {
+            return expected_payload_size > 0 && message->data() == nullptr;
         }
     };
 
@@ -157,8 +147,20 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
     Rank const rank_;
     Tag const metadata_tag_;
     Tag const gpu_data_tag_;
-    std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn_;
+    AllocateBufferFn allocate_buffer_fn_;
     Duration const allocation_timeout_;
+    BufferResource* br_;
+
+    // Receive buffer allocation state:
+    // - `num_awaiting_buffer_`: messages waiting for a buffer, per peer (by Rank).
+    // - `total_awaiting_buffer_`: sum of `num_awaiting_buffer_`.
+    // - `allocation_stall_start_`: start of the current period without a successful
+    //   receive buffer allocation, set while at least one message is waiting.
+    // - `next_arrival_`: arrival counter for incoming messages.
+    std::vector<std::size_t> num_awaiting_buffer_;
+    std::size_t total_awaiting_buffer_{0};
+    std::optional<Clock::time_point> allocation_stall_start_{};
+    std::uint64_t next_arrival_{0};
 
     // Per-peer tracking for op_id reuse (see rapidsai/rapidsmpf#927).
     // After finish() is called, termination markers are exchanged so each peer
@@ -207,10 +209,45 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      *
      * @return A vector of completed metadata-only messages.
      *
-     * @throw std::runtime_error if an in-transit message or future is not found, or
-     * receive-buffer allocation times out.
+     * @throw std::runtime_error if an in-transit message or future is not found.
      */
     std::vector<std::unique_ptr<Message>> setup_data_receives();
+
+    /**
+     * @brief Try to allocate a receive buffer and attach it to a message waiting for one.
+     *
+     * On success, the new (empty) buffer is set on @p tag_msg, to be filled when the
+     * data receive completes, and the waiting counts and stall timer are updated.
+     *
+     * @param tag_msg The message, which must be waiting for a buffer.
+     * @param mode Passed on to the allocator. With `AllocationMode::MUST_SUCCEED`, a
+     * buffer is always attached, so the function never returns false.
+     * @return True if a buffer was attached.
+     *
+     * @throw std::runtime_error if the allocator returns `nullptr` although
+     * the allocation must succeed.
+     */
+    bool try_attach_receive_buffer(TagMessage& tag_msg, AllocationMode mode);
+
+    /**
+     * @brief Force progress if receive buffer allocation has stalled for too long.
+     *
+     * When no receive buffer could be allocated within the allocation timeout, allocate
+     * one for the oldest waiting message with `AllocationMode::MUST_SUCCEED`. Any
+     * exception thrown by the allocator propagates.
+     */
+    void force_allocation_progress_if_stalled();
+
+    /**
+     * @brief Move a received payload to disk, if possible.
+     *
+     * The payload is moved only if the buffer resource has a disk resource and disk
+     * space can be reserved. The move blocks until the payload is written.
+     *
+     * @param buffer The received payload, replaced by the on-disk payload if it was
+     * moved.
+     */
+    void try_move_to_disk(std::unique_ptr<Buffer>& buffer);
 
     /**
      * @brief Complete data transfers for in-transit messages.
@@ -226,17 +263,6 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      * @brief Cleanup completed operations (fire-and-forget sends and receives).
      */
     void cleanup_completed_operations();
-
-    /**
-     * @brief Whether payload allocation is deferred for a peer.
-     *
-     * Payload buffers are allocated in message order, so allocation is deferred
-     * while any incoming message from the peer is still waiting for a buffer.
-     *
-     * @param peer The source rank.
-     * @return True if new messages from `peer` must not allocate a payload buffer.
-     */
-    [[nodiscard]] bool is_allocation_deferred(Rank peer) const;
 };
 
 

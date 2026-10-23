@@ -36,7 +36,9 @@ BufferResource::BufferResource(
     std::optional<Duration> periodic_spill_check,
     std::shared_ptr<StreamPool> stream_pool,
     std::shared_ptr<Statistics> statistics,
-    std::shared_ptr<DiskResource> disk_resource
+    std::shared_ptr<DiskResource> disk_resource,
+    Duration memory_reserve_timeout,
+    AllowOverbooking allow_overbooking_by_default
 )
     : owning_mr_{std::move(device_mr)},
       pinned_mr_{std::move(pinned_mr)},
@@ -44,7 +46,9 @@ BufferResource::BufferResource(
       disk_resource_{std::move(disk_resource)},
       stream_pool_{std::move(stream_pool)},
       spill_manager_{this, periodic_spill_check},
-      statistics_{std::move(statistics)} {
+      statistics_{std::move(statistics)},
+      memory_reserve_timeout_{memory_reserve_timeout},
+      allow_overbooking_by_default_{allow_overbooking_by_default} {
     // Default every limit to unlimited, then apply caller overrides.
     for (auto& limit : memory_limits_) {
         limit.store(std::numeric_limits<std::int64_t>::max(), std::memory_order_relaxed);
@@ -77,7 +81,9 @@ std::shared_ptr<BufferResource> BufferResource::create(
     std::optional<Duration> periodic_spill_check,
     std::shared_ptr<StreamPool> stream_pool,
     std::shared_ptr<Statistics> statistics,
-    std::optional<std::filesystem::path> spill_directory
+    std::optional<std::filesystem::path> spill_directory,
+    Duration memory_reserve_timeout,
+    AllowOverbooking allow_overbooking_by_default
 ) {
     std::optional<PinnedMemoryResource> pinned_mr;
     if (pinned_pool_properties.has_value()) {
@@ -110,7 +116,9 @@ std::shared_ptr<BufferResource> BufferResource::create(
         periodic_spill_check,
         std::move(stream_pool),
         std::move(statistics),
-        std::move(disk_res)
+        std::move(disk_res),
+        memory_reserve_timeout,
+        allow_overbooking_by_default
     }};
 
     // Install the back-reference on the owned resources *after* construction so
@@ -145,7 +153,9 @@ std::shared_ptr<BufferResource> BufferResource::from_options(
         periodic_spill_check_from_options(options),
         stream_pool_from_options(options),
         std::move(statistics),
-        spill_dir_from_options(options)
+        spill_dir_from_options(options),
+        memory_reserve_timeout_from_options(options),
+        allow_overbooking_by_default_from_options(options)
     );
 }
 
@@ -500,6 +510,16 @@ std::shared_ptr<StreamPool> stream_pool_from_options(config::Options options) {
         std::invalid_argument
     );
     return std::make_shared<StreamPool>(num_streams);
+}
+
+Duration memory_reserve_timeout_from_options(config::Options options) {
+    return options.get<Duration>("memory_reserve_timeout", parse_duration);
+}
+
+AllowOverbooking allow_overbooking_by_default_from_options(config::Options options) {
+    return options.get<bool>("allow_overbooking_by_default", parse_string<bool>)
+               ? AllowOverbooking::YES
+               : AllowOverbooking::NO;
 }
 
 }  // namespace rapidsmpf

@@ -195,6 +195,9 @@ class Shuffler {
      * that `insert_finished()` is called _after_ all `insert()` calls have completed.
      *
      * @param chunks A map of partition IDs and their packed chunks.
+     *
+     * @throws std::invalid_argument If a chunk for a partition owned by another rank
+     * is disk-backed.
      */
     void insert(std::unordered_map<PartID, PackedData>&& chunks);
 
@@ -219,8 +222,9 @@ class Shuffler {
      * To ensure the partition is complete, use `wait()`
      * or another appropriate synchronization mechanism beforehand.
      *
-     * @note Extracted buffers retain their current storage tier and may be
-     * disk-resident. Use `unspill_partitions()` when device-resident output is needed.
+     * @note When the buffer resource has a disk resource, chunks received under memory
+     * pressure are stored on disk, so extracted chunks may be disk-backed. Use
+     * `unspill_partitions()` to move them back to device memory.
      *
      * @param pid The ID of the partition to extract.
      * @return A vector of PackedData chunks associated with the partition.

@@ -515,6 +515,58 @@ INSTANTIATE_TEST_SUITE_P(
     }
 );
 
+TEST(Shuffler, RejectsNullCommunicator) {
+    auto br =
+        rapidsmpf::BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    EXPECT_THROW(
+        rapidsmpf::shuffler::Shuffler(nullptr, 0, 1, br.get()), std::logic_error
+    );
+}
+
+TEST(Shuffler, RejectsNullBufferResource) {
+    EXPECT_THROW(
+        rapidsmpf::shuffler::Shuffler(GlobalEnvironment->comm_, 0, 1, nullptr),
+        std::logic_error
+    );
+}
+
+TEST(Shuffler, RejectsDiskBackedInsertForOtherRank) {
+    auto const& comm = GlobalEnvironment->comm_;
+    if (comm->nranks() == 1) {
+        GTEST_SKIP() << "Test requires multiple ranks";
+    }
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+    TempDir temp_dir;
+    auto br = rapidsmpf::BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        rapidsmpf::PinnedMemoryDisabled,
+        {},
+        std::nullopt,
+        std::make_shared<rapidsmpf::StreamPool>(1),
+        rapidsmpf::Statistics::disabled(),
+        temp_dir.path()
+    );
+    auto const total_num_partitions =
+        rapidsmpf::safe_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
+    rapidsmpf::shuffler::Shuffler shuffler(comm, 0, total_num_partitions, br.get());
+
+    // With round-robin ownership, partition `rank + 1` is owned by the next rank.
+    auto const remote_pid = rapidsmpf::safe_cast<rapidsmpf::shuffler::PartID>(
+        (comm->rank() + 1) % comm->nranks()
+    );
+    auto packed = generate_packed_data(1000, 0, stream, *br);
+    auto const size = packed.data->size;
+    auto disk_res = br->reserve_or_fail(size, rapidsmpf::MemoryType::DISK);
+    packed.data = br->move(std::move(packed.data), disk_res);
+    std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> chunks;
+    chunks.emplace(remote_pid, std::move(packed));
+    EXPECT_THROW(shuffler.insert(std::move(chunks)), std::invalid_argument);
+
+    // The rejected chunk isn't counted, so the shuffle still completes.
+    shuffler.insert_finished();
+    EXPECT_NO_THROW(shuffler.wait(std::chrono::seconds{30}));
+}
+
 TEST(Shuffler, SpillOnInsertAndExtraction) {
     rapidsmpf::shuffler::PartID const total_num_partitions = 2;
     auto stream = cuda::stream_ref{cudaStreamLegacy};

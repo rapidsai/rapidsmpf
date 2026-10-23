@@ -88,7 +88,6 @@ outputs:
         - libpmix-devel >=5.0,<6.0
         - librmm =${{ minor_version }}
         - libucxx ${{ ucxx_version }}
-        - ucx
         - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
 
   - package:
@@ -134,6 +133,7 @@ outputs:
         - librmm =${{ minor_version }}
         - libpmix >=5.0,<6.0
         - libucxx ${{ ucxx_version }}
+        - ucx  # librapidsmpf.so links libucp; the version range comes from libucxx
         - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
       ignore_run_exports:
         from_package:
@@ -190,7 +190,7 @@ outputs:
         - librmm =${{ minor_version }}
         - openmpi >=5.0  # See <https://github.com/rapidsai/rapidsmpf/issues/17>
         - libucxx ${{ ucxx_version }}
-        - ucx
+        - ucx  # bare pin to suppress overlinking errors (rely on libucxx's range)
       ignore_run_exports:
         from_package:
           - ${{ compiler("c") }}

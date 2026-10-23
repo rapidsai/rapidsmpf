@@ -299,6 +299,10 @@ TEST(BufferResource, HostMemoryAvailabilityTracksLiveAllocations) {
 }
 
 TEST(BufferResource, RejectsZeroPinnedMaxPoolSize) {
+    if (!is_pinned_memory_resources_supported()) {
+        GTEST_SKIP() << "Pinned memory not supported on this system";
+    }
+
     rmm::mr::cuda_memory_resource cuda_mr;
     EXPECT_THROW(
         std::ignore = BufferResource::create(
@@ -515,117 +519,6 @@ TEST_F(BufferResourceReserveOrFailTest, TryReserve) {
     EXPECT_EQ(res1->mem_type(), MemoryType::HOST);
 
     EXPECT_FALSE(br->try_reserve(100_KiB, MemoryType::DEVICE).has_value());
-}
-
-TEST(BufferResourceTryReserveOrSpill, EmptyReservationUsesFirstMemoryType) {
-    rmm::mr::cuda_memory_resource mr;
-    auto br = BufferResource::create(
-        mr,
-        PinnedMemoryDisabled,
-        {{MemoryType::DEVICE, 0}, {MemoryType::HOST, 0}},
-        std::nullopt  // disable periodic spill check to avoid racing spill calls
-    );
-    auto [existing_reservation, overbooking] =
-        br->reserve(MemoryType::DEVICE, 1, AllowOverbooking::YES);
-    ASSERT_EQ(overbooking, 1);
-    constexpr std::array mem_types{MemoryType::DEVICE, MemoryType::HOST};
-
-    auto reservation = br->try_reserve_or_spill(0, mem_types);
-
-    ASSERT_TRUE(reservation.has_value());
-    EXPECT_EQ(reservation->size(), 0);
-    EXPECT_EQ(reservation->mem_type(), MemoryType::DEVICE);
-    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), existing_reservation.size());
-}
-
-TEST(BufferResourceTryReserveOrSpill, EmptyMemoryTypesThrows) {
-    rmm::mr::cuda_memory_resource mr;
-    auto br = BufferResource::create(mr);
-    constexpr std::array<MemoryType, 0> mem_types{};
-
-    EXPECT_THROW(
-        std::ignore = br->try_reserve_or_spill(0, mem_types), std::invalid_argument
-    );
-}
-
-TEST(BufferResourceTryReserveOrSpill, RetriesAfterSpilling) {
-    constexpr std::size_t data_size = 16;
-    rmm::mr::cuda_memory_resource mr;
-    auto br = BufferResource::create(
-        mr,
-        PinnedMemoryDisabled,
-        {{MemoryType::DEVICE, 0}, {MemoryType::HOST, 0}},
-        std::nullopt  // disable periodic spill check to avoid racing spill calls
-    );
-    std::size_t spill_calls = 0;
-    auto const spill_id = br->spill_manager().add_spill_function(
-        [br = br.get(), &spill_calls](std::size_t amount) {
-            ++spill_calls;
-            br->set_memory_limit(MemoryType::DEVICE, safe_cast<std::int64_t>(amount));
-            return amount;
-        },
-        0
-    );
-
-    auto reservation = br->try_reserve_or_spill(data_size, MEMORY_TYPES);
-
-    ASSERT_TRUE(reservation.has_value());
-    EXPECT_EQ(spill_calls, 1);
-    EXPECT_EQ(reservation->size(), data_size);
-    EXPECT_EQ(reservation->mem_type(), MemoryType::DEVICE);
-    br->spill_manager().remove_spill_function(spill_id);
-}
-
-TEST(BufferResourceTryReserveOrSpill, DeduplicatesAndTriesHostBeforeSpilling) {
-    constexpr std::size_t data_size = 16;
-    rmm::mr::cuda_memory_resource mr;
-    auto br = BufferResource::create(
-        mr,
-        PinnedMemoryDisabled,
-        {{MemoryType::DEVICE, 0}, {MemoryType::HOST, data_size}},
-        std::nullopt  // disable periodic spill check to avoid racing spill calls
-    );
-    std::size_t spill_calls = 0;
-    auto const spill_id = br->spill_manager().add_spill_function(
-        [&spill_calls](std::size_t) {
-            ++spill_calls;
-            return std::size_t{0};
-        },
-        0
-    );
-    constexpr std::array mem_types{
-        MemoryType::HOST, MemoryType::DEVICE, MemoryType::DEVICE
-    };
-
-    auto reservation = br->try_reserve_or_spill(data_size, mem_types);
-
-    ASSERT_TRUE(reservation.has_value());
-    EXPECT_EQ(reservation->mem_type(), MemoryType::HOST);
-    EXPECT_EQ(spill_calls, 0);
-    EXPECT_EQ(reserved_bytes(*br, MemoryType::DEVICE), 0);
-    br->spill_manager().remove_spill_function(spill_id);
-}
-
-TEST(BufferResourceTryReserveOrSpill, ReturnsNulloptWhenSpillFreesNothing) {
-    rmm::mr::cuda_memory_resource mr;
-    auto br = BufferResource::create(
-        mr,
-        PinnedMemoryDisabled,
-        {{MemoryType::DEVICE, 0}, {MemoryType::HOST, 0}},
-        std::nullopt  // disable periodic spill check to avoid racing spill calls
-    );
-    std::size_t spill_calls = 0;
-    auto const spill_id = br->spill_manager().add_spill_function(
-        [&spill_calls](std::size_t) {
-            ++spill_calls;
-            return std::size_t{0};
-        },
-        0
-    );
-
-    EXPECT_FALSE(br->try_reserve_or_spill(16, MEMORY_TYPES).has_value());
-    EXPECT_EQ(spill_calls, 1);
-    br->spill_manager().remove_spill_function(spill_id);
 }
 
 class BaseBufferResourceCopyTest : public ::testing::Test {
@@ -1534,4 +1427,71 @@ TEST_F(BufferSpillStatistics, NotRecordedWhenEnabledMidInterval) {
     EXPECT_THROW(
         std::ignore = disabled_stats->get_stat("buffer-spilled-time"), std::out_of_range
     );
+}
+
+TEST(BufferResource, TryReserve) {
+    auto br = BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        PinnedMemoryDisabled,
+        {{MemoryType::DEVICE, 10_KiB}, {MemoryType::HOST, 10_KiB}}
+    );
+
+    // Falls back to the next memory type with room.
+    auto dev = br->try_reserve(8_KiB, MemoryType::DEVICE);
+    ASSERT_TRUE(dev.has_value());
+    EXPECT_EQ(dev->mem_type(), MemoryType::DEVICE);
+    auto host = br->try_reserve(8_KiB, std::array{MemoryType::DEVICE, MemoryType::HOST});
+    ASSERT_TRUE(host.has_value());
+    EXPECT_EQ(host->mem_type(), MemoryType::HOST);
+
+    // Returns nothing, instead of throwing, when no memory type has room.
+    EXPECT_FALSE(br->try_reserve(8_KiB, std::array{MemoryType::DEVICE, MemoryType::HOST})
+                     .has_value());
+    EXPECT_THROW(
+        std::ignore =
+            br->reserve_or_fail(8_KiB, std::array{MemoryType::DEVICE, MemoryType::HOST}),
+        std::runtime_error
+    );
+
+    // Memory types without a backing resource are skipped.
+    EXPECT_FALSE(br->try_reserve(1_KiB, MemoryType::PINNED_HOST).has_value());
+    EXPECT_FALSE(br->try_reserve(1_KiB, MemoryType::DISK).has_value());
+}
+
+TEST(BufferResource, ReservationPolicyDefaults) {
+    auto const defaults =
+        BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    EXPECT_DOUBLE_EQ(defaults->memory_reserve_timeout().count(), 0.1);
+    EXPECT_EQ(defaults->allow_overbooking_by_default(), AllowOverbooking::YES);
+
+    auto const from_empty_options = BufferResource::from_options(
+        rmm::mr::get_current_device_resource_ref(), config::Options{}
+    );
+    EXPECT_DOUBLE_EQ(from_empty_options->memory_reserve_timeout().count(), 0.1);
+    EXPECT_EQ(from_empty_options->allow_overbooking_by_default(), AllowOverbooking::YES);
+}
+
+TEST(BufferResource, ReservationPolicyFromOptions) {
+    auto const br = BufferResource::from_options(
+        rmm::mr::get_current_device_resource_ref(),
+        config::Options{std::unordered_map<std::string, std::string>{
+            {"memory_reserve_timeout", "250ms"}, {"allow_overbooking_by_default", "false"}
+        }}
+    );
+    EXPECT_DOUBLE_EQ(br->memory_reserve_timeout().count(), 0.25);
+    EXPECT_EQ(br->allow_overbooking_by_default(), AllowOverbooking::NO);
+
+    auto const created = BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        PinnedMemoryDisabled,
+        {},
+        std::nullopt,
+        std::make_shared<StreamPool>(1),
+        Statistics::disabled(),
+        std::nullopt,
+        std::chrono::seconds{2},
+        AllowOverbooking::NO
+    );
+    EXPECT_DOUBLE_EQ(created->memory_reserve_timeout().count(), 2.0);
+    EXPECT_EQ(created->allow_overbooking_by_default(), AllowOverbooking::NO);
 }

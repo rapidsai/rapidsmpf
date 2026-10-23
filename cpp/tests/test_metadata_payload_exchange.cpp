@@ -3,8 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
 #include <chrono>
-#include <string>
+#include <limits>
+#include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -27,6 +29,9 @@
 using namespace rapidsmpf;
 using namespace rapidsmpf::communicator;
 
+using AllocationMode = MetadataPayloadExchange::AllocationMode;
+using AllocateBufferFn = MetadataPayloadExchange::AllocateBufferFn;
+
 class MetadataPayloadExchangeTest : public ::testing::Test {
   protected:
     void SetUp() override {
@@ -34,17 +39,45 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
         mr = std::make_unique<rmm::mr::cuda_memory_resource>();
         br = BufferResource::create(*mr);
         stream = cuda::stream_ref{cudaStreamLegacy};
-        statistics = Statistics::create();
 
-        auto allocate_fn = [this](std::size_t size) {
-            return allocate_receive_buffer(size);
-        };
-
-        comm_interface = std::make_unique<TagMetadataPayloadExchange>(
-            GlobalEnvironment->comm_, OpID{42}, allocate_fn, statistics
+        reset_exchange(
+            [this](std::size_t size, AllocationMode) {
+                return allocate_receive_buffer(size);
+            },
+            std::chrono::hours{1}
         );
 
         GlobalEnvironment->barrier();
+    }
+
+    /// Replace the exchange under test with one using the given allocation settings.
+    void reset_exchange(
+        AllocateBufferFn allocate_fn,
+        Duration allocation_timeout,
+        OpID op_id = OpID{42},
+        BufferResource* exchange_br = nullptr
+    ) {
+        comm_interface.reset();
+        comm_interface = std::make_unique<TagMetadataPayloadExchange>(
+            GlobalEnvironment->comm_,
+            op_id,
+            std::move(allocate_fn),
+            allocation_timeout,
+            exchange_br != nullptr ? exchange_br : br.get()
+        );
+    }
+
+    /// Progress until @p n messages have been received.
+    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> receive(
+        std::size_t n
+    ) {
+        std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> ret;
+        while (ret.size() < n) {
+            comm_interface->progress();
+            std::ranges::move(comm_interface->recv(), std::back_inserter(ret));
+            std::this_thread::yield();
+        }
+        return ret;
     }
 
     void TearDown() override {
@@ -74,6 +107,22 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
 
         return std::make_unique<MetadataPayloadExchange::Message>(
             peer_rank, std::move(metadata), std::move(data_buffer)
+        );
+    }
+
+    /// Create a buffer resource that can spill to disk under @p temp_dir.
+    std::shared_ptr<BufferResource> make_disk_br(
+        TempDir const& temp_dir,
+        std::int64_t disk_limit = std::numeric_limits<std::int64_t>::max()
+    ) {
+        return BufferResource::create(
+            *mr,
+            PinnedMemoryDisabled,
+            {{MemoryType::DISK, disk_limit}},
+            std::nullopt,
+            std::make_shared<StreamPool>(1),
+            Statistics::disabled(),
+            temp_dir.path()
         );
     }
 
@@ -107,114 +156,12 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
     std::unique_ptr<rmm::mr::cuda_memory_resource> mr;
     cuda::stream_ref stream{cudaStreamLegacy};
     std::shared_ptr<BufferResource> br;
-    std::shared_ptr<Statistics> statistics;
     std::unique_ptr<TagMetadataPayloadExchange> comm_interface;
 };
 
 TEST_F(MetadataPayloadExchangeTest, InitialState) {
     // Communication interface should start in idle state
     EXPECT_TRUE(comm_interface->is_idle());
-}
-
-TEST_F(MetadataPayloadExchangeTest, DefersReceiveBufferAllocation) {
-    if (comm->nranks() < 2) {
-        GTEST_SKIP() << "Test requires at least 2 ranks";
-    }
-
-    constexpr std::size_t first_data_size = 1024;
-    constexpr std::size_t second_data_size = 2048;
-    std::vector<std::size_t> allocation_sizes;
-    auto allocate_fn = [this,
-                        &allocation_sizes](std::size_t size) -> std::unique_ptr<Buffer> {
-        allocation_sizes.push_back(size);
-        if (allocation_sizes.size() <= 2) {
-            return nullptr;
-        }
-        return allocate_receive_buffer(size);
-    };
-    comm_interface = std::make_unique<TagMetadataPayloadExchange>(
-        GlobalEnvironment->comm_, OpID{42}, allocate_fn, statistics
-    );
-
-    Rank const next_rank = (comm->rank() + 1) % comm->nranks();
-    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> messages;
-    messages.push_back(create_test_message(next_rank, {0x01}, first_data_size));
-    messages.push_back(create_test_message(next_rank, {0x02}, second_data_size));
-    comm_interface->send(std::move(messages));
-
-    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> received_messages;
-    while (received_messages.size() < 2) {
-        comm_interface->progress();
-        auto received = comm_interface->recv();
-        std::ranges::move(received, std::back_inserter(received_messages));
-        std::this_thread::yield();
-    }
-
-    ASSERT_GE(allocation_sizes.size(), 3);
-    EXPECT_EQ(allocation_sizes[0], first_data_size);
-    EXPECT_EQ(allocation_sizes[1], first_data_size);
-    EXPECT_EQ(allocation_sizes[2], first_data_size);
-    ASSERT_EQ(received_messages.size(), 2);
-    verify_data_content(received_messages[0]->data(), first_data_size);
-    verify_data_content(received_messages[1]->data(), second_data_size);
-
-    wait_for_communication_complete();
-}
-
-TEST_F(MetadataPayloadExchangeTest, ThrowsWhenReceiveBufferAllocationTimesOut) {
-    if (comm->nranks() < 2) {
-        GTEST_SKIP() << "Test requires at least 2 ranks";
-    }
-
-    constexpr std::size_t data_size = 1024;
-    constexpr auto allocation_timeout = std::chrono::milliseconds{100};
-    constexpr auto timeout = std::chrono::seconds{30};
-    std::size_t allocation_attempts = 0;
-    bool fail_allocation = true;
-    auto allocate_fn = [this,
-                        &allocation_attempts,
-                        &fail_allocation](std::size_t size) -> std::unique_ptr<Buffer> {
-        ++allocation_attempts;
-        return fail_allocation ? nullptr : allocate_receive_buffer(size);
-    };
-    comm_interface = std::make_unique<TagMetadataPayloadExchange>(
-        GlobalEnvironment->comm_, OpID{42}, allocate_fn, statistics, allocation_timeout
-    );
-
-    Rank const next_rank = (comm->rank() + 1) % comm->nranks();
-    comm_interface->send(create_test_message(next_rank, {0x01}, data_size));
-
-    std::string allocation_error;
-    auto const start = std::chrono::steady_clock::now();
-    auto const deadline = std::chrono::steady_clock::now() + timeout;
-    while (allocation_error.empty() && std::chrono::steady_clock::now() < deadline) {
-        try {
-            comm_interface->progress();
-        } catch (std::runtime_error const& error) {
-            allocation_error = error.what();
-        }
-        std::this_thread::yield();
-    }
-
-    ASSERT_THAT(allocation_error, testing::HasSubstr("allocation timed out"))
-        << "allocation attempts: " << allocation_attempts;
-    EXPECT_GE(std::chrono::steady_clock::now() - start, allocation_timeout);
-    EXPECT_GT(allocation_attempts, 1);
-
-    // Let the pending receive complete so no messages leak into subsequent tests.
-    fail_allocation = false;
-    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> received_messages;
-    auto const recovery_deadline = std::chrono::steady_clock::now() + timeout;
-    while (received_messages.empty()
-           && std::chrono::steady_clock::now() < recovery_deadline)
-    {
-        comm_interface->progress();
-        received_messages = comm_interface->recv();
-        std::this_thread::yield();
-    }
-    ASSERT_EQ(received_messages.size(), 1);
-    verify_data_content(received_messages[0]->data(), data_size);
-    wait_for_communication_complete();
 }
 
 TEST_F(MetadataPayloadExchangeTest, BroadcastData) {
@@ -509,4 +456,255 @@ TEST_F(MetadataPayloadExchangeTest, MultipleMessages) {
     }
 
     wait_for_communication_complete();
+}
+
+TEST_F(MetadataPayloadExchangeTest, RetriesDeferredAllocation) {
+    if (comm->nranks() < 2) {
+        GTEST_SKIP() << "Test requires at least 2 ranks";
+    }
+    Rank next_rank = (comm->rank() + 1) % comm->nranks();
+    Rank prev_rank = (comm->rank() - 1 + comm->nranks()) % comm->nranks();
+    constexpr int num_messages = 3;
+    constexpr std::size_t num_failures = 10;
+
+    // Fail the first allocations, then succeed. No timeout, so no overbooking. The
+    // payload sizes are distinct, so the requested sizes show the allocation order.
+    std::vector<std::size_t> requested_sizes;
+    int num_overbooked{0};
+    reset_exchange(
+        [&](std::size_t size, AllocationMode mode) -> std::unique_ptr<Buffer> {
+            if (mode == AllocationMode::MUST_SUCCEED) {
+                ++num_overbooked;
+            }
+            requested_sizes.push_back(size);
+            if (requested_sizes.size() <= num_failures) {
+                return nullptr;
+            }
+            return allocate_receive_buffer(size);
+        },
+        std::chrono::minutes{10}
+    );
+    GlobalEnvironment->barrier();
+
+    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> messages;
+    for (int i = 0; i < num_messages; ++i) {
+        messages.push_back(create_test_message(
+            next_rank, {static_cast<std::uint8_t>(i)}, safe_cast<std::size_t>(i + 1) * 64
+        ));
+    }
+    comm_interface->send(std::move(messages));
+
+    auto received = receive(num_messages);
+    ASSERT_EQ(received.size(), num_messages);
+    for (int i = 0; i < num_messages; ++i) {
+        EXPECT_EQ(received[i]->peer_rank(), prev_rank);
+        EXPECT_EQ(received[i]->metadata(), std::vector{static_cast<std::uint8_t>(i)});
+        verify_data_content(received[i]->data(), safe_cast<std::size_t>(i + 1) * 64);
+    }
+    // Buffers are allocated in message order: no later message is attempted before
+    // the earlier ones got their buffers.
+    EXPECT_GT(requested_sizes.size(), num_failures);
+    EXPECT_TRUE(std::ranges::is_sorted(requested_sizes));
+    EXPECT_EQ(num_overbooked, 0);
+    wait_for_communication_complete();
+}
+
+TEST_F(MetadataPayloadExchangeTest, OverbooksOnTimeout) {
+    if (comm->nranks() < 2) {
+        GTEST_SKIP() << "Test requires at least 2 ranks";
+    }
+    Rank next_rank = (comm->rank() + 1) % comm->nranks();
+    constexpr int num_messages = 3;
+
+    // Allocation only succeeds when overbooking is allowed, so every message has to
+    // wait for the timeout and is then overbooked, one at a time, in order.
+    int num_overbooked{0};
+    reset_exchange(
+        [&](std::size_t size, AllocationMode mode) -> std::unique_ptr<Buffer> {
+            if (mode == AllocationMode::MAY_FAIL) {
+                return nullptr;
+            }
+            ++num_overbooked;
+            return allocate_receive_buffer(size);
+        },
+        std::chrono::milliseconds{10}
+    );
+    GlobalEnvironment->barrier();
+
+    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> messages;
+    for (int i = 0; i < num_messages; ++i) {
+        messages.push_back(
+            create_test_message(next_rank, {static_cast<std::uint8_t>(i)}, 128)
+        );
+    }
+    comm_interface->send(std::move(messages));
+
+    auto received = receive(num_messages);
+    ASSERT_EQ(received.size(), num_messages);
+    for (int i = 0; i < num_messages; ++i) {
+        EXPECT_EQ(received[i]->metadata(), std::vector{static_cast<std::uint8_t>(i)});
+        verify_data_content(received[i]->data(), 128);
+    }
+    EXPECT_EQ(num_overbooked, num_messages);
+    wait_for_communication_complete();
+}
+
+TEST_F(MetadataPayloadExchangeTest, ThrowsOnTimeoutWithoutOverbooking) {
+    if (comm->nranks() < 2) {
+        GTEST_SKIP() << "Test requires at least 2 ranks";
+    }
+    Rank next_rank = (comm->rank() + 1) % comm->nranks();
+    Rank prev_rank = (comm->rank() - 1 + comm->nranks()) % comm->nranks();
+    constexpr std::size_t data_size = 128;
+    // Use a separate operation ID, since the payload is drained by hand below.
+    OpID const op_id{43};
+
+    // The allocator does not allow forcing an allocation, so it throws when forced.
+    int num_forced{0};
+    reset_exchange(
+        [&](std::size_t, AllocationMode mode) -> std::unique_ptr<Buffer> {
+            if (mode == AllocationMode::MUST_SUCCEED) {
+                ++num_forced;
+                throw std::runtime_error("forcing an allocation is not allowed");
+            }
+            return nullptr;
+        },
+        std::chrono::milliseconds{10},
+        op_id
+    );
+    GlobalEnvironment->barrier();
+
+    comm_interface->send(create_test_message(next_rank, {0x01}, data_size));
+    // Progress until the timeout throws. The deadline only exists to avoid a hang if
+    // progress() never throws, so it is far longer than the expected wait.
+    bool threw = false;
+    auto const deadline = Clock::now() + std::chrono::seconds{30};
+    while (!threw && Clock::now() < deadline) {
+        try {
+            comm_interface->progress();
+        } catch (std::runtime_error const&) {
+            threw = true;
+        }
+        std::this_thread::yield();
+    }
+    EXPECT_TRUE(threw) << "progress() did not throw within the deadline";
+    EXPECT_EQ(num_forced, 1);
+
+    // Receive the payload that the exchange gave up on, so it isn't left unmatched.
+    auto future = GlobalEnvironment->comm_->recv(
+        prev_rank, Tag{op_id, 1}, allocate_receive_buffer(data_size)
+    );
+    std::ignore = GlobalEnvironment->comm_->wait(std::move(future));
+    // Once every rank has received its payload, every send has delivered its data, so
+    // destroying the exchange and its send buffers is safe.
+    GlobalEnvironment->barrier();
+    comm_interface.reset();
+}
+
+TEST_F(MetadataPayloadExchangeTest, MovesForcedReceiveToDisk) {
+    if (comm->nranks() < 2) {
+        GTEST_SKIP() << "Test requires at least 2 ranks";
+    }
+    Rank next_rank = (comm->rank() + 1) % comm->nranks();
+    constexpr int num_messages = 3;
+    constexpr std::size_t forced_size = 64;
+
+    TempDir temp_dir;
+    auto disk_br = make_disk_br(temp_dir);
+
+    // Only the first message has to wait for the timeout, so only its payload is moved
+    // to disk. The later messages wait behind it, but their allocations never fail, so
+    // they are never forced and stay in device memory.
+    reset_exchange(
+        [&](std::size_t size, AllocationMode mode) -> std::unique_ptr<Buffer> {
+            if (size == forced_size && mode == AllocationMode::MAY_FAIL) {
+                return nullptr;
+            }
+            return allocate_receive_buffer(size);
+        },
+        std::chrono::milliseconds{10},
+        OpID{42},
+        disk_br.get()
+    );
+    GlobalEnvironment->barrier();
+
+    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> messages;
+    for (int i = 0; i < num_messages; ++i) {
+        messages.push_back(create_test_message(
+            next_rank,
+            {static_cast<std::uint8_t>(i)},
+            forced_size * safe_cast<std::size_t>(i + 1)
+        ));
+    }
+    comm_interface->send(std::move(messages));
+
+    auto received = receive(num_messages);
+    ASSERT_EQ(received.size(), num_messages);
+    for (int i = 0; i < num_messages; ++i) {
+        EXPECT_EQ(received[i]->metadata(), std::vector{static_cast<std::uint8_t>(i)});
+    }
+
+    auto on_disk = received[0]->release_data();
+    ASSERT_NE(on_disk, nullptr);
+    EXPECT_EQ(on_disk->mem_type(), MemoryType::DISK);
+    auto host_res = disk_br->reserve_or_fail(forced_size, MemoryType::HOST);
+    auto in_memory = disk_br->move(std::move(on_disk), host_res);
+    in_memory->stream().sync();
+    verify_data_content(in_memory.get(), forced_size);
+    for (int i = 1; i < num_messages; ++i) {
+        EXPECT_EQ(received[i]->data()->mem_type(), MemoryType::DEVICE);
+        verify_data_content(
+            received[i]->data(), forced_size * safe_cast<std::size_t>(i + 1)
+        );
+    }
+    wait_for_communication_complete();
+}
+
+TEST_F(MetadataPayloadExchangeTest, KeepsForcedReceiveInMemoryWithoutDiskSpace) {
+    if (comm->nranks() < 2) {
+        GTEST_SKIP() << "Test requires at least 2 ranks";
+    }
+    Rank next_rank = (comm->rank() + 1) % comm->nranks();
+    constexpr std::size_t data_size = 64;
+
+    // No disk space can be reserved, so the forced payload is delivered in memory.
+    TempDir temp_dir;
+    auto disk_br = make_disk_br(temp_dir, 0);
+    reset_exchange(
+        [&](std::size_t size, AllocationMode mode) -> std::unique_ptr<Buffer> {
+            if (mode == AllocationMode::MAY_FAIL) {
+                return nullptr;
+            }
+            return allocate_receive_buffer(size);
+        },
+        std::chrono::milliseconds{10},
+        OpID{42},
+        disk_br.get()
+    );
+    GlobalEnvironment->barrier();
+
+    comm_interface->send(create_test_message(next_rank, {0x01}, data_size));
+    auto received = receive(1);
+    ASSERT_EQ(received.size(), 1);
+    EXPECT_EQ(received[0]->data()->mem_type(), MemoryType::DEVICE);
+    verify_data_content(received[0]->data(), data_size);
+    wait_for_communication_complete();
+}
+
+TEST_F(MetadataPayloadExchangeTest, RejectsDiskBackedSend) {
+    Rank next_rank = (comm->rank() + 1) % comm->nranks();
+
+    TempDir temp_dir;
+    auto disk_br = make_disk_br(temp_dir);
+    auto data =
+        disk_br->make_buffer(stream, disk_br->reserve_or_fail(64, MemoryType::DISK));
+    EXPECT_THROW(
+        comm_interface->send(
+            std::make_unique<MetadataPayloadExchange::Message>(
+                next_rank, std::vector<std::uint8_t>{0x01}, std::move(data)
+            )
+        ),
+        std::invalid_argument
+    );
+    EXPECT_TRUE(comm_interface->is_idle());
 }

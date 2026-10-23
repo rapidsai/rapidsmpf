@@ -20,9 +20,9 @@ namespace rapidsmpf::communicator {
 TagMetadataPayloadExchange::TagMetadataPayloadExchange(
     std::shared_ptr<Communicator> comm,
     OpID op_id,
-    std::function<std::unique_ptr<Buffer>(std::size_t)> allocate_buffer_fn,
-    std::shared_ptr<Statistics> statistics,
-    Duration allocation_timeout
+    AllocateBufferFn allocate_buffer_fn,
+    Duration allocation_timeout,
+    BufferResource* br
 )
     : comm_(std::move(comm)),
       nranks_(comm_->nranks()),
@@ -31,38 +31,14 @@ TagMetadataPayloadExchange::TagMetadataPayloadExchange(
       gpu_data_tag_{op_id, 1},
       allocate_buffer_fn_(std::move(allocate_buffer_fn)),
       allocation_timeout_(allocation_timeout),
+      br_(br),
+      num_awaiting_buffer_(safe_cast<std::size_t>(nranks_), 0),
       messages_sent_to_(safe_cast<std::size_t>(nranks_), 0),
       peer_received_(safe_cast<std::size_t>(nranks_), 0),
       peer_expected_(safe_cast<std::size_t>(nranks_), 0),
-      peer_terminated_(safe_cast<std::size_t>(nranks_), false),
-      statistics_{std::move(statistics)} {}
-
-TagMetadataPayloadExchange::TagMessage::TagMessage(
-    std::unique_ptr<Message> msg, std::uint64_t id, std::size_t size
-)
-    : message(std::move(msg)), message_id(id), expected_payload_size(size) {}
-
-bool TagMetadataPayloadExchange::TagMessage::set_buffer(
-    std::unique_ptr<Buffer> buffer, Duration timeout
-) {
-    RAPIDSMPF_EXPECTS(
-        !is_buffer_set(), "message data buffer is already set", std::logic_error
-    );
-    if (buffer != nullptr) {
-        message->set_data(std::move(buffer));
-        return true;
-    }
-    auto const now = Clock::now();
-    if (!first_allocation_failure.has_value()) {
-        first_allocation_failure = now;
-    } else {
-        RAPIDSMPF_EXPECTS(
-            now - *first_allocation_failure < timeout,
-            "receive buffer allocation timed out",
-            std::runtime_error
-        );
-    }
-    return false;
+      peer_terminated_(safe_cast<std::size_t>(nranks_), false) {
+    RAPIDSMPF_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be NULL");
+    statistics_ = br_->statistics();
 }
 
 void TagMetadataPayloadExchange::send(
@@ -80,6 +56,14 @@ void TagMetadataPayloadExchange::send(
     auto const t0 = Clock::now();
 
     RAPIDSMPF_EXPECTS(!finished_, "send() called after finish()");
+
+    for (auto const& message : messages) {
+        RAPIDSMPF_EXPECTS(
+            message->data() == nullptr || message->data()->mem_type() != MemoryType::DISK,
+            "sending disk-backed payloads is not supported",
+            std::invalid_argument
+        );
+    }
 
     // Send metadata followed immediately by data for each message
     for (auto&& message : messages) {
@@ -275,22 +259,27 @@ void TagMetadataPayloadExchange::receive_metadata() {
                 msg->begin() + safe_cast<std::ptrdiff_t>(original_metadata_size)
             );
 
-            // A failed allocation here does not start the message's allocation
-            // timer; it starts once the message reaches the front of the queue in
-            // setup_data_receives().
-            std::unique_ptr<Buffer> buffer = nullptr;
-            if (payload_size > 0 && !is_allocation_deferred(peer)) {
-                buffer = allocate_buffer_fn_(payload_size);
-            }
-
             auto message = std::make_unique<MetadataPayloadExchange::Message>(
-                peer, std::move(original_metadata), std::move(buffer)
+                peer, std::move(original_metadata), nullptr
             );
 
             log->trace("recv_from ", peer, " (message_id=", message_id, ")");
-            incoming_messages_[peer].emplace_back(
-                std::move(message), message_id, payload_size
+            auto& tag_msg = incoming_messages_[peer].emplace_back(
+                std::move(message), message_id, payload_size, next_arrival_++
             );
+            if (payload_size > 0) {
+                // Buffers are allocated in message order per peer, so only try to
+                // allocate when no earlier message from this peer is still waiting.
+                num_awaiting_buffer_[p]++;
+                total_awaiting_buffer_++;
+                if (num_awaiting_buffer_[p] == 1) {
+                    try_attach_receive_buffer(tag_msg, AllocationMode::MAY_FAIL);
+                }
+                if (tag_msg.is_awaiting_buffer() && !allocation_stall_start_.has_value())
+                {
+                    allocation_stall_start_ = Clock::now();
+                }
+            }
         }
     }
 
@@ -305,6 +294,8 @@ TagMetadataPayloadExchange::setup_data_receives() {
     auto const t0 = Clock::now();
 
     std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> completed_messages;
+
+    force_allocation_progress_if_stalled();
 
     // Process messages per rank, breaking only when a rank's buffer isn't ready
     for (auto rank_it = incoming_messages_.begin(); rank_it != incoming_messages_.end();)
@@ -326,19 +317,18 @@ TagMetadataPayloadExchange::setup_data_receives() {
             std::size_t payload_size = tag_msg.expected_payload_size;
 
             if (payload_size > 0) {
-                if (!tag_msg.is_buffer_set()) {
-                    tag_msg.set_buffer(
-                        allocate_buffer_fn_(payload_size), allocation_timeout_
-                    );
+                // Allocate the buffer if this message is still waiting for one. If that
+                // fails, break for this rank and retry on a later call.
+                if (tag_msg.is_awaiting_buffer()
+                    && !try_attach_receive_buffer(tag_msg, AllocationMode::MAY_FAIL))
+                {
+                    break;
                 }
 
-                // Check if the buffer is allocated and ready for use, if not, break
-                // for this rank and wait for the buffer to be ready. This is
-                // necessary to ensure messages are received in the order they are
-                // sent from this rank.
-                if (!tag_msg.is_buffer_set()
-                    || !tag_msg.message->data()->is_latest_write_done())
-                {
+                // Check if the buffer is ready for use, if not, break for this rank
+                // and wait for the buffer to be ready. This is necessary to ensure
+                // messages are received in the order they are sent from this rank.
+                if (!tag_msg.message->data()->is_latest_write_done()) {
                     break;
                 }
 
@@ -423,7 +413,11 @@ TagMetadataPayloadExchange::complete_data_transfers() {
                     auto future = std::move(future_it->second);
                     auto received_buffer = comm_->release_data(std::move(future));
 
+                    if (tag_msg.forced_allocation) {
+                        try_move_to_disk(received_buffer);
+                    }
                     tag_msg.message->set_data(std::move(received_buffer));
+
                     completed_messages.push_back(std::move(tag_msg.message));
 
                     in_transit_futures_.erase(future_it);
@@ -451,18 +445,80 @@ TagMetadataPayloadExchange::complete_data_transfers() {
     return completed_messages;
 }
 
+bool TagMetadataPayloadExchange::try_attach_receive_buffer(
+    TagMessage& tag_msg, AllocationMode mode
+) {
+    RAPIDSMPF_EXPECTS(
+        tag_msg.is_awaiting_buffer(), "message is not waiting for a buffer"
+    );
+    auto buffer = allocate_buffer_fn_(tag_msg.expected_payload_size, mode);
+    if (buffer == nullptr) {
+        RAPIDSMPF_EXPECTS(
+            mode == AllocationMode::MAY_FAIL,
+            "receive buffer allocator returned nullptr although it must succeed",
+            std::runtime_error
+        );
+        return false;
+    }
+    tag_msg.message->set_data(std::move(buffer));
+
+    auto const p = safe_cast<std::size_t>(tag_msg.message->peer_rank());
+    num_awaiting_buffer_[p]--;
+    total_awaiting_buffer_--;
+
+    // An allocation succeeded, so restart the stall period if messages still wait.
+    if (total_awaiting_buffer_ > 0) {
+        allocation_stall_start_ = Clock::now();
+    } else {
+        allocation_stall_start_.reset();
+    }
+    return true;
+}
+
+void TagMetadataPayloadExchange::force_allocation_progress_if_stalled() {
+    if (!allocation_stall_start_.has_value()
+        || Clock::now() - *allocation_stall_start_ < allocation_timeout_)
+    {
+        return;
+    }
+    // Find the oldest message waiting for a buffer. Per peer, that is the first
+    // waiting message, since buffers are allocated in message order.
+    TagMessage* oldest = nullptr;
+    for (auto& [_, messages] : incoming_messages_) {
+        auto it = std::ranges::find_if(messages, &TagMessage::is_awaiting_buffer);
+        if (it != messages.end() && (oldest == nullptr || it->arrival < oldest->arrival))
+        {
+            oldest = &*it;
+        }
+    }
+    RAPIDSMPF_EXPECTS(oldest != nullptr, "no message is waiting for a buffer");
+    // The oldest message may not have been tried since the last allocation succeeded,
+    // for example when it waited behind an earlier message from the same peer. Only
+    // force it if a normal allocation fails.
+    if (try_attach_receive_buffer(*oldest, AllocationMode::MAY_FAIL)) {
+        return;
+    }
+    try_attach_receive_buffer(*oldest, AllocationMode::MUST_SUCCEED);
+    statistics_->add_stat("metadata-payload-exchange-forced-allocations", 1);
+    oldest->forced_allocation = true;
+}
+
+void TagMetadataPayloadExchange::try_move_to_disk(std::unique_ptr<Buffer>& buffer) {
+    if (br_->disk_resource() == nullptr) {
+        return;
+    }
+    auto reservation = br_->try_reserve(buffer->size, MemoryType::DISK);
+    if (!reservation.has_value()) {
+        return;
+    }
+    statistics_->add_bytes_stat("metadata-payload-exchange-moved-to-disk", buffer->size);
+    buffer = br_->move(std::move(buffer), *reservation);
+}
+
 void TagMetadataPayloadExchange::cleanup_completed_operations() {
     if (!fire_and_forget_.empty()) {
         std::ignore = comm_->test_some(fire_and_forget_);
     }
-}
-
-bool TagMetadataPayloadExchange::is_allocation_deferred(Rank peer) const {
-    auto const it = incoming_messages_.find(peer);
-    if (it == incoming_messages_.end()) {
-        return false;
-    }
-    return !std::ranges::all_of(it->second, &TagMessage::is_buffer_set);
 }
 
 
