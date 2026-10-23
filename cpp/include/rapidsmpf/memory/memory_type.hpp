@@ -80,8 +80,7 @@ static_assert(std::ranges::all_of(SPILL_TARGET_MEMORY_TYPES, [](MemoryType mt) {
  * the given type, empty if @p mem_type is not in @p mem_types.
  */
 constexpr std::span<MemoryType const> leq_memory_types(
-    MemoryType mem_type,
-    std::span<MemoryType const> mem_types = ADDRESSABLE_MEMORY_TYPES
+    MemoryType mem_type, std::span<MemoryType const> mem_types = ADDRESSABLE_MEMORY_TYPES
 ) noexcept {
     return std::views::drop_while(mem_types, [&](MemoryType const& mt) {
         return mt != mem_type;
