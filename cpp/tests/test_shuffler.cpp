@@ -495,6 +495,13 @@ INSTANTIATE_TEST_SUITE_P(
     }
 );
 
+TEST(Shuffler, RejectsNullBufferResource) {
+    EXPECT_THROW(
+        rapidsmpf::shuffler::Shuffler(GlobalEnvironment->comm_, 0, 1, nullptr),
+        std::logic_error
+    );
+}
+
 TEST(Shuffler, SpillOnInsertAndExtraction) {
     rapidsmpf::shuffler::PartID const total_num_partitions = 2;
     auto stream = cuda::stream_ref{cudaStreamLegacy};

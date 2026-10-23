@@ -66,6 +66,40 @@ convert_chunks_to_messages(
     return messages;
 }
 
+/**
+ * @brief Allocate a shuffler receive buffer.
+ *
+ * See `communicator::AllocateBufferFn`. A forced allocation overbooks host memory
+ * when nothing else fits, unless overbooking is disallowed.
+ *
+ * @param br The buffer resource to allocate from.
+ * @param size The size of the buffer in bytes.
+ * @param mode Whether the allocation may fail.
+ * @return The buffer, or `nullptr` if @p mode allows failing and nothing fits.
+ *
+ * @throw std::runtime_error if the allocation must succeed, nothing fits, and
+ * overbooking is not allowed.
+ */
+std::unique_ptr<Buffer> allocate_receive_buffer(
+    BufferResource* br, std::size_t size, communicator::AllocationMode mode
+) {
+    auto res = br->try_reserve(size, ADDRESSABLE_MEMORY_TYPES);
+    if (!res.has_value()) {
+        if (mode == communicator::AllocationMode::MAY_FAIL) {
+            return nullptr;
+        }
+        RAPIDSMPF_EXPECTS(
+            br->allow_overbooking_by_default() == AllowOverbooking::YES,
+            "receive buffer allocation made no progress within the allocation timeout "
+            "and overbooking is not allowed",
+            std::runtime_error
+        );
+        // Fall back to overbooking host memory as a last resort.
+        res = br->reserve(MemoryType::HOST, size, AllowOverbooking::YES).first;
+    }
+    return br->make_buffer(br->stream_pool()->get_stream(), std::move(*res));
+}
+
 }  // namespace
 
 class Shuffler::Progress {
@@ -232,32 +266,13 @@ Shuffler::Shuffler(
               : std::make_unique<communicator::TagMetadataPayloadExchange>(
                     comm_,
                     op_id,
-                    [this](std::size_t size, communicator::AllocationMode mode)
-                        -> std::unique_ptr<Buffer> {
-                        auto res = br_->try_reserve(size, ADDRESSABLE_MEMORY_TYPES);
-                        if (!res.has_value()) {
-                            if (mode == communicator::AllocationMode::MAY_FAIL) {
-                                return nullptr;
-                            }
-                            RAPIDSMPF_EXPECTS(
-                                br_->allow_overbooking_by_default()
-                                    == AllowOverbooking::YES,
-                                "receive buffer allocation made no progress within the "
-                                "allocation timeout and overbooking is not allowed",
-                                std::runtime_error
-                            );
-                            // Fall back to overbooking host memory as a last resort.
-                            res = br_->reserve(
-                                         MemoryType::HOST, size, AllowOverbooking::YES
-                            )
-                                      .first;
-                        }
-                        return br_->make_buffer(
-                            br_->stream_pool()->get_stream(), std::move(*res)
-                        );
+                    [br](std::size_t size, communicator::AllocationMode mode) {
+                        return allocate_receive_buffer(br, size, mode);
                     },
                     comm_->progress_thread()->statistics(),
-                    br_->memory_reserve_timeout()
+                    // `br` must not be nullptr, but that is only checked later, in the
+                    // constructor body.
+                    br != nullptr ? br->memory_reserve_timeout() : Duration{}
                 )
       },
       local_partitions_{local_partitions(comm_, total_num_partitions, partition_owner)},
