@@ -38,16 +38,13 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      * @param allocate_buffer_fn Function to allocate buffers for incoming data.
      * @param statistics The statistics to use for tracking communication operations.
      * @param allocation_timeout Progress timeout for receive buffer allocations.
-     * @param allow_overbooking Whether an allocation may overbook when
-     * @p allocation_timeout expires.
      */
     TagMetadataPayloadExchange(
         std::shared_ptr<Communicator> comm,
         OpID op_id,
         AllocateBufferFn allocate_buffer_fn,
         std::shared_ptr<Statistics> statistics,
-        Duration allocation_timeout,
-        AllowOverbooking allow_overbooking
+        Duration allocation_timeout
     );
 
     /**
@@ -80,8 +77,8 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      * Receive buffers are allocated in message order per peer. While a message from a
      * peer waits for a buffer, later messages from that peer wait behind it.
      *
-     * @throw std::runtime_error if receive buffer allocation makes no progress within
-     * the allocation timeout and overbooking is not allowed.
+     * Any exception thrown by the receive buffer allocator, for example when it is not
+     * allowed to force an allocation, propagates out of this function.
      */
     void progress() override;
 
@@ -143,7 +140,6 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
     Tag const gpu_data_tag_;
     AllocateBufferFn allocate_buffer_fn_;
     Duration const allocation_timeout_;
-    AllowOverbooking const allow_overbooking_;
 
     // Receive buffer allocation state:
     // - `num_awaiting_buffer_`: messages waiting for a buffer, per peer (by Rank).
@@ -214,24 +210,21 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      * data receive completes, and the waiting counts and stall timer are updated.
      *
      * @param tag_msg The message, which must be waiting for a buffer.
-     * @param allow_overbooking Passed on to the allocator. With `AllowOverbooking::YES`,
-     * a buffer is always attached, so the function never returns false.
+     * @param mode Passed on to the allocator. With `AllocationMode::MUST_SUCCEED`, a
+     * buffer is always attached, so the function never returns false.
      * @return True if a buffer was attached.
      *
      * @throw std::runtime_error if the allocator returns `nullptr` although
-     * overbooking was allowed.
+     * the allocation must succeed.
      */
-    bool try_attach_receive_buffer(
-        TagMessage& tag_msg, AllowOverbooking allow_overbooking
-    );
+    bool try_attach_receive_buffer(TagMessage& tag_msg, AllocationMode mode);
 
     /**
      * @brief Force progress if receive buffer allocation has stalled for too long.
      *
      * When no receive buffer could be allocated within the allocation timeout, allocate
-     * one for the oldest waiting message with overbooking.
-     *
-     * @throw std::runtime_error if overbooking is not allowed.
+     * one for the oldest waiting message with `AllocationMode::MUST_SUCCEED`. Any
+     * exception thrown by the allocator propagates.
      */
     void force_allocation_progress_if_stalled();
 

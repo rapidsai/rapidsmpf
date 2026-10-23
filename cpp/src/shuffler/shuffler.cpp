@@ -232,13 +232,20 @@ Shuffler::Shuffler(
               : std::make_unique<communicator::TagMetadataPayloadExchange>(
                     comm_,
                     op_id,
-                    [this](std::size_t size, AllowOverbooking allow_overbooking)
+                    [this](std::size_t size, communicator::AllocationMode mode)
                         -> std::unique_ptr<Buffer> {
                         auto res = br_->try_reserve(size, ADDRESSABLE_MEMORY_TYPES);
                         if (!res.has_value()) {
-                            if (allow_overbooking == AllowOverbooking::NO) {
+                            if (mode == communicator::AllocationMode::MAY_FAIL) {
                                 return nullptr;
                             }
+                            RAPIDSMPF_EXPECTS(
+                                br_->allow_overbooking_by_default()
+                                    == AllowOverbooking::YES,
+                                "receive buffer allocation made no progress within the "
+                                "allocation timeout and overbooking is not allowed",
+                                std::runtime_error
+                            );
                             // Fall back to overbooking host memory as a last resort.
                             res = br_->reserve(
                                          MemoryType::HOST, size, AllowOverbooking::YES
@@ -250,9 +257,7 @@ Shuffler::Shuffler(
                         );
                     },
                     comm_->progress_thread()->statistics(),
-                    br_ != nullptr ? br_->memory_reserve_timeout() : Duration{},
-                    br_ != nullptr ? br_->allow_overbooking_by_default()
-                                   : AllowOverbooking::NO
+                    br_->memory_reserve_timeout()
                 )
       },
       local_partitions_{local_partitions(comm_, total_num_partitions, partition_owner)},

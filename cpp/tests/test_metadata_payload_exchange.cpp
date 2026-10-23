@@ -39,11 +39,10 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
         statistics = Statistics::create();
 
         reset_exchange(
-            [this](std::size_t size, AllowOverbooking) {
+            [this](std::size_t size, AllocationMode) {
                 return allocate_receive_buffer(size);
             },
-            std::chrono::hours{1},
-            AllowOverbooking::YES
+            std::chrono::hours{1}
         );
 
         GlobalEnvironment->barrier();
@@ -51,10 +50,7 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
 
     /// Replace the exchange under test with one using the given allocation settings.
     void reset_exchange(
-        MetadataPayloadExchange::AllocateBufferFn allocate_fn,
-        Duration allocation_timeout,
-        AllowOverbooking allow_overbooking,
-        OpID op_id = OpID{42}
+        AllocateBufferFn allocate_fn, Duration allocation_timeout, OpID op_id = OpID{42}
     ) {
         comm_interface.reset();
         comm_interface = std::make_unique<TagMetadataPayloadExchange>(
@@ -62,8 +58,7 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
             op_id,
             std::move(allocate_fn),
             statistics,
-            allocation_timeout,
-            allow_overbooking
+            allocation_timeout
         );
     }
 
@@ -457,9 +452,8 @@ TEST_F(MetadataPayloadExchangeTest, RetriesDeferredAllocation) {
     std::vector<std::size_t> requested_sizes;
     std::atomic<int> num_overbooked{0};
     reset_exchange(
-        [&](std::size_t size,
-            AllowOverbooking allow_overbooking) -> std::unique_ptr<Buffer> {
-            if (allow_overbooking == AllowOverbooking::YES) {
+        [&](std::size_t size, AllocationMode mode) -> std::unique_ptr<Buffer> {
+            if (mode == AllocationMode::MUST_SUCCEED) {
                 ++num_overbooked;
             }
             requested_sizes.push_back(size);
@@ -468,8 +462,7 @@ TEST_F(MetadataPayloadExchangeTest, RetriesDeferredAllocation) {
             }
             return allocate_receive_buffer(size);
         },
-        std::chrono::hours{1},
-        AllowOverbooking::YES
+        std::chrono::minutes{10}
     );
     GlobalEnvironment->barrier();
 
@@ -507,16 +500,14 @@ TEST_F(MetadataPayloadExchangeTest, OverbooksOnTimeout) {
     // wait for the timeout and is then overbooked, one at a time, in order.
     std::atomic<int> num_overbooked{0};
     reset_exchange(
-        [&](std::size_t size,
-            AllowOverbooking allow_overbooking) -> std::unique_ptr<Buffer> {
-            if (allow_overbooking == AllowOverbooking::NO) {
+        [&](std::size_t size, AllocationMode mode) -> std::unique_ptr<Buffer> {
+            if (mode == AllocationMode::MAY_FAIL) {
                 return nullptr;
             }
             ++num_overbooked;
             return allocate_receive_buffer(size);
         },
-        std::chrono::milliseconds{10},
-        AllowOverbooking::YES
+        std::chrono::milliseconds{10}
     );
     GlobalEnvironment->barrier();
 
@@ -548,16 +539,17 @@ TEST_F(MetadataPayloadExchangeTest, ThrowsOnTimeoutWithoutOverbooking) {
     // Use a separate operation ID, since the payload is drained by hand below.
     OpID const op_id{43};
 
-    std::atomic<int> num_overbooked{0};
+    // The allocator does not allow forcing an allocation, so it throws when forced.
+    std::atomic<int> num_forced{0};
     reset_exchange(
-        [&](std::size_t, AllowOverbooking allow_overbooking) -> std::unique_ptr<Buffer> {
-            if (allow_overbooking == AllowOverbooking::YES) {
-                ++num_overbooked;
+        [&](std::size_t, AllocationMode mode) -> std::unique_ptr<Buffer> {
+            if (mode == AllocationMode::MUST_SUCCEED) {
+                ++num_forced;
+                throw std::runtime_error("forcing an allocation is not allowed");
             }
             return nullptr;
         },
         std::chrono::milliseconds{10},
-        AllowOverbooking::NO,
         op_id
     );
     GlobalEnvironment->barrier();
@@ -576,7 +568,7 @@ TEST_F(MetadataPayloadExchangeTest, ThrowsOnTimeoutWithoutOverbooking) {
         std::this_thread::yield();
     }
     EXPECT_TRUE(threw) << "progress() did not throw within the deadline";
-    EXPECT_EQ(num_overbooked, 0);
+    EXPECT_EQ(num_forced, 1);
 
     // Receive the payload that the exchange gave up on, so it isn't left unmatched.
     auto future = GlobalEnvironment->comm_->recv(

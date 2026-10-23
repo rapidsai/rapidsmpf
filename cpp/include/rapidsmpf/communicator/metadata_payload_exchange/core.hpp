@@ -19,6 +19,27 @@
 namespace rapidsmpf::communicator {
 
 /**
+ * @brief Whether a receive buffer allocation may fail.
+ *
+ * See `AllocateBufferFn`.
+ */
+enum class AllocationMode : bool {
+    MAY_FAIL,  ///< The allocator may return `nullptr` if memory is not available now.
+    MUST_SUCCEED,  ///< The allocator must return a buffer or throw.
+};
+
+/**
+ * @brief Function allocating a receive buffer of the given size.
+ *
+ * With `AllocationMode::MAY_FAIL`, it may return `nullptr` when memory is not
+ * available right now. With `AllocationMode::MUST_SUCCEED`, it must return a buffer,
+ * for example by overbooking memory, or throw if its policy does not allow forcing
+ * an allocation.
+ */
+using AllocateBufferFn =
+    std::function<std::unique_ptr<Buffer>(std::size_t, AllocationMode)>;
+
+/**
  * @brief Interface for exchanging serialized metadata and payload between ranks.
  *
  * The `MetadataPayloadExchange` class defines an abstract interface for transmitting
@@ -39,37 +60,27 @@ namespace rapidsmpf::communicator {
  * DerivedMetadataPayloadExchange(
  *     std::shared_ptr<Communicator> comm,
  *     OpID op_id,
- *     MetadataPayloadExchange::AllocateBufferFn allocate_buffer_fn,
+ *     AllocateBufferFn allocate_buffer_fn,
  *     std::shared_ptr<Statistics> statistics,
- *     Duration allocation_timeout,
- *     AllowOverbooking allow_overbooking
+ *     Duration allocation_timeout
  * );
  * @endcode
  *
  * Receive buffers are allocated with `allocate_buffer_fn`, which is called on the
  * thread calling `progress()` and must not block or spill. Implementations follow
  * these rules:
- * - When called with `AllowOverbooking::NO`, the allocator may return `nullptr` to
+ * - When called with `AllocationMode::MAY_FAIL`, the allocator may return `nullptr` to
  *   indicate that memory is not available right now. The message is kept and the
  *   allocation is retried on later calls to `progress()`. A message is never dropped
  *   or delivered without its payload.
  * - If no allocation succeeds within `allocation_timeout`, one pending message is
- *   forced: with `allow_overbooking` set to `AllowOverbooking::YES`, the allocator is
- *   called with `AllowOverbooking::YES` and must return a buffer. Otherwise,
- *   `progress()` throws `std::runtime_error`. Only one message is forced per timeout.
+ *   forced: the allocator is called with `AllocationMode::MUST_SUCCEED` and must
+ *   return a buffer or throw. An exception thrown by the allocator propagates out of
+ *   `progress()`. Only one message is forced per timeout.
  * - The order in which pending allocations are retried is implementation defined.
  */
 class MetadataPayloadExchange {
   public:
-    /**
-     * @brief Function allocating a receive buffer of the given size.
-     *
-     * With `AllowOverbooking::NO`, it may return `nullptr` when memory is not
-     * available right now. With `AllowOverbooking::YES`, it must return a buffer.
-     */
-    using AllocateBufferFn =
-        std::function<std::unique_ptr<Buffer>(std::size_t, AllowOverbooking)>;
-
     /**
      * @brief Message class for communication.
      *

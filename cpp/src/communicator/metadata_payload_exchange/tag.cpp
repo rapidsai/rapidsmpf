@@ -22,8 +22,7 @@ TagMetadataPayloadExchange::TagMetadataPayloadExchange(
     OpID op_id,
     AllocateBufferFn allocate_buffer_fn,
     std::shared_ptr<Statistics> statistics,
-    Duration allocation_timeout,
-    AllowOverbooking allow_overbooking
+    Duration allocation_timeout
 )
     : comm_(std::move(comm)),
       nranks_(comm_->nranks()),
@@ -32,7 +31,6 @@ TagMetadataPayloadExchange::TagMetadataPayloadExchange(
       gpu_data_tag_{op_id, 1},
       allocate_buffer_fn_(std::move(allocate_buffer_fn)),
       allocation_timeout_(allocation_timeout),
-      allow_overbooking_(allow_overbooking),
       num_awaiting_buffer_(safe_cast<std::size_t>(nranks_), 0),
       messages_sent_to_(safe_cast<std::size_t>(nranks_), 0),
       peer_received_(safe_cast<std::size_t>(nranks_), 0),
@@ -264,7 +262,7 @@ void TagMetadataPayloadExchange::receive_metadata() {
                 num_awaiting_buffer_[p]++;
                 total_awaiting_buffer_++;
                 if (num_awaiting_buffer_[p] == 1) {
-                    try_attach_receive_buffer(tag_msg, AllowOverbooking::NO);
+                    try_attach_receive_buffer(tag_msg, AllocationMode::MAY_FAIL);
                 }
                 if (tag_msg.is_awaiting_buffer() && !allocation_stall_start_.has_value())
                 {
@@ -311,7 +309,7 @@ TagMetadataPayloadExchange::setup_data_receives() {
                 // Allocate the buffer if this message is still waiting for one. If that
                 // fails, break for this rank and retry on a later call.
                 if (tag_msg.is_awaiting_buffer()
-                    && !try_attach_receive_buffer(tag_msg, AllowOverbooking::NO))
+                    && !try_attach_receive_buffer(tag_msg, AllocationMode::MAY_FAIL))
                 {
                     break;
                 }
@@ -433,16 +431,16 @@ TagMetadataPayloadExchange::complete_data_transfers() {
 }
 
 bool TagMetadataPayloadExchange::try_attach_receive_buffer(
-    TagMessage& tag_msg, AllowOverbooking allow_overbooking
+    TagMessage& tag_msg, AllocationMode mode
 ) {
     RAPIDSMPF_EXPECTS(
         tag_msg.is_awaiting_buffer(), "message is not waiting for a buffer"
     );
-    auto buffer = allocate_buffer_fn_(tag_msg.expected_payload_size, allow_overbooking);
+    auto buffer = allocate_buffer_fn_(tag_msg.expected_payload_size, mode);
     if (buffer == nullptr) {
         RAPIDSMPF_EXPECTS(
-            allow_overbooking == AllowOverbooking::NO,
-            "receive buffer allocator returned nullptr although overbooking was allowed",
+            mode == AllocationMode::MAY_FAIL,
+            "receive buffer allocator returned nullptr although it must succeed",
             std::runtime_error
         );
         return false;
@@ -482,17 +480,11 @@ void TagMetadataPayloadExchange::force_allocation_progress_if_stalled() {
     // The oldest message may not have been tried since the last allocation succeeded,
     // for example when it waited behind an earlier message from the same peer. Only
     // force it if a normal allocation fails.
-    if (try_attach_receive_buffer(*oldest, AllowOverbooking::NO)) {
+    if (try_attach_receive_buffer(*oldest, AllocationMode::MAY_FAIL)) {
         return;
     }
-    RAPIDSMPF_EXPECTS(
-        allow_overbooking_ == AllowOverbooking::YES,
-        "receive buffer allocation made no progress within the allocation timeout and "
-        "overbooking is not allowed",
-        std::runtime_error
-    );
+    try_attach_receive_buffer(*oldest, AllocationMode::MUST_SUCCEED);
     statistics_->add_stat("metadata-payload-exchange-forced-allocations", 1);
-    try_attach_receive_buffer(*oldest, AllowOverbooking::YES);
 }
 
 void TagMetadataPayloadExchange::cleanup_completed_operations() {
