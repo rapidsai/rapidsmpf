@@ -221,8 +221,9 @@ std::size_t PostBox::spill(BufferResource* br, std::size_t amount) {
         }
     }
     auto spill_chunk = [&](Chunk* chunk) -> std::size_t {
-        auto reservation =
-            br->reserve_or_fail(chunk->data_size(), SPILL_TARGET_MEMORY_TYPES);
+        auto reservation = br->reserve_or_fail(
+            chunk->data_size(), spill_target_memory_types(MemoryType::DEVICE)
+        );
         chunk->attach_data_buffer(br->move(chunk->release_data_buffer(), reservation));
         return chunk->data_size();
     };

@@ -328,6 +328,18 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     [[nodiscard]] std::optional<PinnedMemoryResource> try_pinned_mr() const;
 
     /**
+     * @brief Whether this buffer resource can reserve memory of a given type.
+     *
+     * `MemoryType::DEVICE` and `MemoryType::HOST` are always reservable,
+     * `MemoryType::PINNED_HOST` only when a pinned memory resource is available, and
+     * `MemoryType::DISK` only when a disk resource is available. Fixed at construction.
+     *
+     * @param mem_type The memory type to query.
+     * @return True if @p mem_type has a backing resource.
+     */
+    [[nodiscard]] bool is_reservable(MemoryType mem_type) const noexcept;
+
+    /**
      * @brief Returns the currently available memory for a given memory type, in bytes.
      *
      * Computed as `limit - allocated`, where `allocated` is reported by the
@@ -368,6 +380,18 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     [[nodiscard]] std::int64_t memory_available_for_reservation(
         MemoryType mem_type
     ) const;
+
+    /**
+     * @brief Returns the memory available to a new reservation for every memory type,
+     * in bytes.
+     *
+     * Like `memory_available_for_reservation(MemoryType)`, but the outstanding
+     * reservations of all memory types are read under a single lock, so the values are
+     * consistent with each other. Memory types that are not reservable report zero.
+     *
+     * @return The memory available for reservation of every memory type.
+     */
+    [[nodiscard]] PerMemoryType<std::int64_t> memory_available_for_reservation() const;
 
     /**
      * @brief Reserve an amount of the specified memory type.
@@ -437,12 +461,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     ) {
         // try to reserve memory from the given order
         for (auto const& mem_type : mem_types) {
-            if (mem_type == MemoryType::DISK && disk_resource_ == nullptr) {
-                continue;
-            }
-            if (mem_type == MemoryType::PINNED_HOST && !pinned_mr_.has_value()) {
-                // Pinned host memory is only available if the memory resource is
-                // available.
+            if (!is_reservable(mem_type)) {
                 continue;
             }
             auto [res, _] = reserve(mem_type, size, AllowOverbooking::NO);
@@ -714,7 +733,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     std::shared_ptr<DiskResource> disk_resource_;
     std::array<std::atomic<std::int64_t>, MEMORY_TYPES.size()> memory_limits_;
     // Zero initialized reserved counters.
-    std::array<std::size_t, MEMORY_TYPES.size()> memory_reserved_ = {};
+    PerMemoryType<std::size_t> memory_reserved_{};
     std::shared_ptr<StreamPool> stream_pool_;
     SpillManager spill_manager_;
     std::shared_ptr<Statistics> statistics_;
