@@ -81,18 +81,28 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
     Nothing is spilled on behalf of the request, so a workload that does not
     spill sees the timeout unchanged.
 
+    The shuffler uses the same timeout for receive buffers. When no incoming
+    payload could get a buffer for this long, the shuffler allocates one in host
+    memory, even beyond the host memory limit, if `allow_overbooking_by_default`
+    allows it, and fails with an error otherwise. Only one payload is forced per
+    timeout, so under sustained memory pressure N waiting payloads take about N
+    timeouts to get their buffers. Receive buffers only have to wait when host
+    memory is limited too (see `spill_host_limit`), since otherwise they always fit
+    in host memory.
+
 - **`allow_overbooking_by_default`**
   - **Environment Variable**: `RAPIDSMPF_ALLOW_OVERBOOKING_BY_DEFAULT`
   - **Default**: `true`
   - **Description**: Controls the default overbooking behavior for *high-level*
-    memory reservation APIs, such as `reserve_memory()`.
+    memory reservation APIs, such as `reserve_memory()`, and for receive buffers
+    in the shuffler.
 
-    When enabled, high-level memory reservation requests may overbook memory
-    after the global `memory_reserve_timeout` expires, allowing forward
-    progress under memory pressure.
+    When enabled, high-level memory reservation requests and shuffler receives
+    may overbook memory after the global `memory_reserve_timeout` expires,
+    allowing forward progress under memory pressure.
 
-    When disabled, high-level memory reservation requests fail with an error if
-    no progress is possible within the timeout.
+    When disabled, they fail with an error if no progress is possible within
+    the timeout.
 
     This option is only used when a high-level API does not explicitly specify
     an overbooking policy. It does **not** change the behavior of lower-level
