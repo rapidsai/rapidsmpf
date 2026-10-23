@@ -506,6 +506,21 @@ TEST_F(BufferResourceReserveOrFailTest, MultipleTypes) {
     EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), 10_KiB);
 }
 
+TEST_F(BufferResourceReserveOrFailTest, TryReserve) {
+    auto res = br->try_reserve(5_KiB, MemoryType::DEVICE);
+    ASSERT_TRUE(res.has_value());
+    EXPECT_EQ(res->size(), 5_KiB);
+    EXPECT_EQ(res->mem_type(), MemoryType::DEVICE);
+
+    std::vector<MemoryType> types{MemoryType::DEVICE, MemoryType::HOST};
+    auto res1 = br->try_reserve(10_KiB, types);
+    ASSERT_TRUE(res1.has_value());
+    EXPECT_EQ(res1->size(), 10_KiB);
+    EXPECT_EQ(res1->mem_type(), MemoryType::HOST);
+
+    EXPECT_FALSE(br->try_reserve(100_KiB, MemoryType::DEVICE).has_value());
+}
+
 class BaseBufferResourceCopyTest : public ::testing::Test {
   protected:
     void SetUp() override {

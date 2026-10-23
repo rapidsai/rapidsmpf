@@ -151,7 +151,7 @@ class Shuffler::Progress {
                 };
 
                 for (auto const& chunk : ready_chunks) {
-                    if (chunk.data_size() > 0) {
+                    if (chunk.is_data_buffer_set() && chunk.data_size() > 0) {
                         stats->add_bytes_stat("shuffle-payload-send", chunk.data_size());
                     }
                 }
@@ -351,14 +351,6 @@ void Shuffler::insert_into_received(detail::Chunk&& chunk) {
 
 void Shuffler::insert(detail::Chunk&& chunk) {
     Rank dst_rank = partition_owner(comm_, chunk.part_id(), total_num_partitions);
-    // Validate before counting the chunk, so a rejected chunk isn't announced to its
-    // destination in `insert_finished()`.
-    RAPIDSMPF_EXPECTS(
-        dst_rank == comm_->rank() || !chunk.is_data_buffer_set()
-            || chunk.data_memory_type() != MemoryType::DISK,
-        "inserting disk-backed data for another rank is not supported",
-        std::invalid_argument
-    );
     if (!chunk.is_control_message()) {
         std::atomic_ref(outbound_chunk_counter_[safe_cast<std::size_t>(dst_rank)])
             .fetch_add(1, std::memory_order_relaxed);
@@ -367,7 +359,20 @@ void Shuffler::insert(detail::Chunk&& chunk) {
         // this is a local chunk, so we can move it straight to received.
         insert_into_received(std::move(chunk));
     } else {
-        // this is a remote chunk, so we need to send it
+        // this is a remote chunk, so we need to send it. Sending needs addressable
+        // memory, so restore disk-backed data here, in the caller's thread, rather than
+        // in the progress thread. This may spill.
+        if (chunk.is_on_disk()) {
+            auto reservation = br_->try_reserve_or_spill(
+                chunk.data_size(), br_->addressable_memory_types()
+            );
+            RAPIDSMPF_EXPECTS(
+                reservation.has_value(),
+                "failed to reserve addressable memory for an outgoing disk-backed chunk",
+                std::runtime_error
+            );
+            chunk.set_data_buffer(br_->move(chunk.release_data_buffer(), *reservation));
+        }
         to_send_.insert(std::make_unique<detail::Chunk>(std::move(chunk)));
     }
 }
@@ -389,10 +394,9 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
         if (headroom < 0 && packed_data.data
             && packed_data.data->mem_type() == MemoryType::DEVICE)
         {
-            auto reservation =
-                br_->reserve_or_fail(packed_data.data->size, SPILL_TARGET_MEMORY_TYPES);
             auto chunk = create_chunk(pid, std::move(packed_data));
-            // Spill the new chunk before inserting.
+            auto reservation =
+                br_->reserve_or_fail(chunk.data_size(), br_->spill_target_memory_types());
             chunk.set_data_buffer(br_->move(chunk.release_data_buffer(), reservation));
             insert(std::move(chunk));
         } else {
@@ -483,7 +487,7 @@ std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
     }
     std::size_t spilled{0};
     if (spill_need > 0) {
-        spilled = received_.spill(br_, spill_need);
+        spilled = received_.spill(br_, spill_need, br_->spill_target_memory_types());
     }
     return spilled;
 }

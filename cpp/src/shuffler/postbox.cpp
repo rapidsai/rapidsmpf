@@ -70,21 +70,32 @@ bool ReceivedChunks::empty() const {
     return pigeonhole_.empty();
 }
 
-std::size_t ReceivedChunks::spill(BufferResource* br, std::size_t amount) {
+std::size_t ReceivedChunks::spill(
+    BufferResource* br,
+    std::size_t amount,
+    std::span<MemoryType const> spillable_memory_types
+) {
+    if (amount == 0) {
+        return 0;
+    }
+
     RAPIDSMPF_NVTX_FUNC_RANGE(amount);
     std::lock_guard lock(mutex_);
     // TODO: use a clever strategy to decided which chunks to spill.
     std::size_t total_spilled{0};
     for (auto& [_, chunks] : pigeonhole_) {
         for (auto& chunk : chunks) {
-            auto const size = chunk.data_size();
-            if (size == 0 || !chunk.is_data_buffer_set()
+            if (chunk.data_size() == 0 || !chunk.is_data_buffer_set()
                 || chunk.data_memory_type() != MemoryType::DEVICE)
             {
                 continue;
             }
-            auto reservation = br->reserve_or_fail(size, SPILL_TARGET_MEMORY_TYPES);
-            chunk.set_data_buffer(br->move(chunk.release_data_buffer(), reservation));
+            auto const size = chunk.data_size();
+            auto reservation = br->try_reserve(size, spillable_memory_types);
+            if (!reservation.has_value()) {
+                continue;
+            }
+            chunk.set_data_buffer(br->move(chunk.release_data_buffer(), *reservation));
             if ((total_spilled += size) >= amount) {
                 break;
             }

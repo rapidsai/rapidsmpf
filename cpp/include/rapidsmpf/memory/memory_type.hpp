@@ -43,6 +43,11 @@ constexpr std::array ADDRESSABLE_MEMORY_TYPES{
  * This array defines the preferred targets for spilling when device memory is
  * insufficient. The ordering reflects the policy of spilling in RapidsMPF, where
  * earlier entries are considered more desirable spill destinations.
+ *
+ * @note This constant never includes `MemoryType::DISK`. Callers that can handle
+ * disk-backed buffers should use `BufferResource::spill_target_memory_types()`, which
+ * reflects the memory resources available to the buffer resource (e.g., pinned host
+ * memory and disk). This constant may be deprecated once all callers support disk.
  */
 constexpr std::array SPILL_TARGET_MEMORY_TYPES{MemoryType::PINNED_HOST, MemoryType::HOST};
 

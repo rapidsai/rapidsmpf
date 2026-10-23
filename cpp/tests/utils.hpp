@@ -199,12 +199,17 @@ inline void validate_packed_data(
         EXPECT_EQ(offset + static_cast<T>(i), val);
     }
 
-    EXPECT_EQ(n_elements * sizeof(T), packed_data.data->size);
+    auto const size = packed_data.data->size;
+    EXPECT_EQ(n_elements * sizeof(T), size);
 
-    auto res = br.reserve_or_fail(packed_data.data->size, rapidsmpf::MemoryType::HOST);
-    auto data_on_host = br.move_to_host_buffer(std::move(packed_data.data), res);
-    RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(stream.get()));
-    EXPECT_EQ(metadata, data_on_host->copy_to_uint8_vector());
+    // Copy into a host buffer with overbooking.
+    auto [res, _] =
+        br.reserve(rapidsmpf::MemoryType::HOST, size, rapidsmpf::AllowOverbooking::YES);
+    auto data_on_host = br.make_buffer(stream, std::move(res));
+    rapidsmpf::buffer_copy(br.statistics(), *data_on_host, *packed_data.data, size);
+    data_on_host->latest_write_event().host_wait();
+    auto const* host_ptr = reinterpret_cast<std::uint8_t const*>(data_on_host->data());
+    EXPECT_TRUE(std::ranges::equal(metadata, std::span{host_ptr, size}));
 }
 
 /**

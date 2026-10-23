@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstddef>
@@ -14,8 +15,10 @@
 #include <mutex>
 #include <optional>
 #include <ranges>
+#include <span>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include <cuda/memory_resource>
 #include <cuda/stream>
@@ -468,6 +471,78 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     }
 
     /**
+     * @brief Try to reserve memory, spilling device memory when necessary.
+     *
+     * Tries the requested memory types in descending priority. A device reservation
+     * (allowing overbooking) is retained while lower memory tiers are tried; if none are
+     * immediately available, device memory is spilled once to cover the overbooking. The
+     * device reservation is returned only if the spill covered it.
+     *
+     * @param size The size of the memory to reserve.
+     * @param mem_types Memory types to try in descending priority.
+     * @return A full reservation, or `std::nullopt` if no reservation can be satisfied.
+     * @throws std::invalid_argument if @p mem_types is empty.
+     */
+    template <std::ranges::forward_range Range>
+        requires std::convertible_to<std::ranges::range_value_t<Range>, MemoryType>
+    [[nodiscard]] std::optional<MemoryReservation> try_reserve_or_spill(
+        std::size_t size, Range mem_types
+    ) {
+        RAPIDSMPF_EXPECTS(
+            !std::ranges::empty(mem_types),
+            "mem_types cannot be empty",
+            std::invalid_argument
+        );
+
+        if (size == 0) {
+            return MemoryReservation{*std::ranges::begin(mem_types), this, 0};
+        }
+
+        std::optional<MemoryReservation> device_res;
+        std::size_t total_ob{0};
+        for (auto const& mem_type : mem_types) {
+            if (mem_type == MemoryType::DEVICE) {
+                auto [res, ob] = reserve(mem_type, size, AllowOverbooking::YES);
+                if (ob == 0) {
+                    return std::move(res);
+                }
+                total_ob = ob;
+                device_res.emplace(std::move(res));
+            } else if (auto reservation = try_reserve(size, mem_type)) {
+                return reservation;
+            }
+        }
+
+        if (!device_res.has_value()) {
+            return std::nullopt;
+        }
+        // `reserve()` reports the total overbooking, other callers' included, so clamp
+        // to `size` for the part this reservation added.
+        auto const own_overbooking = std::min(size, total_ob);
+        // With a headroom of zero, `deficit` is the overbooking still outstanding once
+        // the spill lock is held, so memory freed by a concurrent spill is not spilled
+        // again. All of it is spilled, but this call is judged only on its own share.
+        auto const [deficit, spilled] = spill_manager_.spill_to_make_headroom();
+        if (spilled >= std::min(own_overbooking, deficit)) {
+            return device_res;
+        }
+        return std::nullopt;
+    }
+
+    /**
+     * @brief Try to reserve one memory type, spilling device memory when necessary.
+     *
+     * @param size The size of the memory to reserve.
+     * @param mem_type Memory type to reserve.
+     * @return A full reservation, or `std::nullopt` if unavailable.
+     */
+    [[nodiscard]] std::optional<MemoryReservation> try_reserve_or_spill(
+        std::size_t size, MemoryType mem_type
+    ) {
+        return try_reserve_or_spill(size, std::ranges::single_view{mem_type});
+    }
+
+    /**
      * @brief Make a memory reservation or fail based on the given order of memory types.
      *
      * The function attempts to reserve memory by iterating over @p mem_types in the given
@@ -693,6 +768,39 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         return allow_overbooking_by_default_;
     }
 
+    /**
+     * @brief Memory types usable as spill destinations for device data.
+     *
+     * Derived at construction from the available resources: pinned host memory (when
+     * enabled), host memory, and disk (when a spill directory was configured), in
+     * decreasing order of preference.
+     *
+     * @note The result may include `MemoryType::DISK`, so callers must be able to handle
+     * disk-backed buffers. Callers that need addressable spill destinations should use
+     * `SPILL_TARGET_MEMORY_TYPES` instead.
+     *
+     * @return Span of spill destination memory types, valid for the lifetime of this
+     * buffer resource.
+     */
+    [[nodiscard]] std::span<MemoryType const> spill_target_memory_types() const noexcept {
+        return spill_target_memory_types_;
+    }
+
+    /**
+     * @brief Addressable memory types available to this buffer resource.
+     *
+     * These are the memory types that expose an addressable host or device pointer, for
+     * example to restore spilled (e.g., disk-backed) data into. Derived at construction
+     * from the available resources: device memory, pinned host memory (when enabled),
+     * and host memory, in decreasing order of preference.
+     *
+     * @return Span of addressable memory types, valid for the lifetime of this buffer
+     * resource.
+     */
+    [[nodiscard]] std::span<MemoryType const> addressable_memory_types() const noexcept {
+        return addressable_memory_types_;
+    }
+
   private:
     /** @brief Private constructor, use `create()` or `from_options()`. */
     BufferResource(
@@ -720,6 +828,8 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     std::shared_ptr<Statistics> statistics_;
     Duration memory_reserve_timeout_;
     AllowOverbooking allow_overbooking_by_default_;
+    std::vector<MemoryType> spill_target_memory_types_;
+    std::vector<MemoryType> addressable_memory_types_;
 };
 
 static_assert(StatisticsProvider<BufferResource>);
