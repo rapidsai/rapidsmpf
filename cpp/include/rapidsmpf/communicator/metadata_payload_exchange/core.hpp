@@ -54,7 +54,9 @@ namespace rapidsmpf::communicator {
  *   forced: the allocator is called with `AllocationMode::MUST_SUCCEED` and must
  *   return a buffer or throw. An exception thrown by the allocator propagates out of
  *   `progress()` and is a fatal, unrecoverable error: the exchange can't be used
- *   afterwards. Only one message is forced per timeout.
+ *   afterwards. Only one message is forced per timeout. The timeout measures time
+ *   without any successful allocation, not how long a single message has waited, so
+ *   a message can wait longer while other allocations keep succeeding.
  * - The order in which pending allocations are retried is implementation defined.
  */
 class MetadataPayloadExchange {

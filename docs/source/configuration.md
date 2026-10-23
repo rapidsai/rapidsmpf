@@ -86,7 +86,9 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
     memory, even beyond the host memory limit, if `allow_overbooking_by_default`
     allows it, and fails with an error otherwise. Only one payload is forced per
     timeout, so under sustained memory pressure N waiting payloads take about N
-    timeouts to get their buffers.
+    timeouts to get their buffers. Receive buffers only have to wait when host
+    memory is limited too (see `spill_host_limit`), since otherwise they always fit
+    in host memory.
 
 - **`allow_overbooking_by_default`**
   - **Environment Variable**: `RAPIDSMPF_ALLOW_OVERBOOKING_BY_DEFAULT`
