@@ -55,7 +55,8 @@ namespace rapidsmpf::communicator {
  * - If no allocation succeeds within `allocation_timeout`, one pending message is
  *   forced: the allocator is called with `AllocationMode::MUST_SUCCEED` and must
  *   return a buffer or throw. An exception thrown by the allocator propagates out of
- *   `progress()`. Only one message is forced per timeout.
+ *   `progress()` and is a fatal, unrecoverable error: the exchange can't be used
+ *   afterwards. Only one message is forced per timeout.
  * - The order in which pending allocations are retried is implementation defined.
  */
 class MetadataPayloadExchange {
@@ -76,7 +77,8 @@ class MetadataPayloadExchange {
      * With `AllocationMode::MAY_FAIL`, it may return `nullptr` when memory is not
      * available right now. With `AllocationMode::MUST_SUCCEED`, it must return a
      * buffer, for example by overbooking memory, or throw if its policy does not allow
-     * forcing an allocation.
+     * forcing an allocation. Throwing is a fatal, unrecoverable error, so only throw as
+     * the very last resort.
      */
     using AllocateBufferFn =
         std::function<std::unique_ptr<Buffer>(std::size_t, AllocationMode)>;

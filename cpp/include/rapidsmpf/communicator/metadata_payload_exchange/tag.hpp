@@ -78,7 +78,8 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      * peer waits for a buffer, later messages from that peer wait behind it.
      *
      * Any exception thrown by the receive buffer allocator, for example when it is not
-     * allowed to force an allocation, propagates out of this function.
+     * allowed to force an allocation, propagates out of this function and is a fatal,
+     * unrecoverable error.
      */
     void progress() override;
 
