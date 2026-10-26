@@ -8,12 +8,14 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/communicator/metadata_payload_exchange/core.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
@@ -64,8 +66,10 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      * Returns `ADDRESSABLE_MEMORY_TYPES` for every remote rank.
      */
     [[nodiscard]] std::span<MemoryType const> sendable_memory_types(
-        Rank dst
-    ) const override;
+        [[maybe_unused]] Rank dst
+    ) const override {
+        return ADDRESSABLE_MEMORY_TYPES;
+    }
 
     // clang-format off
     /**

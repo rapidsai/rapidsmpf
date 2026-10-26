@@ -41,12 +41,6 @@ TagMetadataPayloadExchange::TagMetadataPayloadExchange(
     statistics_ = br_->statistics();
 }
 
-std::span<MemoryType const> TagMetadataPayloadExchange::sendable_memory_types(
-    Rank
-) const {
-    return ADDRESSABLE_MEMORY_TYPES;
-}
-
 void TagMetadataPayloadExchange::send(
     std::unique_ptr<MetadataPayloadExchange::Message> message
 ) {

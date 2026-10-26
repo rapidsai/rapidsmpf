@@ -10,6 +10,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 
 #include <rapidsmpf/coll/allgather.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
@@ -44,6 +45,11 @@ void AllGather::insert(std::unique_ptr<detail::Chunk> chunk) {
     RAPIDSMPF_EXPECTS(
         !locally_finished_.load(std::memory_order_acquire),
         "Can't insert after locally indicating finished"
+    );
+    RAPIDSMPF_EXPECTS(
+        comm_->nranks() == 1 || contains(ADDRESSABLE_MEMORY_TYPES, chunk->memory_type()),
+        "the chunk's memory type is not sendable",
+        std::logic_error
     );
     inserted_.insert(std::move(chunk));
 }
