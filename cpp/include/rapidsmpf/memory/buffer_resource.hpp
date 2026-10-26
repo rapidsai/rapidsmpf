@@ -14,6 +14,7 @@
 #include <mutex>
 #include <optional>
 #include <ranges>
+#include <span>
 #include <unordered_map>
 #include <utility>
 
@@ -27,6 +28,7 @@
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/host_memory_resource.hpp>
 #include <rapidsmpf/memory/memory_reservation.hpp>
+#include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/memory/resource_types.hpp>
 #include <rapidsmpf/memory/spill_manager.hpp>
@@ -596,6 +598,28 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      */
     std::unique_ptr<Buffer> move(
         std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
+    );
+
+    /**
+     * @brief Move a buffer into the last memory type of @p accepted, unless it is
+     * already in one of @p accepted.
+     *
+     * The last memory type is overbooked if it doesn't fit and
+     * `allow_overbooking_by_default()` allows it. The move may block the calling
+     * thread.
+     *
+     * @param buffer The buffer. Must not be `nullptr`.
+     * @param accepted The accepted memory types in decreasing order of preference.
+     * Must not be empty.
+     * @return @p buffer, unchanged if it is already in one of @p accepted, otherwise
+     * moved into the last memory type of @p accepted.
+     *
+     * @throws std::invalid_argument If @p buffer is `nullptr` or @p accepted is empty.
+     * @throws rapidsmpf::reservation_error If @p buffer must be moved, the last memory
+     * type doesn't fit, and overbooking is not allowed.
+     */
+    [[nodiscard]] std::unique_ptr<Buffer> ensure_memory_type(
+        std::unique_ptr<Buffer> buffer, std::span<MemoryType const> accepted
     );
 
     /**

@@ -20,7 +20,6 @@
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
-#include <rapidsmpf/memory/spill.hpp>
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/shuffler/chunk.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
@@ -389,8 +388,8 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
         if (Rank const dst_rank = partition_owner(comm_, pid, total_num_partitions);
             dst_rank != comm_->rank())
         {
-            packed_data.data = ensure_memory_type(
-                std::move(packed_data.data), mpe_->sendable_memory_types(dst_rank), br_
+            packed_data.data = br_->ensure_memory_type(
+                std::move(packed_data.data), mpe_->sendable_memory_types(dst_rank)
             );
         }
 

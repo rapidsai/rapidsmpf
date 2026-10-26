@@ -15,7 +15,6 @@
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
-#include <rapidsmpf/memory/spill.hpp>
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/utils/misc.hpp>
@@ -25,8 +24,8 @@ namespace rapidsmpf::coll {
 void AllGather::insert(std::uint64_t sequence_number, PackedData&& packed_data) {
     // With more than one rank, the data is sent, so it must be in a sendable memory type.
     if (comm_->nranks() > 1) {
-        packed_data.data = ensure_memory_type(
-            std::move(packed_data.data), ADDRESSABLE_MEMORY_TYPES, br_
+        packed_data.data = br_->ensure_memory_type(
+            std::move(packed_data.data), ADDRESSABLE_MEMORY_TYPES
         );
     }
     nlocal_insertions_.fetch_add(1, std::memory_order_relaxed);

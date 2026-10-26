@@ -198,8 +198,8 @@ class Shuffler {
      * @brief Insert a bunch of packed (serialized) chunks into the shuffle.
      *
      * Chunks for partitions owned by another rank that are not in a memory type that
-     * can be sent, such as disk-backed chunks, are moved with `ensure_memory_type()`
-     * first, which may block.
+     * can be sent, such as disk-backed chunks, are moved with
+     * `BufferResource::ensure_memory_type()` first, which may block.
      *
      * @note Concurrent insertion by multiple threads is supported, the caller must ensure
      * that `insert_finished()` is called _after_ all `insert()` calls have completed.

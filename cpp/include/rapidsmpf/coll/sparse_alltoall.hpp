@@ -100,7 +100,7 @@ class SparseAlltoall {
      * order on the receive side is unspecified.
      *
      * Data that is not in a memory type that can be sent, such as disk-backed data,
-     * is moved with `ensure_memory_type()` first, which may block.
+     * is moved with `BufferResource::ensure_memory_type()` first, which may block.
      *
      * @note Concurrent insertion by multiple threads is supported.
      *

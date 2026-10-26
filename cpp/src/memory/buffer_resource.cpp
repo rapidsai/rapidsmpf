@@ -409,6 +409,30 @@ std::unique_ptr<Buffer> BufferResource::move(
     return ret;
 }
 
+std::unique_ptr<Buffer> BufferResource::ensure_memory_type(
+    std::unique_ptr<Buffer> buffer, std::span<MemoryType const> accepted
+) {
+    RAPIDSMPF_EXPECTS(
+        buffer != nullptr, "the buffer pointer cannot be NULL", std::invalid_argument
+    );
+    RAPIDSMPF_EXPECTS(
+        !accepted.empty(),
+        "the accepted memory types cannot be empty",
+        std::invalid_argument
+    );
+    if (contains(accepted, buffer->mem_type())) {
+        return buffer;
+    }
+    auto [res, _] =
+        reserve(accepted.back(), buffer->size, allow_overbooking_by_default());
+    RAPIDSMPF_EXPECTS(
+        res.size() == buffer->size,
+        "cannot reserve memory to move the buffer and overbooking is not allowed",
+        rapidsmpf::reservation_error
+    );
+    return move(std::move(buffer), res);
+}
+
 std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
     std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
 ) {
