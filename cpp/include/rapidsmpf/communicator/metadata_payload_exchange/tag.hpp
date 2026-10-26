@@ -5,8 +5,7 @@
 #pragma once
 
 #include <cstdint>
-#include <deque>
-#include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <unordered_map>
@@ -153,61 +152,6 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
         }
     };
 
-    // Core communication infrastructure
-    std::shared_ptr<Communicator> comm_;
-    Rank const nranks_;
-    Rank const rank_;
-    // Peers in increasing order.
-    std::vector<Rank> const peers_;
-    // Whether a rank is a peer, indexed by Rank.
-    std::vector<bool> is_peer_;
-    Tag const metadata_tag_;
-    Tag const gpu_data_tag_;
-    AllocateBufferFn allocate_buffer_fn_;
-    Duration const allocation_timeout_;
-    BufferResource* br_;
-    bool const move_forced_receives_to_disk_;
-
-    // Receive buffer allocation state:
-    // - `num_awaiting_buffer_`: messages waiting for a buffer, per peer (by Rank).
-    // - `total_awaiting_buffer_`: sum of `num_awaiting_buffer_`.
-    // - `allocation_stall_start_`: start of the current period without a successful
-    //   receive buffer allocation, set while at least one message is waiting.
-    // - `next_arrival_`: arrival counter for incoming messages.
-    std::vector<std::size_t> num_awaiting_buffer_;
-    std::size_t total_awaiting_buffer_{0};
-    std::optional<Clock::time_point> allocation_stall_start_{};
-    std::uint64_t next_arrival_{0};
-
-    // Per-peer tracking for op_id reuse (see rapidsai/rapidsmpf#927).
-    // After finish() is called, termination markers are exchanged so each peer
-    // knows exactly how many application messages to expect. recv_from is used
-    // instead of recv_any to avoid consuming messages from a future collective.
-    bool finished_{false};
-    std::vector<std::size_t>
-        messages_sent_to_;  ///< Application messages sent per peer, indexed by Rank.
-    std::vector<std::size_t>
-        peer_received_;  ///< Application messages received per peer, indexed by Rank.
-    std::vector<std::size_t>
-        peer_expected_;  ///< Expected application messages per peer (0 = unknown).
-    std::vector<bool>
-        peer_terminated_;  ///< Whether we received the termination marker from each peer.
-
-    /// Sentinel message_id value used to identify protocol-level termination markers.
-    static constexpr std::uint64_t termination_sentinel_ = UINT64_MAX;
-
-    // Ongoing "fire-and-forget" operations (non-blocking sends).
-    std::vector<std::unique_ptr<Communicator::Future>> fire_and_forget_;
-    // Messages ready to be received, grouped by rank.
-    std::unordered_map<Rank, std::vector<TagMessage>> incoming_messages_;
-    // Messages currently in transit, grouped by rank in order.
-    std::unordered_map<Rank, std::vector<TagMessage>> in_transit_messages_;
-    // Futures corresponding to in-transit messages.
-    std::unordered_map<std::uint64_t, std::unique_ptr<Communicator::Future>>
-        in_transit_futures_;
-    // Messages that have completed and are ready to be retrieved.
-    std::vector<std::unique_ptr<Message>> received_messages_;
-
     /// @brief A sent message whose payload is returned once the send completes.
     struct ReturningSend {
         // The message, without its payload.
@@ -216,8 +160,85 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
         std::unique_ptr<Communicator::Future> future;
     };
 
-    // Sends whose payload is returned, grouped by rank in order.
-    std::unordered_map<Rank, std::deque<ReturningSend>> returning_sends_;
+    /// @brief The communication state of a single peer.
+    struct PeerState {
+        // Received messages waiting for their data receive to be set up, in order.
+        std::vector<TagMessage> incoming;
+        // Messages whose data is in transit, in order.
+        std::vector<TagMessage> in_transit;
+        // Sends whose payload is returned, in send order.
+        std::vector<ReturningSend> returning_sends;
+        // Messages in `incoming` waiting for a receive buffer.
+        std::size_t num_awaiting_buffer{0};
+        // Application messages sent to the peer.
+        std::size_t messages_sent{0};
+        // Application messages received from the peer.
+        std::size_t messages_received{0};
+        // Application messages sent by the peer, known once `terminated` is set.
+        std::size_t messages_expected{0};
+        // Whether the termination marker of the peer has been received.
+        bool terminated{false};
+
+        /**
+         * @brief Whether all messages from the peer have been received.
+         *
+         * @return True if the termination marker and all messages it announced have
+         * been received.
+         */
+        [[nodiscard]] bool received_all() const noexcept {
+            return terminated && messages_received >= messages_expected;
+        }
+
+        /**
+         * @brief Whether no message to or from the peer is in progress.
+         *
+         * @return True if no message is waiting, in transit or being returned.
+         */
+        [[nodiscard]] bool io_idle() const noexcept {
+            return incoming.empty() && in_transit.empty() && returning_sends.empty();
+        }
+    };
+
+    // Core communication infrastructure
+    std::shared_ptr<Communicator> comm_;
+    Rank const nranks_;
+    Rank const rank_;
+    Tag const metadata_tag_;
+    Tag const gpu_data_tag_;
+    AllocateBufferFn allocate_buffer_fn_;
+    Duration const allocation_timeout_;
+    BufferResource* br_;
+    bool const move_forced_receives_to_disk_;
+
+    // The state of each peer.
+    std::map<Rank, PeerState> peers_;
+
+    // Receive buffer allocation state:
+    // - `total_awaiting_buffer_`: messages waiting for a buffer, over all peers.
+    // - `allocation_stall_start_`: start of the current period without a successful
+    //   receive buffer allocation, set while at least one message is waiting.
+    // - `next_arrival_`: arrival counter for incoming messages.
+    std::size_t total_awaiting_buffer_{0};
+    std::optional<Clock::time_point> allocation_stall_start_{};
+    std::uint64_t next_arrival_{0};
+
+    // Whether `finish()` has been called. After that, termination markers are
+    // exchanged so each peer knows exactly how many application messages to expect,
+    // which makes it safe to reuse op_id (see rapidsai/rapidsmpf#927). recv_from is
+    // used instead of recv_any to avoid consuming messages from a future collective.
+    bool finished_{false};
+
+    /// Sentinel message_id value used to identify protocol-level termination markers.
+    static constexpr std::uint64_t termination_sentinel_ = UINT64_MAX;
+
+    // Ongoing "fire-and-forget" operations (non-blocking sends).
+    std::vector<std::unique_ptr<Communicator::Future>> fire_and_forget_;
+    // Futures corresponding to in-transit messages.
+    std::unordered_map<std::uint64_t, std::unique_ptr<Communicator::Future>>
+        in_transit_futures_;
+    // Messages that have completed and are ready to be retrieved.
+    std::vector<std::unique_ptr<Message>> received_messages_;
+
     // Sent messages ready to be returned by `release_sent()`.
     std::vector<std::unique_ptr<Message>> sent_messages_;
 
