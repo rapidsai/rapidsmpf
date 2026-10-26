@@ -691,6 +691,16 @@ TEST_F(MetadataPayloadExchangeTest, KeepsForcedReceiveInMemoryWithoutDiskSpace) 
     wait_for_communication_complete();
 }
 
+TEST_F(MetadataPayloadExchangeTest, SendableMemoryTypes) {
+    for (Rank rank = 0; rank < comm->nranks(); ++rank) {
+        EXPECT_TRUE(
+            std::ranges::equal(
+                comm_interface->sendable_memory_types(rank), ADDRESSABLE_MEMORY_TYPES
+            )
+        );
+    }
+}
+
 TEST_F(MetadataPayloadExchangeTest, RejectsDiskBackedSend) {
     Rank next_rank = (comm->rank() + 1) % comm->nranks();
 

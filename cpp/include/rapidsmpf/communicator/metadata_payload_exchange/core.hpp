@@ -7,11 +7,13 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <span>
 #include <vector>
 
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/statistics.hpp>
 
 namespace rapidsmpf::communicator {
@@ -29,7 +31,8 @@ namespace rapidsmpf::communicator {
  * may leverage specialized features beyond the basic `Communicator` API to further
  * optimize this communication pattern.
  *
- * @note This class is not thread-safe. All methods must be called from the same thread.
+ * @note This class is not thread-safe. All methods except `sendable_memory_types()` must
+ * be called from the same thread.
  *
  * @note All concrete implementations are expected to provide a constructor with
  * the following signature:
@@ -65,7 +68,7 @@ namespace rapidsmpf::communicator {
  *   received messages may be disk-backed. The move blocks `progress()` while the
  *   payload is written. Without a disk resource, the payload is delivered in the
  *   forced buffer.
- * - Sending disk-backed payloads is not supported.
+ * - Only payloads in `sendable_memory_types()` of their destination can be sent.
  */
 class MetadataPayloadExchange {
   public:
@@ -175,6 +178,20 @@ class MetadataPayloadExchange {
     };
 
     virtual ~MetadataPayloadExchange() = default;
+
+    /**
+     * @brief Get the memory types of payloads that can be sent to a remote rank.
+     *
+     * Callers must only send payloads in one of these memory types. The result
+     * includes at least `ADDRESSABLE_MEMORY_TYPES`, is fixed at construction, and this
+     * method may be called from any thread.
+     *
+     * @param dst The destination rank.
+     * @return The sendable memory types in decreasing order of preference.
+     */
+    [[nodiscard]] virtual std::span<MemoryType const> sendable_memory_types(
+        Rank dst
+    ) const = 0;
 
     /**
      * @brief Send a single message to a remote rank.

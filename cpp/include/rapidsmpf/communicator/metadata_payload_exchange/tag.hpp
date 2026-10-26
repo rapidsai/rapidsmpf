@@ -8,12 +8,14 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/communicator/metadata_payload_exchange/core.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
@@ -53,9 +55,21 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      *
      * @throw std::runtime_error if a message is sent to itself or if an outgoing
      * message already exists.
-     * @throw std::invalid_argument if the message's payload is disk-backed.
+     * @throw std::invalid_argument if the message's payload is not in
+     * `sendable_memory_types()` of its destination.
      */
     void send(std::unique_ptr<Message> message) override;
+
+    /**
+     * @copydoc MetadataPayloadExchange::sendable_memory_types
+     *
+     * Returns `ADDRESSABLE_MEMORY_TYPES` for every remote rank.
+     */
+    [[nodiscard]] std::span<MemoryType const> sendable_memory_types(
+        [[maybe_unused]] Rank dst
+    ) const override {
+        return ADDRESSABLE_MEMORY_TYPES;
+    }
 
     // clang-format off
     /**
@@ -63,7 +77,8 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      *
      * @throw std::runtime_error if a message is sent to itself or if an outgoing
      * message already exists.
-     * @throw std::invalid_argument if a message's payload is disk-backed.
+     * @throw std::invalid_argument if a message's payload is not in
+     * `sendable_memory_types()` of its destination.
      */
     // clang-format on
     void send(std::vector<std::unique_ptr<Message>>&& messages) override;

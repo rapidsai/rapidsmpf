@@ -197,13 +197,17 @@ class Shuffler {
     /**
      * @brief Insert a bunch of packed (serialized) chunks into the shuffle.
      *
+     * Chunks for partitions owned by another rank that are not in a memory type that
+     * can be sent, such as disk-backed chunks, are moved with
+     * `BufferResource::ensure_memory_type()` first, which may block.
+     *
      * @note Concurrent insertion by multiple threads is supported, the caller must ensure
      * that `insert_finished()` is called _after_ all `insert()` calls have completed.
      *
      * @param chunks A map of partition IDs and their packed chunks.
      *
-     * @throws std::invalid_argument If a chunk for a partition owned by another rank
-     * is disk-backed.
+     * @throws rapidsmpf::reservation_error If a chunk must be moved, no memory is
+     * available, and overbooking is not allowed.
      */
     void insert(std::unordered_map<PartID, PackedData>&& chunks);
 
