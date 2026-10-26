@@ -5,6 +5,7 @@
 #pragma once
 
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -40,6 +41,8 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      * @param allocation_timeout Progress timeout for receive buffer allocations.
      * @param br Buffer resource used to move payloads to disk and whose statistics track
      * communication operations. Must not be `nullptr`.
+     * @param move_forced_receives_to_disk Whether the payload of a message whose receive
+     * buffer was forced is moved to disk, when @p br has a disk resource.
      *
      * @throws std::out_of_range If a peer is not a rank of @p comm.
      * @throws std::invalid_argument If @p peers contains the calling rank or duplicates.
@@ -50,7 +53,8 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
         std::vector<Rank> peers,
         AllocateBufferFn allocate_buffer_fn,
         Duration allocation_timeout,
-        BufferResource* br
+        BufferResource* br,
+        bool move_forced_receives_to_disk = true
     );
 
     /**
@@ -96,6 +100,11 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      * @copydoc MetadataPayloadExchange::recv
      */
     std::vector<std::unique_ptr<Message>> recv() override;
+
+    /**
+     * @copydoc MetadataPayloadExchange::release_sent
+     */
+    std::vector<std::unique_ptr<Message>> release_sent() override;
 
     /**
      * @copydoc MetadataPayloadExchange::finish
@@ -157,6 +166,7 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
     AllocateBufferFn allocate_buffer_fn_;
     Duration const allocation_timeout_;
     BufferResource* br_;
+    bool const move_forced_receives_to_disk_;
 
     // Receive buffer allocation state:
     // - `num_awaiting_buffer_`: messages waiting for a buffer, per peer (by Rank).
@@ -186,19 +196,30 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
     /// Sentinel message_id value used to identify protocol-level termination markers.
     static constexpr std::uint64_t termination_sentinel_ = UINT64_MAX;
 
-    // Communication state containers
-    std::vector<std::unique_ptr<Communicator::Future>>
-        fire_and_forget_;  ///< Ongoing "fire-and-forget" operations (non-blocking sends).
-    std::unordered_map<Rank, std::vector<TagMessage>>
-        incoming_messages_;  ///< Messages ready to be received, grouped by rank.
-    std::unordered_map<Rank, std::vector<TagMessage>>
-        in_transit_messages_;  ///< Messages currently in transit, grouped by rank in
-                               ///< order.
+    // Ongoing "fire-and-forget" operations (non-blocking sends).
+    std::vector<std::unique_ptr<Communicator::Future>> fire_and_forget_;
+    // Messages ready to be received, grouped by rank.
+    std::unordered_map<Rank, std::vector<TagMessage>> incoming_messages_;
+    // Messages currently in transit, grouped by rank in order.
+    std::unordered_map<Rank, std::vector<TagMessage>> in_transit_messages_;
+    // Futures corresponding to in-transit messages.
     std::unordered_map<std::uint64_t, std::unique_ptr<Communicator::Future>>
-        in_transit_futures_;  ///< Futures corresponding to in-transit messages.
-    std::vector<std::unique_ptr<Message>>
-        received_messages_;  ///< Messages that have completed and are ready to be
-                             ///< retrieved.
+        in_transit_futures_;
+    // Messages that have completed and are ready to be retrieved.
+    std::vector<std::unique_ptr<Message>> received_messages_;
+
+    /// @brief A sent message whose payload is returned once the send completes.
+    struct ReturningSend {
+        // The message, without its payload.
+        std::unique_ptr<Message> message;
+        // The payload send, or `nullptr` for a message without payload.
+        std::unique_ptr<Communicator::Future> future;
+    };
+
+    // Sends whose payload is returned, grouped by rank in order.
+    std::unordered_map<Rank, std::deque<ReturningSend>> returning_sends_;
+    // Sent messages ready to be returned by `release_sent()`.
+    std::vector<std::unique_ptr<Message>> sent_messages_;
 
     // Statistics tracking
     std::shared_ptr<Statistics> statistics_;
@@ -270,6 +291,11 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      * @brief Cleanup completed operations (fire-and-forget sends and receives).
      */
     void cleanup_completed_operations();
+
+    /**
+     * @brief Move completed sends whose payload is returned to `sent_messages_`.
+     */
+    void complete_returning_sends();
 };
 
 

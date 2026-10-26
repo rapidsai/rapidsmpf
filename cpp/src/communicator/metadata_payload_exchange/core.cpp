@@ -10,9 +10,15 @@
 namespace rapidsmpf::communicator {
 
 MetadataPayloadExchange::Message::Message(
-    Rank peer_rank, std::vector<std::uint8_t>&& metadata, std::unique_ptr<Buffer> data
+    Rank peer_rank,
+    std::vector<std::uint8_t>&& metadata,
+    std::unique_ptr<Buffer> data,
+    ReturnPayload return_payload
 )
-    : peer_rank_(peer_rank), metadata_(std::move(metadata)), data_(std::move(data)) {}
+    : peer_rank_(peer_rank),
+      metadata_(std::move(metadata)),
+      data_(std::move(data)),
+      return_payload_(return_payload) {}
 
 Buffer const* MetadataPayloadExchange::Message::data() const {
     return data_.get();
@@ -42,5 +48,24 @@ std::vector<Rank> all_remote_ranks(Communicator const& comm) {
     return ret;
 }
 
+std::unique_ptr<Buffer> default_allocate_buffer(
+    BufferResource* br, std::size_t size, MetadataPayloadExchange::AllocationMode mode
+) {
+    auto res = br->try_reserve(size, ADDRESSABLE_MEMORY_TYPES);
+    if (!res.has_value()) {
+        if (mode == MetadataPayloadExchange::AllocationMode::MAY_FAIL) {
+            return nullptr;
+        }
+        RAPIDSMPF_EXPECTS(
+            br->allow_overbooking_by_default() == AllowOverbooking::YES,
+            "receive buffer allocation made no progress within the allocation timeout "
+            "and overbooking is not allowed",
+            std::runtime_error
+        );
+        // Fall back to overbooking host memory as a last resort.
+        res = br->reserve(MemoryType::HOST, size, AllowOverbooking::YES).first;
+    }
+    return br->make_buffer(br->stream_pool()->get_stream(), std::move(*res));
+}
 
 }  // namespace rapidsmpf::communicator

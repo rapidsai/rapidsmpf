@@ -23,7 +23,8 @@ TagMetadataPayloadExchange::TagMetadataPayloadExchange(
     std::vector<Rank> peers,
     AllocateBufferFn allocate_buffer_fn,
     Duration allocation_timeout,
-    BufferResource* br
+    BufferResource* br,
+    bool move_forced_receives_to_disk
 )
     : comm_(std::move(comm)),
       nranks_(comm_->nranks()),
@@ -38,6 +39,7 @@ TagMetadataPayloadExchange::TagMetadataPayloadExchange(
       allocate_buffer_fn_(std::move(allocate_buffer_fn)),
       allocation_timeout_(allocation_timeout),
       br_(br),
+      move_forced_receives_to_disk_(move_forced_receives_to_disk),
       num_awaiting_buffer_(safe_cast<std::size_t>(nranks_), 0),
       messages_sent_to_(safe_cast<std::size_t>(nranks_), 0),
       peer_received_(safe_cast<std::size_t>(nranks_), 0),
@@ -133,10 +135,16 @@ void TagMetadataPayloadExchange::send(
         );
 
         // Send data immediately after metadata (if any)
+        std::unique_ptr<Communicator::Future> payload_future;
         if (payload_size > 0) {
-            fire_and_forget_.push_back(
-                comm_->send(message->release_data(), dst, gpu_data_tag_)
+            payload_future = comm_->send(message->release_data(), dst, gpu_data_tag_);
+        }
+        if (message->return_payload() == ReturnPayload::YES) {
+            returning_sends_[dst].push_back(
+                {std::move(message), std::move(payload_future)}
             );
+        } else if (payload_future) {
+            fire_and_forget_.push_back(std::move(payload_future));
         }
     }
 
@@ -158,6 +166,7 @@ void TagMetadataPayloadExchange::progress() {
     std::ranges::move(completed_data, std::back_inserter(received_messages_));
 
     cleanup_completed_operations();
+    complete_returning_sends();
 
     statistics_->add_duration_stat(
         "metadata-payload-exchange-progress", Clock::now() - t0
@@ -168,6 +177,11 @@ std::vector<std::unique_ptr<MetadataPayloadExchange::Message>>
 TagMetadataPayloadExchange::recv() {
     // Move all completed messages to the caller
     return std::move(received_messages_);
+}
+
+std::vector<std::unique_ptr<MetadataPayloadExchange::Message>>
+TagMetadataPayloadExchange::release_sent() {
+    return std::move(sent_messages_);
 }
 
 void TagMetadataPayloadExchange::finish() {
@@ -195,7 +209,8 @@ void TagMetadataPayloadExchange::finish() {
 
 bool TagMetadataPayloadExchange::is_idle() const {
     bool const io_idle = fire_and_forget_.empty() && incoming_messages_.empty()
-                         && in_transit_messages_.empty() && in_transit_futures_.empty();
+                         && in_transit_messages_.empty() && in_transit_futures_.empty()
+                         && returning_sends_.empty();
     if (!finished_) {
         return io_idle;
     }
@@ -428,7 +443,7 @@ TagMetadataPayloadExchange::complete_data_transfers() {
                     auto future = std::move(future_it->second);
                     auto received_buffer = comm_->release_data(std::move(future));
 
-                    if (tag_msg.forced_allocation) {
+                    if (tag_msg.forced_allocation && move_forced_receives_to_disk_) {
                         try_move_to_disk(received_buffer);
                     }
                     tag_msg.message->set_data(std::move(received_buffer));
@@ -466,7 +481,7 @@ bool TagMetadataPayloadExchange::try_attach_receive_buffer(
     RAPIDSMPF_EXPECTS(
         tag_msg.is_awaiting_buffer(), "message is not waiting for a buffer"
     );
-    auto buffer = allocate_buffer_fn_(tag_msg.expected_payload_size, mode);
+    auto buffer = allocate_buffer_fn_(br_, tag_msg.expected_payload_size, mode);
     if (buffer == nullptr) {
         RAPIDSMPF_EXPECTS(
             mode == AllocationMode::MAY_FAIL,
@@ -536,5 +551,27 @@ void TagMetadataPayloadExchange::cleanup_completed_operations() {
     }
 }
 
+void TagMetadataPayloadExchange::complete_returning_sends() {
+    for (auto it = returning_sends_.begin(); it != returning_sends_.end();) {
+        auto& sends = it->second;
+        // Return messages in send order, stopping at the first incomplete one.
+        while (!sends.empty()) {
+            auto& front = sends.front();
+            if (front.future != nullptr) {
+                if (!comm_->test(front.future)) {
+                    break;
+                }
+                front.message->set_data(comm_->release_data(std::move(front.future)));
+            }
+            sent_messages_.push_back(std::move(front.message));
+            sends.pop_front();
+        }
+        if (sends.empty()) {
+            it = returning_sends_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
 
 }  // namespace rapidsmpf::communicator

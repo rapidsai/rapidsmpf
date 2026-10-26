@@ -42,7 +42,7 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
         stream = cuda::stream_ref{cudaStreamLegacy};
 
         reset_exchange(
-            [this](std::size_t size, AllocationMode) {
+            [this](BufferResource*, std::size_t size, AllocationMode) {
                 return allocate_receive_buffer(size);
             },
             std::chrono::hours{1}
@@ -57,7 +57,8 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
         Duration allocation_timeout,
         OpID op_id = OpID{42},
         BufferResource* exchange_br = nullptr,
-        std::optional<std::vector<Rank>> peers = std::nullopt
+        std::optional<std::vector<Rank>> peers = std::nullopt,
+        bool move_forced_receives_to_disk = true
     ) {
         comm_interface.reset();
         comm_interface = std::make_unique<TagMetadataPayloadExchange>(
@@ -66,7 +67,8 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
             peers.value_or(all_remote_ranks(*GlobalEnvironment->comm_)),
             std::move(allocate_fn),
             allocation_timeout,
-            exchange_br != nullptr ? exchange_br : br.get()
+            exchange_br != nullptr ? exchange_br : br.get(),
+            move_forced_receives_to_disk
         );
     }
 
@@ -475,7 +477,9 @@ TEST_F(MetadataPayloadExchangeTest, RetriesDeferredAllocation) {
     std::vector<std::size_t> requested_sizes;
     int num_overbooked{0};
     reset_exchange(
-        [&](std::size_t size, AllocationMode mode) -> std::unique_ptr<Buffer> {
+        [&](BufferResource*,
+            std::size_t size,
+            AllocationMode mode) -> std::unique_ptr<Buffer> {
             if (mode == AllocationMode::MUST_SUCCEED) {
                 ++num_overbooked;
             }
@@ -523,7 +527,9 @@ TEST_F(MetadataPayloadExchangeTest, OverbooksOnTimeout) {
     // wait for the timeout and is then overbooked, one at a time, in order.
     int num_overbooked{0};
     reset_exchange(
-        [&](std::size_t size, AllocationMode mode) -> std::unique_ptr<Buffer> {
+        [&](BufferResource*,
+            std::size_t size,
+            AllocationMode mode) -> std::unique_ptr<Buffer> {
             if (mode == AllocationMode::MAY_FAIL) {
                 return nullptr;
             }
@@ -565,7 +571,9 @@ TEST_F(MetadataPayloadExchangeTest, ThrowsOnTimeoutWithoutOverbooking) {
     // The allocator does not allow forcing an allocation, so it throws when forced.
     int num_forced{0};
     reset_exchange(
-        [&](std::size_t, AllocationMode mode) -> std::unique_ptr<Buffer> {
+        [&](BufferResource*,
+            std::size_t,
+            AllocationMode mode) -> std::unique_ptr<Buffer> {
             if (mode == AllocationMode::MUST_SUCCEED) {
                 ++num_forced;
                 throw std::runtime_error("forcing an allocation is not allowed");
@@ -619,7 +627,9 @@ TEST_F(MetadataPayloadExchangeTest, MovesForcedReceiveToDisk) {
     // to disk. The later messages wait behind it, but their allocations never fail, so
     // they are never forced and stay in device memory.
     reset_exchange(
-        [&](std::size_t size, AllocationMode mode) -> std::unique_ptr<Buffer> {
+        [&](BufferResource*,
+            std::size_t size,
+            AllocationMode mode) -> std::unique_ptr<Buffer> {
             if (size == forced_size && mode == AllocationMode::MAY_FAIL) {
                 return nullptr;
             }
@@ -674,7 +684,9 @@ TEST_F(MetadataPayloadExchangeTest, KeepsForcedReceiveInMemoryWithoutDiskSpace) 
     TempDir temp_dir;
     auto disk_br = make_disk_br(temp_dir, 0);
     reset_exchange(
-        [&](std::size_t size, AllocationMode mode) -> std::unique_ptr<Buffer> {
+        [&](BufferResource*,
+            std::size_t size,
+            AllocationMode mode) -> std::unique_ptr<Buffer> {
             if (mode == AllocationMode::MAY_FAIL) {
                 return nullptr;
             }
@@ -725,7 +737,7 @@ TEST_F(MetadataPayloadExchangeTest, RejectsInvalidPeers) {
             GlobalEnvironment->comm_,
             OpID{44},
             std::move(peers),
-            [this](std::size_t size, AllocationMode) {
+            [this](BufferResource*, std::size_t size, AllocationMode) {
                 return allocate_receive_buffer(size);
             },
             std::chrono::hours{1},
@@ -747,7 +759,7 @@ TEST_F(MetadataPayloadExchangeTest, RejectsSendToNonPeer) {
     }
     Rank const next_rank = (comm->rank() + 1) % comm->nranks();
     reset_exchange(
-        [this](std::size_t size, AllocationMode) {
+        [this](BufferResource*, std::size_t size, AllocationMode) {
             return allocate_receive_buffer(size);
         },
         std::chrono::hours{1},
@@ -778,7 +790,7 @@ TEST_F(MetadataPayloadExchangeTest, RingPeers) {
         peers.push_back(prev_rank);
     }
     reset_exchange(
-        [this](std::size_t size, AllocationMode) {
+        [this](BufferResource*, std::size_t size, AllocationMode) {
             return allocate_receive_buffer(size);
         },
         std::chrono::hours{1},
@@ -816,7 +828,7 @@ TEST_F(MetadataPayloadExchangeTest, SparsePeers) {
         }
     }
     reset_exchange(
-        [this](std::size_t size, AllocationMode) {
+        [this](BufferResource*, std::size_t size, AllocationMode) {
             return allocate_receive_buffer(size);
         },
         std::chrono::hours{1},
@@ -845,4 +857,127 @@ TEST_F(MetadataPayloadExchangeTest, SparsePeers) {
     std::ranges::sort(sources);
     EXPECT_EQ(sources, peers);
     wait_for_communication_complete();
+}
+
+TEST_F(MetadataPayloadExchangeTest, ReturnsPayloadAfterSend) {
+    if (comm->nranks() < 2) {
+        GTEST_SKIP() << "Test requires at least 2 ranks";
+    }
+    Rank const next_rank = (comm->rank() + 1) % comm->nranks();
+    constexpr std::size_t data_size = 512;
+    using ReturnPayload = MetadataPayloadExchange::ReturnPayload;
+
+    // Messages 0 and 2 have a payload, message 1 has none, and message 3 is not
+    // returned.
+    auto const make_message = [&](std::uint8_t i, std::size_t size, ReturnPayload ret) {
+        auto msg = create_test_message(next_rank, {i}, size);
+        return std::make_unique<MetadataPayloadExchange::Message>(
+            next_rank, msg->release_metadata(), msg->release_data(), ret
+        );
+    };
+    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> messages;
+    messages.push_back(make_message(0, data_size, ReturnPayload::YES));
+    messages.push_back(make_message(1, 0, ReturnPayload::YES));
+    messages.push_back(make_message(2, 2 * data_size, ReturnPayload::YES));
+    messages.push_back(make_message(3, data_size, ReturnPayload::NO));
+    comm_interface->send(std::move(messages));
+
+    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> sent;
+    auto received = receive(4);
+    while (sent.size() < 3) {
+        comm_interface->progress();
+        std::ranges::move(comm_interface->release_sent(), std::back_inserter(sent));
+        std::this_thread::yield();
+    }
+    ASSERT_EQ(sent.size(), 3);
+    for (auto const& msg : sent) {
+        EXPECT_EQ(msg->peer_rank(), next_rank);
+        EXPECT_TRUE(msg->metadata().empty());
+    }
+    verify_data_content(sent[0]->data(), data_size);
+    EXPECT_EQ(sent[1]->data(), nullptr);
+    verify_data_content(sent[2]->data(), 2 * data_size);
+
+    ASSERT_EQ(received.size(), 4);
+    for (std::uint8_t i = 0; i < 4; ++i) {
+        EXPECT_EQ(received[i]->metadata(), std::vector{i});
+    }
+    wait_for_communication_complete();
+    EXPECT_TRUE(comm_interface->release_sent().empty());
+}
+
+TEST_F(MetadataPayloadExchangeTest, KeepsForcedReceiveInMemoryWhenDiskMoveDisabled) {
+    if (comm->nranks() < 2) {
+        GTEST_SKIP() << "Test requires at least 2 ranks";
+    }
+    Rank const next_rank = (comm->rank() + 1) % comm->nranks();
+    constexpr std::size_t data_size = 64;
+
+    TempDir temp_dir;
+    auto disk_br = make_disk_br(temp_dir);
+    reset_exchange(
+        [&](BufferResource*,
+            std::size_t size,
+            AllocationMode mode) -> std::unique_ptr<Buffer> {
+            if (mode == AllocationMode::MAY_FAIL) {
+                return nullptr;
+            }
+            return allocate_receive_buffer(size);
+        },
+        std::chrono::milliseconds{10},
+        OpID{42},
+        disk_br.get(),
+        std::nullopt,
+        false
+    );
+    GlobalEnvironment->barrier();
+
+    comm_interface->send(create_test_message(next_rank, {0x01}, data_size));
+    auto received = receive(1);
+    ASSERT_EQ(received.size(), 1);
+    EXPECT_EQ(received[0]->data()->mem_type(), MemoryType::DEVICE);
+    verify_data_content(received[0]->data(), data_size);
+    wait_for_communication_complete();
+}
+
+TEST_F(MetadataPayloadExchangeTest, DefaultAllocateBuffer) {
+    // With memory available, the allocation is made in device memory.
+    auto buffer = default_allocate_buffer(br.get(), 128, AllocationMode::MAY_FAIL);
+    ASSERT_NE(buffer, nullptr);
+    EXPECT_EQ(buffer->size, 128);
+    EXPECT_EQ(buffer->mem_type(), MemoryType::DEVICE);
+
+    // Without memory available, the allocation fails unless it must succeed, in which
+    // case host memory is overbooked.
+    auto const make_full_br = [&](AllowOverbooking allow_overbooking) {
+        return BufferResource::create(
+            *mr,
+            PinnedMemoryDisabled,
+            {{MemoryType::DEVICE, 0}, {MemoryType::HOST, 0}},
+            std::nullopt,
+            std::make_shared<StreamPool>(1),
+            Statistics::disabled(),
+            std::nullopt,
+            std::chrono::milliseconds{100},
+            allow_overbooking
+        );
+    };
+    auto full_br = make_full_br(AllowOverbooking::YES);
+    EXPECT_EQ(
+        default_allocate_buffer(full_br.get(), 128, AllocationMode::MAY_FAIL), nullptr
+    );
+    buffer = default_allocate_buffer(full_br.get(), 128, AllocationMode::MUST_SUCCEED);
+    ASSERT_NE(buffer, nullptr);
+    EXPECT_EQ(buffer->size, 128);
+    EXPECT_EQ(buffer->mem_type(), MemoryType::HOST);
+
+    auto strict_br = make_full_br(AllowOverbooking::NO);
+    EXPECT_EQ(
+        default_allocate_buffer(strict_br.get(), 128, AllocationMode::MAY_FAIL), nullptr
+    );
+    EXPECT_THROW(
+        std::ignore =
+            default_allocate_buffer(strict_br.get(), 128, AllocationMode::MUST_SUCCEED),
+        std::runtime_error
+    );
 }
