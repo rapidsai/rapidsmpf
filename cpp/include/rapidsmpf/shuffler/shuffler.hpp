@@ -266,11 +266,16 @@ class Shuffler {
      *  - If `amount` is not specified (the default case), it spills based on the
      *    current available device memory returned by the buffer resource.
      *
+     * @param mem_type The memory type to spill from. Only `MemoryType::DEVICE` is
+     * supported for now, other types spill nothing.
      * @param amount An optional amount of memory to spill. If not provided, the
      * function will check the current available device memory.
      * @return The amount of memory actually spilled.
      */
-    std::size_t spill(std::optional<std::size_t> amount = std::nullopt);
+    std::size_t spill(
+        MemoryType mem_type = MemoryType::DEVICE,
+        std::optional<std::size_t> amount = std::nullopt
+    );
 
     /**
      * @brief Returns a description of this instance.
