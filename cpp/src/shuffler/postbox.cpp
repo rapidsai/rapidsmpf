@@ -83,9 +83,11 @@ std::size_t ReceivedChunks::spill(BufferResource* br, std::size_t amount) {
             {
                 continue;
             }
-            auto reservation =
-                br->reserve_or_fail(size, spill_target_memory_types(MemoryType::DEVICE));
-            chunk.set_data_buffer(br->move(chunk.release_data_buffer(), reservation));
+            auto reservation = br->try_reserve(size, preference_lt(MemoryType::DEVICE));
+            if (!reservation) {
+                continue;  // No target has room, leave the chunk where it is.
+            }
+            chunk.set_data_buffer(br->move(chunk.release_data_buffer(), *reservation));
             if ((total_spilled += size) >= amount) {
                 break;
             }

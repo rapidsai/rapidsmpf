@@ -6,9 +6,12 @@
 
 #include <algorithm>
 #include <array>
+#include <initializer_list>
 #include <iostream>
 #include <ranges>
 #include <span>
+
+#include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf {
 
@@ -25,16 +28,129 @@ constexpr std::array MEMORY_TYPES{
     MemoryType::DEVICE, MemoryType::PINNED_HOST, MemoryType::HOST, MemoryType::DISK
 };
 
-/// @brief Memory types that expose an addressable host or device pointer.
-/// @note This is an ordered subset of `MEMORY_TYPES` based on decreasing preference.
-constexpr std::array ADDRESSABLE_MEMORY_TYPES{
-    MemoryType::DEVICE, MemoryType::PINNED_HOST, MemoryType::HOST
-};
-
 /// @brief Memory type names sorted to match `MemoryType` and `MEMORY_TYPES`.
 constexpr std::array<char const*, MEMORY_TYPES.size()> MEMORY_TYPE_NAMES{
     {"DEVICE", "PINNED_HOST", "HOST", "DISK"}
 };
+
+/**
+ * @brief Get the memory types with preference between @p from and @p to, inclusive.
+ *
+ * The returned span is a contiguous sub-range `[from, to]` of @p mem_types, which must
+ * list memory types in decreasing order of preference.
+ *
+ * @param from The most preferred memory type of the range.
+ * @param to The least preferred memory type of the range.
+ * @param mem_types The memory types to select from, `MEMORY_TYPES` by default.
+ * @return A span of memory types from @p from to @p to, empty if @p from is not in
+ * @p mem_types, @p to does not come at or after @p from, or either of them isn't a valid
+ * `MemoryType`.
+ */
+constexpr std::span<MemoryType const> preference_between(
+    MemoryType from, MemoryType to, std::span<MemoryType const> mem_types = MEMORY_TYPES
+) noexcept {
+    if (!contains(MEMORY_TYPES, from) || !contains(MEMORY_TYPES, to)) {
+        return {};
+    }
+    std::span<MemoryType const> const tail = std::views::drop_while(
+        mem_types, [&](MemoryType const& mt) { return mt != from; }
+    );
+    auto const to_it = std::ranges::find(tail, to);
+    // Build the span from iterators to avoid a signed to unsigned size conversion.
+    return to_it == tail.end() ? std::span<MemoryType const>{}
+                               : std::span<MemoryType const>{tail.begin(), to_it + 1};
+}
+
+/// @brief Memory types that expose an addressable host or device pointer.
+/// @note This is an ordered subset of `MEMORY_TYPES` based on decreasing preference.
+constexpr std::span<MemoryType const> ADDRESSABLE_MEMORY_TYPES =
+    preference_between(MemoryType::DEVICE, MemoryType::HOST);
+
+/**
+ * @brief Get the memory types with preference lower than or equal to @p mem_type.
+ *
+ * The returned span is a suffix of @p mem_types, which must list memory types in
+ * decreasing order of preference.
+ *
+ * @param mem_type The memory type used as the starting point.
+ * @param mem_types The memory types to select from, `ADDRESSABLE_MEMORY_TYPES` by
+ * default.
+ * @return A span of memory types whose preference is lower than or equal to
+ * the given type, empty if @p mem_type is not in @p mem_types.
+ */
+constexpr std::span<MemoryType const> preference_leq(
+    MemoryType mem_type, std::span<MemoryType const> mem_types = ADDRESSABLE_MEMORY_TYPES
+) noexcept {
+    return mem_types.empty() ? mem_types
+                             : preference_between(mem_type, mem_types.back(), mem_types);
+}
+
+/**
+ * @brief Get the memory types that data in @p mem_type may be spilled to.
+ *
+ * The targets are the memory types with a lower preference than @p mem_type, in
+ * decreasing order of preference. A target may be unavailable at runtime, e.g. when no
+ * pinned memory resource or disk resource is configured.
+ *
+ * @param mem_type The memory type to spill from.
+ * @param mem_types The memory types to select from, in decreasing order of preference,
+ * `MEMORY_TYPES` by default.
+ * @return A span of spill target memory types, empty if @p mem_type cannot be spilled.
+ */
+constexpr std::span<MemoryType const> preference_lt(
+    MemoryType mem_type, std::span<MemoryType const> mem_types = MEMORY_TYPES
+) noexcept {
+    auto const leq = preference_leq(mem_type, mem_types);
+    return leq.empty() ? leq : leq.subspan(1);  // Drop `mem_type` itself.
+}
+
+namespace detail::memory_type_tests {
+using enum MemoryType;
+
+// `std::ranges::equal` cannot deduce a braced list, so wrap it.
+constexpr bool equal(
+    std::span<MemoryType const> actual, std::initializer_list<MemoryType> expected
+) {
+    return std::ranges::equal(actual, expected);
+}
+
+// preference_between
+static_assert(
+    equal(preference_between(PINNED_HOST, HOST, MEMORY_TYPES), {PINNED_HOST, HOST})
+);
+static_assert(equal(preference_between(HOST, HOST, MEMORY_TYPES), {HOST}));
+// `to` > `from` --> empty
+static_assert(preference_between(HOST, DEVICE, MEMORY_TYPES).empty());
+static_assert(preference_between(HOST, HOST, std::span<MemoryType>{}).empty());
+// an unknown `from` or `to` should return an empty view, even if `mem_types` holds it
+constexpr auto UNKNOWN = static_cast<MemoryType>(-1);
+constexpr std::array with_unknown{DEVICE, UNKNOWN, HOST};
+static_assert(preference_between(UNKNOWN, HOST, with_unknown).empty());
+static_assert(preference_between(UNKNOWN, HOST, MEMORY_TYPES).empty());
+static_assert(preference_between(HOST, UNKNOWN, MEMORY_TYPES).empty());
+static_assert(preference_between(DEVICE, UNKNOWN, with_unknown).empty());
+
+// preference_leq
+static_assert(std::ranges::equal(preference_leq(DEVICE), ADDRESSABLE_MEMORY_TYPES));
+static_assert(equal(preference_leq(HOST), {HOST}));
+static_assert(preference_leq(DISK).empty());
+// unknown memory type should return an empty view
+static_assert(preference_leq(static_cast<MemoryType>(-1)).empty());
+static_assert(equal(preference_leq(HOST, MEMORY_TYPES), {HOST, DISK}));
+
+// preference_lt
+static_assert(equal(preference_lt(DEVICE), {PINNED_HOST, HOST, DISK}));
+static_assert(equal(preference_lt(PINNED_HOST), {HOST, DISK}));
+static_assert(equal(preference_lt(HOST), {DISK}));
+static_assert(preference_lt(DISK).empty());
+static_assert(preference_lt(static_cast<MemoryType>(-1)).empty());
+static_assert(
+    equal(preference_lt(DEVICE, ADDRESSABLE_MEMORY_TYPES), {PINNED_HOST, HOST})
+);
+static_assert(equal(preference_lt(PINNED_HOST, ADDRESSABLE_MEMORY_TYPES), {HOST}));
+static_assert(preference_lt(HOST, ADDRESSABLE_MEMORY_TYPES).empty());
+static_assert(preference_lt(DISK, ADDRESSABLE_MEMORY_TYPES).empty());
+}  // namespace detail::memory_type_tests
 
 /**
  * @brief A value of type @p T for every memory type, indexed by `MemoryType`.
@@ -66,76 +182,6 @@ static_assert(std::ranges::all_of(SPILL_TARGET_MEMORY_TYPES, [](MemoryType mt) {
     return std::ranges::find(ADDRESSABLE_MEMORY_TYPES, mt)
            != ADDRESSABLE_MEMORY_TYPES.end();
 }));
-
-/**
- * @brief Get the memory types with preference lower than or equal to @p mem_type.
- *
- * The returned span is a suffix of @p mem_types, which must list memory types in
- * decreasing order of preference.
- *
- * @param mem_type The memory type used as the starting point.
- * @param mem_types The memory types to select from, `ADDRESSABLE_MEMORY_TYPES` by
- * default.
- * @return A span of memory types whose preference is lower than or equal to
- * the given type, empty if @p mem_type is not in @p mem_types.
- */
-constexpr std::span<MemoryType const> leq_memory_types(
-    MemoryType mem_type, std::span<MemoryType const> mem_types = ADDRESSABLE_MEMORY_TYPES
-) noexcept {
-    return std::views::drop_while(mem_types, [&](MemoryType const& mt) {
-        return mt != mem_type;
-    });
-}
-
-static_assert(
-    std::ranges::equal(leq_memory_types(MemoryType::DEVICE), ADDRESSABLE_MEMORY_TYPES)
-);
-static_assert(std::ranges::equal(
-    leq_memory_types(MemoryType::HOST), std::ranges::single_view{MemoryType::HOST}
-));
-static_assert(std::ranges::equal(
-    leq_memory_types(MemoryType::DISK), std::ranges::empty_view<MemoryType>{}
-));
-// unknown memory type should return an empty view
-static_assert(std::ranges::equal(
-    leq_memory_types(static_cast<MemoryType>(-1)), std::ranges::empty_view<MemoryType>{}
-));
-static_assert(std::ranges::equal(
-    leq_memory_types(MemoryType::HOST, MEMORY_TYPES),
-    std::array{MemoryType::HOST, MemoryType::DISK}
-));
-
-/**
- * @brief Get the memory types that data in @p mem_type may be spilled to.
- *
- * The targets are the memory types with a lower preference than @p mem_type, in
- * decreasing order of preference. A target may be unavailable at runtime, e.g. when no
- * pinned memory resource or disk resource is configured.
- *
- * @param mem_type The memory type to spill from.
- * @return A span of spill target memory types, empty if @p mem_type cannot be spilled.
- */
-constexpr std::span<MemoryType const> spill_target_memory_types(
-    MemoryType mem_type
-) noexcept {
-    auto const leq = leq_memory_types(mem_type, MEMORY_TYPES);
-    // Drop `mem_type` itself.
-    return leq.empty() ? leq : leq.subspan(1);
-}
-
-static_assert(std::ranges::equal(
-    spill_target_memory_types(MemoryType::DEVICE),
-    std::array{MemoryType::PINNED_HOST, MemoryType::HOST, MemoryType::DISK}
-));
-static_assert(std::ranges::equal(
-    spill_target_memory_types(MemoryType::PINNED_HOST),
-    std::array{MemoryType::HOST, MemoryType::DISK}
-));
-static_assert(std::ranges::equal(
-    spill_target_memory_types(MemoryType::HOST), std::array{MemoryType::DISK}
-));
-static_assert(spill_target_memory_types(MemoryType::DISK).empty());
-static_assert(spill_target_memory_types(static_cast<MemoryType>(-1)).empty());
 
 /**
  * @brief Get the name of a MemoryType.

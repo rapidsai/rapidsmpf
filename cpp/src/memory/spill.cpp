@@ -25,7 +25,7 @@ std::vector<PackedData> spill_partitions(
     }
     // Spill device partitions to the spill target memory types.
     auto reservation =
-        br->reserve_or_fail(device_size, spill_target_memory_types(MemoryType::DEVICE));
+        br->reserve_or_fail(device_size, preference_lt(MemoryType::DEVICE));
     for (auto& [_, data] : partitions) {
         if (data->mem_type() == MemoryType::DEVICE) {
             data = br->move(std::move(data), reservation);

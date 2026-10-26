@@ -209,7 +209,9 @@ bool PostBox::empty() const noexcept {
     return chunks_.empty();
 }
 
-std::size_t PostBox::spill(BufferResource* br, std::size_t amount) {
+std::size_t PostBox::spill(
+    BufferResource* br, std::size_t amount, std::span<MemoryType const> spill_target_types
+) {
     std::lock_guard lock(mutex_);
     std::vector<Chunk*> spillable_chunks;
     std::size_t max_spillable{0};
@@ -221,10 +223,11 @@ std::size_t PostBox::spill(BufferResource* br, std::size_t amount) {
         }
     }
     auto spill_chunk = [&](Chunk* chunk) -> std::size_t {
-        auto reservation = br->reserve_or_fail(
-            chunk->data_size(), spill_target_memory_types(MemoryType::DEVICE)
-        );
-        chunk->attach_data_buffer(br->move(chunk->release_data_buffer(), reservation));
+        auto reservation = br->try_reserve(chunk->data_size(), spill_target_types);
+        if (!reservation) {
+            return 0;  // No target has room, leave the chunk where it is.
+        }
+        chunk->attach_data_buffer(br->move(chunk->release_data_buffer(), *reservation));
         return chunk->data_size();
     };
     if (max_spillable < amount) {
