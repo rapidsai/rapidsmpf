@@ -422,3 +422,42 @@ TEST(PostBox, spill_uses_remaining_amount) {
 
     EXPECT_EQ(postbox.spill(br.get(), 100), 110UL);
 }
+
+TEST_F(BaseAllGatherTest, forces_receive_allocations_without_memory) {
+    constexpr int n_elements = 10;
+    constexpr int n_inserts = 3;
+    // No device or host memory is available, so every receive allocation has to wait
+    // for the timeout and is then forced by overbooking host memory. Forced receives
+    // are forwarded, so they must not be moved to disk although disk is available.
+    TempDir temp_dir;
+    auto full_br = rapidsmpf::BufferResource::create(
+        rmm::mr::cuda_memory_resource{},
+        rapidsmpf::PinnedMemoryDisabled,
+        {{rapidsmpf::MemoryType::DEVICE, 0}, {rapidsmpf::MemoryType::HOST, 0}},
+        std::nullopt,
+        std::make_shared<rapidsmpf::StreamPool>(1),
+        rapidsmpf::Statistics::disabled(),
+        temp_dir.path(),
+        std::chrono::milliseconds{1}
+    );
+    AllGather allgather{GlobalEnvironment->comm_, 0, full_br.get()};
+    auto const& comm = allgather.comm();
+    for (int i = 0; i < n_inserts; i++) {
+        allgather.insert(
+            i, generate_packed_data(n_elements, gen_offset(i, comm->rank()), stream, *br)
+        );
+    }
+    allgather.insert_finished();
+    auto results =
+        allgather.wait_and_extract(AllGather::Ordered::YES, std::chrono::seconds{30});
+    ASSERT_EQ(results.size(), n_inserts * comm->nranks());
+    for (int r = 0; r < comm->nranks(); r++) {
+        for (int i = 0; i < n_inserts; i++) {
+            auto& result = results[r * n_inserts + i];
+            EXPECT_NE(result.data->mem_type(), rapidsmpf::MemoryType::DISK);
+            EXPECT_NO_FATAL_FAILURE(validate_packed_data(
+                std::move(result), n_elements, gen_offset(i, r), stream, *br
+            ));
+        }
+    }
+}

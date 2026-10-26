@@ -8,6 +8,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -16,6 +17,7 @@
 
 #include <rapidsmpf/coll/utils.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/communicator/metadata_payload_exchange/core.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
@@ -170,6 +172,14 @@ class AllGather {
     void mark_finish(std::uint64_t expected_chunks) noexcept;
 
     /**
+     * @brief Check if all data has been received and is ready for extraction.
+     *
+     * @return True if the finish markers of all ranks have been seen and all expected
+     * chunks are in the extraction postbox.
+     */
+    [[nodiscard]] bool received_all_data() const noexcept;
+
+    /**
      * @brief Wait for the allgather operation to complete.
      *
      * @param timeout Optional maximum duration to wait. Negative values mean no timeout.
@@ -197,7 +207,6 @@ class AllGather {
     std::atomic<std::uint64_t> extraction_goalpost_{
         0
     };  ///< Number of chunks still expected to remain in the extraction postbox.
-    OpID op_id_;  ///< Unique operation identifier
     std::atomic<bool> locally_finished_{false};  ///< Whether this rank has finished
     bool can_extract_{false};  ///< Whether data can be extracted
     mutable std::mutex mutex_;  ///< Mutex protecting can_extract_
@@ -206,27 +215,15 @@ class AllGather {
     detail::PostBox for_extraction_{};  ///< Postbox for chunks ready for user extraction
     ProgressThread::FunctionID function_id_{};  ///< Function ID in progress thread
     SpillManager::SpillFunctionID spill_function_id_{};  ///< Function ID for spilling
-    // We track remote finishes separately from the finish_counter_ above since the path
-    // through the event loop state machine for a local finish marker is slightly
-    // different from a remote finish marker.
-    /// @brief Number of remote finish messages received.
-    Rank remote_finish_counter_;
     /// @brief Total expected data-carrying messages.
     std::uint64_t num_expected_messages_{0};
     /// @brief Total data-carrying messages messages received so far.
     std::uint64_t num_received_messages_{0};
-    /// @brief Chunks being received from left neighbor
-    std::vector<std::unique_ptr<detail::Chunk>> to_receive_{};
-    /// @brief Fire-and-forget communication futures
-    std::vector<std::unique_ptr<Communicator::Future>> fire_and_forget_{};
-    /// @brief Chunks for which a send future is posted
-    std::vector<std::unique_ptr<detail::Chunk>> sent_posted_{};
-    /// @brief Futures for posted sends. Order matches
-    std::vector<std::unique_ptr<Communicator::Future>> sent_futures_{};
-    /// @brief Chunks for which a receive future is posted
-    std::vector<std::unique_ptr<detail::Chunk>> receive_posted_{};
-    /// @brief Futures for posted receives. Order matches.
-    std::vector<std::unique_ptr<Communicator::Future>> receive_futures_{};
+    /// @brief Sent chunks waiting for their data to be returned, in send order.
+    std::deque<std::unique_ptr<detail::Chunk>> sent_posted_{};
+    /// @brief Exchange used for communication.
+    std::unique_ptr<communicator::MetadataPayloadExchange> exchange_;
+    bool exchange_finished_{false};
 };
 
 }  // namespace rapidsmpf::coll
