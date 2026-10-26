@@ -24,6 +24,7 @@
 #include <cuda/memory_resource>
 #include <cuda/stream>
 
+#include <rmm/mr/per_device_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/error.hpp>
@@ -74,6 +75,46 @@ class TempDir {
 
     std::filesystem::path path_;
 };
+
+/**
+ * @brief Create a buffer resource that can spill to disk under @p temp_dir.
+ *
+ * @param temp_dir The directory for disk files.
+ * @param allow_overbooking_by_default The default overbooking policy.
+ * @return The buffer resource.
+ */
+[[nodiscard]] inline std::shared_ptr<rapidsmpf::BufferResource> create_disk_br(
+    TempDir const& temp_dir,
+    rapidsmpf::AllowOverbooking allow_overbooking_by_default =
+        rapidsmpf::AllowOverbooking::YES
+) {
+    return rapidsmpf::BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        rapidsmpf::PinnedMemoryDisabled,
+        {},
+        std::nullopt,
+        std::make_shared<rapidsmpf::StreamPool>(1),
+        rapidsmpf::Statistics::disabled(),
+        temp_dir.path(),
+        std::chrono::milliseconds{100},
+        allow_overbooking_by_default
+    );
+}
+
+/**
+ * @brief Move the data of a packed data object to disk.
+ *
+ * @param packed_data The packed data. Its data must not be `nullptr`.
+ * @param br Buffer resource with a disk resource.
+ * @return The packed data with its data on disk.
+ */
+[[nodiscard]] inline rapidsmpf::PackedData move_to_disk(
+    rapidsmpf::PackedData&& packed_data, rapidsmpf::BufferResource& br
+) {
+    auto res = br.reserve_or_fail(packed_data.data->size, rapidsmpf::MemoryType::DISK);
+    packed_data.data = br.move(std::move(packed_data.data), res);
+    return std::move(packed_data);
+}
 
 /// @brief User-defined literal for specifying memory sizes in KiB.
 constexpr std::size_t operator"" _KiB(unsigned long long val) {

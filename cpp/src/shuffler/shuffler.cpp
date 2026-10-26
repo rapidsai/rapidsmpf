@@ -20,6 +20,7 @@
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
+#include <rapidsmpf/memory/spill.hpp>
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/shuffler/chunk.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
@@ -355,9 +356,9 @@ void Shuffler::insert(detail::Chunk&& chunk) {
     // destination in `insert_finished()`.
     RAPIDSMPF_EXPECTS(
         dst_rank == comm_->rank() || !chunk.is_data_buffer_set()
-            || chunk.data_memory_type() != MemoryType::DISK,
-        "inserting disk-backed data for another rank is not supported",
-        std::invalid_argument
+            || contains(mpe_->sendable_memory_types(dst_rank), chunk.data_memory_type()),
+        "data for another rank is not in a sendable memory type",
+        std::logic_error
     );
     if (!chunk.is_control_message()) {
         std::atomic_ref(outbound_chunk_counter_[safe_cast<std::size_t>(dst_rank)])
@@ -384,11 +385,22 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
             continue;
         }
 
+        // Data for another rank must be in a memory type that can be sent to it.
+        if (Rank const dst_rank = partition_owner(comm_, pid, total_num_partitions);
+            dst_rank != comm_->rank())
+        {
+            packed_data.data = ensure_memory_type(
+                std::move(packed_data.data), mpe_->sendable_memory_types(dst_rank), br_
+            );
+        }
+
         // Check if we should spill the chunk before inserting into the inbox.
         std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE);
         if (headroom < 0 && packed_data.data
             && packed_data.data->mem_type() == MemoryType::DEVICE)
         {
+            // NB: the chunk may be for another rank. If the spill targets ever include
+            // `MemoryType::DISK`, this must still spill to sendable memory types only.
             auto reservation =
                 br_->reserve_or_fail(packed_data.data->size, SPILL_TARGET_MEMORY_TYPES);
             auto chunk = create_chunk(pid, std::move(packed_data));

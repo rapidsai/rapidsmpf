@@ -53,9 +53,19 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      *
      * @throw std::runtime_error if a message is sent to itself or if an outgoing
      * message already exists.
-     * @throw std::invalid_argument if the message's payload is disk-backed.
+     * @throw std::invalid_argument if the message's payload is not in
+     * `sendable_memory_types()` of its destination.
      */
     void send(std::unique_ptr<Message> message) override;
+
+    /**
+     * @copydoc MetadataPayloadExchange::sendable_memory_types
+     *
+     * Returns `ADDRESSABLE_MEMORY_TYPES` for every remote rank.
+     */
+    [[nodiscard]] std::span<MemoryType const> sendable_memory_types(
+        Rank dst
+    ) const override;
 
     // clang-format off
     /**
@@ -63,7 +73,8 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      *
      * @throw std::runtime_error if a message is sent to itself or if an outgoing
      * message already exists.
-     * @throw std::invalid_argument if a message's payload is disk-backed.
+     * @throw std::invalid_argument if a message's payload is not in
+     * `sendable_memory_types()` of its destination.
      */
     // clang-format on
     void send(std::vector<std::unique_ptr<Message>>&& messages) override;

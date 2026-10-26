@@ -57,8 +57,14 @@ class AllGather {
     /**
      * @brief Insert packed data into the allgather operation.
      *
+     * Data that is not in a memory type that can be sent, such as disk-backed data,
+     * is moved with `ensure_memory_type()` first, which may block.
+     *
      * @param sequence_number Local ordered sequence number of the data.
      * @param packed_data The data to contribute to the allgather.
+     *
+     * @throws rapidsmpf::reservation_error If the data must be moved, no memory is
+     * available, and overbooking is not allowed.
      */
     void insert(std::uint64_t sequence_number, PackedData&& packed_data);
 

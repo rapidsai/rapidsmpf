@@ -255,6 +255,41 @@ TEST_P(AllGatherOrderedTest, allgatherv) {
     }
 }
 
+TEST_F(BaseAllGatherTest, inserts_disk_backed_data) {
+    auto const& comm = GlobalEnvironment->comm_;
+    TempDir temp_dir;
+    auto disk_br = create_disk_br(temp_dir);
+    AllGather allgather{comm, 0, disk_br.get()};
+    auto this_rank = comm->rank();
+    constexpr int n_inserts = 3;
+    constexpr int n_elements = 100;
+
+    for (int i = 0; i < n_inserts; i++) {
+        allgather.insert(
+            i,
+            move_to_disk(
+                generate_packed_data(
+                    n_elements, gen_offset(i, this_rank), stream, *disk_br
+                ),
+                *disk_br
+            )
+        );
+    }
+    allgather.insert_finished();
+
+    auto results =
+        allgather.wait_and_extract(AllGather::Ordered::YES, std::chrono::seconds{30});
+    ASSERT_EQ(results.size(), n_inserts * comm->nranks());
+    auto it = results.begin();
+    for (int r = 0; r < comm->nranks(); r++) {
+        for (int i = 0; i < n_inserts; i++) {
+            EXPECT_NO_FATAL_FAILURE(validate_packed_data(
+                std::move(*it++), n_elements, gen_offset(i, r), stream, *disk_br
+            ));
+        }
+    }
+}
+
 TEST_P(AllGatherOrderedTest, non_uniform_inserts) {
     AllGather allgather{GlobalEnvironment->comm_, 0, br.get()};
     auto const& comm = allgather.comm();

@@ -4,6 +4,8 @@
  */
 #pragma once
 
+#include <memory>
+#include <span>
 #include <vector>
 
 #include <rapidsmpf/memory/buffer_resource.hpp>
@@ -59,6 +61,31 @@ std::vector<PackedData> unspill_partitions(
     std::vector<PackedData>&& partitions,
     BufferResource* br,
     AllowOverbooking allow_overbooking
+);
+
+/**
+ * @brief Move a buffer into the last memory type of @p accepted, unless it is already
+ * in one of @p accepted.
+ *
+ * The last memory type is overbooked if it doesn't fit and
+ * `allow_overbooking_by_default()` of @p br allows it. The move may block the calling
+ * thread.
+ *
+ * @param buffer The buffer. Must not be `nullptr`.
+ * @param accepted The accepted memory types in decreasing order of preference. Must
+ * not be empty.
+ * @param br Buffer resource used to reserve memory and perform the move.
+ * @return @p buffer, unchanged if it is already in one of @p accepted, otherwise moved
+ * into the last memory type of @p accepted.
+ *
+ * @throws std::invalid_argument If @p buffer is `nullptr` or @p accepted is empty.
+ * @throws rapidsmpf::reservation_error If @p buffer must be moved, the last memory type
+ * doesn't fit, and overbooking is not allowed.
+ */
+[[nodiscard]] std::unique_ptr<Buffer> ensure_memory_type(
+    std::unique_ptr<Buffer> buffer,
+    std::span<MemoryType const> accepted,
+    BufferResource* br
 );
 
 }  // namespace rapidsmpf

@@ -41,6 +41,12 @@ TagMetadataPayloadExchange::TagMetadataPayloadExchange(
     statistics_ = br_->statistics();
 }
 
+std::span<MemoryType const> TagMetadataPayloadExchange::sendable_memory_types(
+    Rank
+) const {
+    return ADDRESSABLE_MEMORY_TYPES;
+}
+
 void TagMetadataPayloadExchange::send(
     std::unique_ptr<MetadataPayloadExchange::Message> message
 ) {
@@ -59,8 +65,12 @@ void TagMetadataPayloadExchange::send(
 
     for (auto const& message : messages) {
         RAPIDSMPF_EXPECTS(
-            message->data() == nullptr || message->data()->mem_type() != MemoryType::DISK,
-            "sending disk-backed payloads is not supported",
+            message->data() == nullptr
+                || contains(
+                    sendable_memory_types(message->peer_rank()),
+                    message->data()->mem_type()
+                ),
+            "the payload's memory type is not sendable to its destination",
             std::invalid_argument
         );
     }

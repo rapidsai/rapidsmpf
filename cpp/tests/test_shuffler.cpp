@@ -510,41 +510,55 @@ TEST(Shuffler, RejectsNullBufferResource) {
     );
 }
 
-TEST(Shuffler, RejectsDiskBackedInsertForOtherRank) {
+TEST(Shuffler, InsertsDiskBackedData) {
     auto const& comm = GlobalEnvironment->comm_;
-    if (comm->nranks() == 1) {
-        GTEST_SKIP() << "Test requires multiple ranks";
-    }
     auto stream = cuda::stream_ref{cudaStreamLegacy};
+    constexpr std::size_t n_elements = 100;
     TempDir temp_dir;
-    auto br = rapidsmpf::BufferResource::create(
-        rmm::mr::get_current_device_resource_ref(),
-        rapidsmpf::PinnedMemoryDisabled,
-        {},
-        std::nullopt,
-        std::make_shared<rapidsmpf::StreamPool>(1),
-        rapidsmpf::Statistics::disabled(),
-        temp_dir.path()
-    );
+    auto br = create_disk_br(temp_dir);
     auto const total_num_partitions =
-        rapidsmpf::safe_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
+        rapidsmpf::safe_cast<rapidsmpf::shuffler::PartID>(2 * comm->nranks());
     rapidsmpf::shuffler::Shuffler shuffler(comm, 0, total_num_partitions, br.get());
 
-    // With round-robin ownership, partition `rank + 1` is owned by the next rank.
-    auto const remote_pid = rapidsmpf::safe_cast<rapidsmpf::shuffler::PartID>(
-        (comm->rank() + 1) % comm->nranks()
-    );
-    auto packed = generate_packed_data(1000, 0, stream, *br);
-    auto const size = packed.data->size;
-    auto disk_res = br->reserve_or_fail(size, rapidsmpf::MemoryType::DISK);
-    packed.data = br->move(std::move(packed.data), disk_res);
+    // Every rank inserts a disk-backed chunk into every partition. The offset encodes
+    // the inserting rank and the partition.
+    auto offset = [&](rapidsmpf::Rank rank, rapidsmpf::shuffler::PartID pid) {
+        return rapidsmpf::safe_cast<int>(rank) * 1000
+               + rapidsmpf::safe_cast<int>(pid) * 10;
+    };
     std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> chunks;
-    chunks.emplace(remote_pid, std::move(packed));
-    EXPECT_THROW(shuffler.insert(std::move(chunks)), std::invalid_argument);
-
-    // The rejected chunk isn't counted, so the shuffle still completes.
+    for (rapidsmpf::shuffler::PartID pid = 0; pid < total_num_partitions; ++pid) {
+        chunks.emplace(
+            pid,
+            move_to_disk(
+                generate_packed_data(n_elements, offset(comm->rank(), pid), stream, *br),
+                *br
+            )
+        );
+    }
+    shuffler.insert(std::move(chunks));
     shuffler.insert_finished();
-    EXPECT_NO_THROW(shuffler.wait(std::chrono::seconds{30}));
+    shuffler.wait(std::chrono::seconds{30});
+
+    for (auto pid : shuffler.local_partitions()) {
+        auto extracted = shuffler.extract(pid);
+        ASSERT_EQ(extracted.size(), rapidsmpf::safe_cast<std::size_t>(comm->nranks()));
+        std::vector<int> offsets;
+        for (auto& packed_data : extracted) {
+            int first;
+            std::memcpy(&first, packed_data.metadata->data(), sizeof(first));
+            offsets.push_back(first);
+            EXPECT_NO_FATAL_FAILURE(validate_packed_data(
+                std::move(packed_data), n_elements, first, stream, *br
+            ));
+        }
+        std::ranges::sort(offsets);
+        for (rapidsmpf::Rank rank = 0; rank < comm->nranks(); ++rank) {
+            EXPECT_EQ(
+                offsets[rapidsmpf::safe_cast<std::size_t>(rank)], offset(rank, pid)
+            );
+        }
+    }
 }
 
 TEST(Shuffler, SpillOnInsertAndExtraction) {
