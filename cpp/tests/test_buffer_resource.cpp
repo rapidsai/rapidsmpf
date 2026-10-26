@@ -455,7 +455,7 @@ TEST(BufferResource, EnsureMemoryTypeRejectsInvalidArguments) {
     );
 }
 
-TEST(BufferResource, EnsureMemoryTypeMovesIntoLastType) {
+TEST(BufferResource, EnsureMemoryTypeTriesInReverseOrder) {
     TempDir temp_dir;
     auto br = create_disk_br(temp_dir);
     cuda::stream_ref stream{cudaStreamLegacy};
@@ -466,12 +466,17 @@ TEST(BufferResource, EnsureMemoryTypeMovesIntoLastType) {
             .data;
     };
 
-    // The last memory type is used even though device memory fits.
+    // Host memory is tried first, even though device memory fits.
     auto ret = br->ensure_memory_type(make_disk_data(), ADDRESSABLE_MEMORY_TYPES);
     EXPECT_EQ(ret->mem_type(), MemoryType::HOST);
 
-    // Without host memory, the last memory type is overbooked.
+    // Without host memory, device memory is next. Pinned memory is disabled.
     br->set_memory_limit(MemoryType::HOST, 0);
+    ret = br->ensure_memory_type(make_disk_data(), ADDRESSABLE_MEMORY_TYPES);
+    EXPECT_EQ(ret->mem_type(), MemoryType::DEVICE);
+
+    // Without any memory, the last memory type is overbooked.
+    br->set_memory_limit(MemoryType::DEVICE, 0);
     ret = br->ensure_memory_type(make_disk_data(), ADDRESSABLE_MEMORY_TYPES);
     EXPECT_EQ(ret->mem_type(), MemoryType::HOST);
     ret->stream().sync();
@@ -490,11 +495,35 @@ TEST(BufferResource, EnsureMemoryTypeThrowsWithoutOverbooking) {
     std::vector<std::uint8_t> payload{10, 20, 30};
     auto data =
         move_to_disk(create_packed_data(metadata, payload, stream, br.get()), *br).data;
+    br->set_memory_limit(MemoryType::DEVICE, 0);
     br->set_memory_limit(MemoryType::HOST, 0);
     EXPECT_THROW(
         std::ignore = br->ensure_memory_type(std::move(data), ADDRESSABLE_MEMORY_TYPES),
         reservation_error
     );
+}
+
+TEST(BufferResource, EnsureMemoryTypeUsesPinnedWhenHostIsFull) {
+    if (!is_pinned_memory_resources_supported()) {
+        GTEST_SKIP() << "Pinned memory not supported on this system";
+    }
+    TempDir temp_dir;
+    auto br = BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        PinnedPoolProperties{},
+        {{MemoryType::HOST, 0}},
+        std::nullopt,
+        std::make_shared<StreamPool>(1),
+        Statistics::disabled(),
+        temp_dir.path()
+    );
+    cuda::stream_ref stream{cudaStreamLegacy};
+    std::vector<std::uint8_t> metadata{1};
+    std::vector<std::uint8_t> payload{10, 20, 30};
+    auto data =
+        move_to_disk(create_packed_data(metadata, payload, stream, br.get()), *br).data;
+    auto ret = br->ensure_memory_type(std::move(data), ADDRESSABLE_MEMORY_TYPES);
+    EXPECT_EQ(ret->mem_type(), MemoryType::PINNED_HOST);
 }
 
 class BufferResourceReserveOrFailTest : public ::testing::Test {

@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <limits>
 #include <optional>
+#include <ranges>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -423,14 +424,16 @@ std::unique_ptr<Buffer> BufferResource::ensure_memory_type(
     if (contains(accepted, buffer->mem_type())) {
         return buffer;
     }
-    auto [res, _] =
-        reserve(accepted.back(), buffer->size, allow_overbooking_by_default());
-    RAPIDSMPF_EXPECTS(
-        res.size() == buffer->size,
-        "cannot reserve memory to move the buffer and overbooking is not allowed",
-        rapidsmpf::reservation_error
-    );
-    return move(std::move(buffer), res);
+    auto res = try_reserve(buffer->size, accepted | std::views::reverse);
+    if (!res.has_value()) {
+        RAPIDSMPF_EXPECTS(
+            allow_overbooking_by_default() == AllowOverbooking::YES,
+            "cannot reserve memory to move the buffer and overbooking is not allowed",
+            rapidsmpf::reservation_error
+        );
+        res = reserve(accepted.back(), buffer->size, AllowOverbooking::YES).first;
+    }
+    return move(std::move(buffer), *res);
 }
 
 std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
