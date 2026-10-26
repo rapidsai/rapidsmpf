@@ -5,6 +5,7 @@ from libc.stddef cimport size_t
 from libcpp.memory cimport shared_ptr
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
+from rapidsmpf.memory.buffer cimport MemoryType
 
 
 cdef extern from "<rapidsmpf/memory/spill_manager.hpp>" nogil:
@@ -18,7 +19,7 @@ cdef extern from "<rapidsmpf/memory/spill_manager.hpp>" nogil:
         void remove_spill_function(
             size_t function_id
         ) except +ex_handler
-        size_t spill(size_t amount) except +ex_handler
+        size_t spill(size_t amount, MemoryType mem_type) except +ex_handler
 
 
 cdef class SpillManager:

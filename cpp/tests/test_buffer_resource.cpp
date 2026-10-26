@@ -304,6 +304,33 @@ TEST(BufferResource, HostMemoryAvailabilityTracksLiveAllocations) {
     EXPECT_EQ(br->memory_available(MemoryType::HOST), 10_KiB);
 }
 
+TEST(BufferResource, MemoryAvailableForReservationOfAllTypes) {
+    auto br = BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        PinnedMemoryDisabled,
+        {{MemoryType::DEVICE, 10_KiB}, {MemoryType::HOST, 20_KiB}},
+        std::nullopt
+    );
+    auto device_res = br->reserve_or_fail(4_KiB, MemoryType::DEVICE);
+    auto [host_res, host_overbooking] =
+        br->reserve(MemoryType::HOST, 30_KiB, AllowOverbooking::YES);
+    ASSERT_EQ(host_overbooking, 10_KiB);
+
+    auto const available = br->memory_available_for_reservation();
+    EXPECT_EQ(available[MemoryType::DEVICE], 6_KiB);
+    EXPECT_EQ(available[MemoryType::HOST], -safe_cast<std::int64_t>(10_KiB));
+    // Types that are not reservable report zero.
+    EXPECT_TRUE(br->is_reservable(MemoryType::DEVICE));
+    EXPECT_TRUE(br->is_reservable(MemoryType::HOST));
+    EXPECT_FALSE(br->is_reservable(MemoryType::PINNED_HOST));
+    EXPECT_FALSE(br->is_reservable(MemoryType::DISK));
+    EXPECT_EQ(available[MemoryType::PINNED_HOST], 0);
+    EXPECT_EQ(available[MemoryType::DISK], 0);
+    for (auto mem_type : MEMORY_TYPES) {
+        EXPECT_EQ(available[mem_type], br->memory_available_for_reservation(mem_type));
+    }
+}
+
 TEST(BufferResource, RejectsZeroPinnedMaxPoolSize) {
     if (!is_pinned_memory_resources_supported()) {
         GTEST_SKIP() << "Pinned memory not supported on this system";
@@ -1044,6 +1071,7 @@ TEST(BufferResource, PinnedMrKeepsBufferResourceAlive) {
     auto br = BufferResource::create(
         rmm::mr::get_current_device_resource_ref(), PinnedPoolProperties{}
     );
+    EXPECT_TRUE(br->is_reservable(MemoryType::PINNED_HOST));
     std::weak_ptr<BufferResource> weak_br = br;
     auto stream = cuda::stream_ref{cudaStreamLegacy};
 

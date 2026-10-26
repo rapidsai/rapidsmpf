@@ -304,7 +304,9 @@ Shuffler::Shuffler(
     // Register a spill function that spill buffers in this shuffler.
     // Note, the spill function can use `this` because a Shuffler isn't movable.
     spill_function_id_ = br_->spill_manager().add_spill_function(
-        [this](std::size_t amount) -> std::size_t { return spill(amount); },
+        [this](MemoryType mem_type, std::size_t amount) -> std::size_t {
+            return spill(mem_type, amount);
+        },
         /* priority = */ 0
     );
 }
@@ -398,10 +400,12 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
         if (headroom < 0 && packed_data.data
             && packed_data.data->mem_type() == MemoryType::DEVICE)
         {
-            // NB: the chunk may be for another rank. If the spill targets ever include
-            // `MemoryType::DISK`, this must still spill to sendable memory types only.
-            auto reservation =
-                br_->reserve_or_fail(packed_data.data->size, SPILL_TARGET_MEMORY_TYPES);
+            // NB: the chunk may be for another rank, so it must only spill to sendable
+            // (addressable) memory types.
+            auto reservation = br_->reserve_or_fail(
+                packed_data.data->size,
+                preference_lt(MemoryType::DEVICE, ADDRESSABLE_MEMORY_TYPES)
+            );
             auto chunk = create_chunk(pid, std::move(packed_data));
             // Spill the new chunk before inserting.
             chunk.set_data_buffer(br_->move(chunk.release_data_buffer(), reservation));
@@ -481,8 +485,12 @@ void Shuffler::wait(std::optional<std::chrono::milliseconds> timeout) {
     }
 }
 
-std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
+std::size_t Shuffler::spill(MemoryType mem_type, std::optional<std::size_t> amount) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
+    // TODO(stage 3): spill from non-DEVICE memory types.
+    if (mem_type != MemoryType::DEVICE) {
+        return 0;
+    }
     std::size_t spill_need{0};
     if (amount.has_value()) {
         spill_need = amount.value();

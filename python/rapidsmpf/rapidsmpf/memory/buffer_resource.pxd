@@ -67,6 +67,7 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
             MemoryType mem_type
         ) except +ex_handler
         int64_t memory_available(MemoryType mem_type) except +ex_handler
+        bool_t is_reservable(MemoryType mem_type) noexcept
         void set_memory_limit(MemoryType mem_type, int64_t limit) except +ex_handler
         cpp_SpillManager &spill_manager() except +ex_handler
         size_t release(cpp_MemoryReservation&, size_t) except +ex_handler

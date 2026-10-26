@@ -103,7 +103,11 @@ void AllGather::wait(std::chrono::milliseconds timeout) {
     }
 }
 
-std::size_t AllGather::spill(std::optional<std::size_t> amount) {
+std::size_t AllGather::spill(MemoryType mem_type, std::optional<std::size_t> amount) {
+    // TODO(stage 3): spill from non-DEVICE memory types.
+    if (mem_type != MemoryType::DEVICE) {
+        return 0;
+    }
     std::size_t spill_need{0};
     if (amount.has_value()) {
         spill_need = amount.value();
@@ -114,12 +118,16 @@ std::size_t AllGather::spill(std::optional<std::size_t> amount) {
     std::size_t spilled{0};
     if (spill_need > 0) {
         // Spill from ready post box then inserted postbox.
-        // NB: the inserted postbox holds chunks waiting to be sent. If the spill
-        // targets ever include `MemoryType::DISK`, it must still spill to sendable
-        // memory types only.
-        spilled = for_extraction_.spill(br_, spill_need);
+        // NB: the inserted postbox holds chunks waiting to be sent, so it must only
+        // spill to sendable (addressable) memory types.
+        spilled =
+            for_extraction_.spill(br_, spill_need, preference_lt(MemoryType::DEVICE));
         if (spilled < spill_need) {
-            spilled += inserted_.spill(br_, spill_need - spilled);
+            spilled += inserted_.spill(
+                br_,
+                spill_need - spilled,
+                preference_lt(MemoryType::DEVICE, ADDRESSABLE_MEMORY_TYPES)
+            );
         }
     }
     return spilled;
@@ -149,7 +157,9 @@ AllGather::AllGather(
     function_id_ =
         comm_->progress_thread()->add_function([this]() { return event_loop(); });
     spill_function_id_ = br_->spill_manager().add_spill_function(
-        [this](std::size_t amount) -> std::size_t { return spill(amount); },
+        [this](MemoryType mem_type, std::size_t amount) -> std::size_t {
+            return spill(mem_type, amount);
+        },
         /* priority = */ 0
     );
 }

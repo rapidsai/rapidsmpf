@@ -320,7 +320,7 @@ class SpillRecorder {
           spillable_{spillable} {
         br_->set_memory_limit(MemoryType::DEVICE, limit_);
         fid_ = br_->spill_manager().add_spill_function(
-            [this](std::size_t amount) -> std::size_t {
+            [this](MemoryType, std::size_t amount) -> std::size_t {
                 std::lock_guard lock(mutex_);
                 amounts_.push_back(amount);
                 auto const spilled = std::min(amount, spillable_);
@@ -752,7 +752,7 @@ class BlockingSpill {
           frees_{frees} {
         br_->set_memory_limit(MemoryType::DEVICE, limit_);
         fid_ = br_->spill_manager().add_spill_function(
-            [this](std::size_t) -> std::size_t {
+            [this](MemoryType, std::size_t) -> std::size_t {
                 {
                     std::unique_lock lock(mutex_);
                     int const me = ++entered_;

@@ -185,13 +185,17 @@ class AllGather {
     void wait(std::chrono::milliseconds timeout = std::chrono::milliseconds{-1});
 
     /**
-     * @brief Attempt to spill device memory
+     * @brief Attempt to spill memory of the given type
      *
+     * @param mem_type The memory type to spill from.
      * @param amount Optional amount of memory to spill.
      *
      * @return The amount of memory actually spilled.
      */
-    std::size_t spill(std::optional<std::size_t> amount = std::nullopt);
+    std::size_t spill(
+        MemoryType mem_type = MemoryType::DEVICE,
+        std::optional<std::size_t> amount = std::nullopt
+    );
 
     std::shared_ptr<Communicator> comm_;  ///< Communicator
     BufferResource* br_;  ///< Buffer resource for memory allocation
