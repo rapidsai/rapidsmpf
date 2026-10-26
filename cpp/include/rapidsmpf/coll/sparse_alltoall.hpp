@@ -11,6 +11,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -18,6 +19,7 @@
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
+#include <rapidsmpf/memory/spill_manager.hpp>
 #include <rapidsmpf/progress_thread.hpp>
 
 namespace rapidsmpf::coll {
@@ -148,13 +150,26 @@ class SparseAlltoall {
     struct SourceState {
         std::uint64_t expected_count{0};
         std::uint64_t received_count{0};
-        std::vector<std::unique_ptr<detail::Chunk>> chunks{};
+        detail::PostBox chunks{};  ///< Ready chunks, spillable.
         std::vector<std::unique_ptr<detail::Chunk>> incoming{};
 
         [[nodiscard]] bool ready() const noexcept {
             return expected_count > 0 && expected_count == received_count;
         }
     };
+
+    /**
+     * @brief Attempt to spill device memory from the ready (received) chunks.
+     *
+     * Only chunks that have been fully received are spilled; chunks that are in-flight
+     * or waiting to be sent are left untouched.
+     *
+     * @param amount Optional amount of memory to spill. If not provided, spills based
+     * on the current device memory headroom.
+     *
+     * @return The amount of memory actually spilled.
+     */
+    std::size_t spill(std::optional<std::size_t> amount = std::nullopt);
 
     /// @brief Send all ready messages.
     void send_ready_messages();
@@ -188,6 +203,7 @@ class SparseAlltoall {
     std::unordered_map<Rank, SourceState> source_states_;
     std::function<void()> finished_callback_;
     ProgressThread::FunctionID function_id_;
+    SpillManager::SpillFunctionID spill_function_id_{};  ///< Function ID for spilling
 };
 
 }  // namespace rapidsmpf::coll
