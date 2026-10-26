@@ -8,10 +8,12 @@
 #include <atomic>
 #include <compare>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <optional>
 
+#include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/pausable_thread_loop.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
@@ -30,8 +32,9 @@ class SpillManager {
     /**
      * @brief Spill function type.
      *
-     * A spill function receives a requested spill size in bytes and returns the actual
-     * number of bytes spilled.
+     * A spill function receives the memory type to free and a requested spill size in
+     * bytes, and returns the actual number of bytes spilled from that memory type. A
+     * spill function that holds no data in the requested memory type returns zero.
      *
      * Spill functions must not capture owning references to the `BufferResource` that
      * owns this `SpillManager`, either directly or indirectly through objects that
@@ -43,7 +46,8 @@ class SpillManager {
      * registering spill functions should additionally call `remove_spill_function()`
      * during destruction before releasing any buffer-owning members.
      */
-    using SpillFunction = std::function<std::size_t(std::size_t)>;
+    using SpillFunction =
+        std::function<std::size_t(MemoryType mem_type, std::size_t amount)>;
 
     /**
      * @brief Represents a unique identifier for a registered spill function.
@@ -116,10 +120,14 @@ class SpillManager {
      * spilling is possible.
      *
      * @param amount The amount of memory (in bytes) to spill.
+     * @param mem_type The memory type to spill from, `MemoryType::DEVICE` by default.
      * @return The actual amount of memory spilled (in bytes), which may be more, less
      * or equal to the requested.
+     *
+     * @throws std::invalid_argument if @p mem_type has no lower memory type to spill
+     * into, i.e. `MemoryType::DISK`.
      */
-    std::size_t spill(std::size_t amount);
+    std::size_t spill(std::size_t amount, MemoryType mem_type = MemoryType::DEVICE);
 
     /**
      * @brief Attempts to free up memory by spilling data until the requested headroom is
@@ -168,10 +176,11 @@ class SpillManager {
     /**
      * @brief Spills memory without locking. The caller must hold `mutex_`.
      *
+     * @param mem_type The memory type to spill from.
      * @param amount The amount of memory (in bytes) to spill.
      * @return The actual amount of memory spilled (in bytes).
      */
-    std::size_t spill_unsafe(std::size_t amount);
+    std::size_t spill_unsafe(MemoryType mem_type, std::size_t amount);
 
     mutable std::mutex mutex_;
     BufferResource* br_;

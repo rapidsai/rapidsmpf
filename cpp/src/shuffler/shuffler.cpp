@@ -264,7 +264,9 @@ Shuffler::Shuffler(
     // Register a spill function that spill buffers in this shuffler.
     // Note, the spill function can use `this` because a Shuffler isn't movable.
     spill_function_id_ = br_->spill_manager().add_spill_function(
-        [this](std::size_t amount) -> std::size_t { return spill(amount); },
+        [this](MemoryType mem_type, std::size_t amount) -> std::size_t {
+            return spill(mem_type, amount);
+        },
         /* priority = */ 0
     );
 }
@@ -450,8 +452,12 @@ void Shuffler::wait(std::optional<std::chrono::milliseconds> timeout) {
     }
 }
 
-std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
+std::size_t Shuffler::spill(MemoryType mem_type, std::optional<std::size_t> amount) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
+    // TODO(stage 3): spill from non-DEVICE memory types.
+    if (mem_type != MemoryType::DEVICE) {
+        return 0;
+    }
     std::size_t spill_need{0};
     if (amount.has_value()) {
         spill_need = amount.value();

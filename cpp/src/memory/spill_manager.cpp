@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
+#include <string>
 #include <utility>
 
 #include <rapidsmpf/memory/buffer_resource.hpp>
@@ -68,7 +70,7 @@ void SpillManager::remove_spill_function(SpillFunctionID fid) {
     }
 }
 
-std::size_t SpillManager::spill_unsafe(std::size_t amount) {
+std::size_t SpillManager::spill_unsafe(MemoryType mem_type, std::size_t amount) {
     if (amount == 0) {
         return 0;
     }
@@ -93,7 +95,7 @@ std::size_t SpillManager::spill_unsafe(std::size_t amount) {
         if (spilled >= amount) {
             break;
         }
-        spilled += spill_functions_.at(fid)(amount - spilled);
+        spilled += spill_functions_.at(fid)(mem_type, amount - spilled);
     }
     return spilled;
 }
@@ -106,10 +108,15 @@ std::uint64_t SpillManager::spill_generation() const noexcept {
     return spill_generation_.load(std::memory_order_acquire);
 }
 
-std::size_t SpillManager::spill(std::size_t amount) {
+std::size_t SpillManager::spill(std::size_t amount, MemoryType mem_type) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
+    RAPIDSMPF_EXPECTS(
+        !preference_lt(mem_type).empty(),
+        "cannot spill from " + std::string{to_string(mem_type)},
+        std::invalid_argument
+    );
     std::lock_guard<std::mutex> lock(mutex_);
-    return spill_unsafe(amount);
+    return spill_unsafe(mem_type, amount);
 }
 
 SpillManager::HeadroomResult SpillManager::spill_to_make_headroom(std::int64_t headroom) {
@@ -122,7 +129,7 @@ SpillManager::HeadroomResult SpillManager::spill_to_make_headroom(std::int64_t h
         return {.deficit = 0, .spilled = 0};
     }
     auto const deficit = safe_cast<std::size_t>(headroom - available);
-    return {.deficit = deficit, .spilled = spill_unsafe(deficit)};
+    return {.deficit = deficit, .spilled = spill_unsafe(MemoryType::DEVICE, deficit)};
 }
 
 }  // namespace rapidsmpf
