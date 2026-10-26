@@ -35,14 +35,19 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      *
      * @param comm The communicator to use for operations.
      * @param op_id The operation ID for tagging messages.
+     * @param peers The ranks to communicate with. See `MetadataPayloadExchange`.
      * @param allocate_buffer_fn Function to allocate buffers for incoming data.
      * @param allocation_timeout Progress timeout for receive buffer allocations.
      * @param br Buffer resource used to move payloads to disk and whose statistics track
      * communication operations. Must not be `nullptr`.
+     *
+     * @throws std::out_of_range If a peer is not a rank of @p comm.
+     * @throws std::invalid_argument If @p peers contains the calling rank or duplicates.
      */
     TagMetadataPayloadExchange(
         std::shared_ptr<Communicator> comm,
         OpID op_id,
+        std::vector<Rank> peers,
         AllocateBufferFn allocate_buffer_fn,
         Duration allocation_timeout,
         BufferResource* br
@@ -51,9 +56,8 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
     /**
      * @copydoc MetadataPayloadExchange::send
      *
-     * @throw std::runtime_error if a message is sent to itself or if an outgoing
-     * message already exists.
-     * @throw std::invalid_argument if the message's payload is disk-backed.
+     * @throw std::invalid_argument if the destination is not a peer or the message's
+     * payload is disk-backed.
      */
     void send(std::unique_ptr<Message> message) override;
 
@@ -61,9 +65,8 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
     /**
      * @copydoc MetadataPayloadExchange::send(std::vector<std::unique_ptr<Message>>&& messages);
      *
-     * @throw std::runtime_error if a message is sent to itself or if an outgoing
-     * message already exists.
-     * @throw std::invalid_argument if a message's payload is disk-backed.
+     * @throw std::invalid_argument if a destination is not a peer or a message's
+     * payload is disk-backed.
      */
     // clang-format on
     void send(std::vector<std::unique_ptr<Message>>&& messages) override;
@@ -145,6 +148,10 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
     std::shared_ptr<Communicator> comm_;
     Rank const nranks_;
     Rank const rank_;
+    // Peers in increasing order.
+    std::vector<Rank> const peers_;
+    // Whether a rank is a peer, indexed by Rank.
+    std::vector<bool> is_peer_;
     Tag const metadata_tag_;
     Tag const gpu_data_tag_;
     AllocateBufferFn allocate_buffer_fn_;

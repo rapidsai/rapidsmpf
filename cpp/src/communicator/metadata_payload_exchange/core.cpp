@@ -1,10 +1,11 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <rapidsmpf/communicator/metadata_payload_exchange/core.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf::communicator {
 
@@ -28,6 +29,17 @@ std::unique_ptr<Buffer> MetadataPayloadExchange::Message::release_data() noexcep
 void MetadataPayloadExchange::Message::set_data(std::unique_ptr<Buffer> buffer) {
     RAPIDSMPF_EXPECTS(data_ == nullptr, "data already set");
     data_ = std::move(buffer);
+}
+
+std::vector<Rank> all_remote_ranks(Communicator const& comm) {
+    std::vector<Rank> ret;
+    ret.reserve(safe_cast<std::size_t>(comm.nranks()));
+    for (Rank rank = 0; rank < comm.nranks(); ++rank) {
+        if (rank != comm.rank()) {
+            ret.push_back(rank);
+        }
+    }
+    return ret;
 }
 
 

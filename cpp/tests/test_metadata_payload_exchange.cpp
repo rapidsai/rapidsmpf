@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <chrono>
 #include <limits>
+#include <optional>
 #include <vector>
 
 #include <gmock/gmock.h>
@@ -55,12 +56,14 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
         AllocateBufferFn allocate_fn,
         Duration allocation_timeout,
         OpID op_id = OpID{42},
-        BufferResource* exchange_br = nullptr
+        BufferResource* exchange_br = nullptr,
+        std::optional<std::vector<Rank>> peers = std::nullopt
     ) {
         comm_interface.reset();
         comm_interface = std::make_unique<TagMetadataPayloadExchange>(
             GlobalEnvironment->comm_,
             op_id,
+            peers.value_or(all_remote_ranks(*GlobalEnvironment->comm_)),
             std::move(allocate_fn),
             allocation_timeout,
             exchange_br != nullptr ? exchange_br : br.get()
@@ -707,4 +710,139 @@ TEST_F(MetadataPayloadExchangeTest, RejectsDiskBackedSend) {
         std::invalid_argument
     );
     EXPECT_TRUE(comm_interface->is_idle());
+}
+
+TEST_F(MetadataPayloadExchangeTest, AllRemoteRanks) {
+    auto const ranks = all_remote_ranks(*comm);
+    ASSERT_EQ(ranks.size(), safe_cast<std::size_t>(comm->nranks() - 1));
+    EXPECT_TRUE(std::ranges::is_sorted(ranks));
+    EXPECT_EQ(std::ranges::find(ranks, comm->rank()), ranks.end());
+}
+
+TEST_F(MetadataPayloadExchangeTest, RejectsInvalidPeers) {
+    auto const make = [&](std::vector<Rank> peers) {
+        return TagMetadataPayloadExchange(
+            GlobalEnvironment->comm_,
+            OpID{44},
+            std::move(peers),
+            [this](std::size_t size, AllocationMode) {
+                return allocate_receive_buffer(size);
+            },
+            std::chrono::hours{1},
+            br.get()
+        );
+    };
+    EXPECT_THROW(make({comm->rank()}), std::invalid_argument);
+    EXPECT_THROW(make({-1}), std::out_of_range);
+    EXPECT_THROW(make({comm->nranks()}), std::out_of_range);
+    if (comm->nranks() > 1) {
+        Rank const next_rank = (comm->rank() + 1) % comm->nranks();
+        EXPECT_THROW(make({next_rank, next_rank}), std::invalid_argument);
+    }
+}
+
+TEST_F(MetadataPayloadExchangeTest, RejectsSendToNonPeer) {
+    if (comm->nranks() < 2) {
+        GTEST_SKIP() << "Test requires at least 2 ranks";
+    }
+    Rank const next_rank = (comm->rank() + 1) % comm->nranks();
+    reset_exchange(
+        [this](std::size_t size, AllocationMode) {
+            return allocate_receive_buffer(size);
+        },
+        std::chrono::hours{1},
+        OpID{44},
+        nullptr,
+        std::vector<Rank>{}
+    );
+    EXPECT_THROW(
+        comm_interface->send(create_test_message(next_rank, {0x01}, 64)),
+        std::invalid_argument
+    );
+    EXPECT_TRUE(comm_interface->is_idle());
+}
+
+TEST_F(MetadataPayloadExchangeTest, RingPeers) {
+    if (comm->nranks() < 2) {
+        GTEST_SKIP() << "Test requires at least 2 ranks";
+    }
+    Rank const next_rank = (comm->rank() + 1) % comm->nranks();
+    Rank const prev_rank = (comm->rank() - 1 + comm->nranks()) % comm->nranks();
+    constexpr int num_messages = 3;
+    constexpr std::size_t data_size = 256;
+
+    // Messages only go to the next rank, but the previous rank is also a peer, so it
+    // takes part in the termination.
+    std::vector<Rank> peers{next_rank};
+    if (prev_rank != next_rank) {
+        peers.push_back(prev_rank);
+    }
+    reset_exchange(
+        [this](std::size_t size, AllocationMode) {
+            return allocate_receive_buffer(size);
+        },
+        std::chrono::hours{1},
+        OpID{45},
+        nullptr,
+        std::move(peers)
+    );
+    GlobalEnvironment->barrier();
+
+    for (int i = 0; i < num_messages; ++i) {
+        comm_interface->send(
+            create_test_message(next_rank, {static_cast<std::uint8_t>(i)}, data_size)
+        );
+    }
+    comm_interface->finish();
+    auto received = receive(num_messages);
+    ASSERT_EQ(received.size(), num_messages);
+    for (int i = 0; i < num_messages; ++i) {
+        EXPECT_EQ(received[i]->peer_rank(), prev_rank);
+        EXPECT_EQ(received[i]->metadata(), std::vector{static_cast<std::uint8_t>(i)});
+        verify_data_content(received[i]->data(), data_size);
+    }
+    wait_for_communication_complete();
+    comm_interface->progress();
+    EXPECT_TRUE(comm_interface->recv().empty());
+}
+
+TEST_F(MetadataPayloadExchangeTest, SparsePeers) {
+    // Ranks only exchange messages with the other ranks of the same parity. With two
+    // ranks, every rank has no peers.
+    std::vector<Rank> peers;
+    for (Rank r = comm->rank() % 2; r < comm->nranks(); r += 2) {
+        if (r != comm->rank()) {
+            peers.push_back(r);
+        }
+    }
+    reset_exchange(
+        [this](std::size_t size, AllocationMode) {
+            return allocate_receive_buffer(size);
+        },
+        std::chrono::hours{1},
+        OpID{46},
+        nullptr,
+        peers
+    );
+    GlobalEnvironment->barrier();
+
+    for (Rank peer : peers) {
+        comm_interface->send(
+            create_test_message(peer, {static_cast<std::uint8_t>(comm->rank())}, 128)
+        );
+    }
+    comm_interface->finish();
+    auto received = receive(peers.size());
+    ASSERT_EQ(received.size(), peers.size());
+    std::vector<Rank> sources;
+    for (auto const& msg : received) {
+        sources.push_back(msg->peer_rank());
+        EXPECT_EQ(
+            msg->metadata(), std::vector{static_cast<std::uint8_t>(msg->peer_rank())}
+        );
+        verify_data_content(msg->data(), 128);
+    }
+    std::ranges::sort(sources);
+    EXPECT_EQ(sources, peers);
+    wait_for_communication_complete();
 }

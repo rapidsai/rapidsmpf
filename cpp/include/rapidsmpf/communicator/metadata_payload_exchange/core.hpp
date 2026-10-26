@@ -37,11 +37,18 @@ namespace rapidsmpf::communicator {
  * DerivedMetadataPayloadExchange(
  *     std::shared_ptr<Communicator> comm,
  *     OpID op_id,
+ *     std::vector<Rank> peers,
  *     MetadataPayloadExchange::AllocateBufferFn allocate_buffer_fn,
  *     Duration allocation_timeout,
  *     BufferResource* br
  * );
  * @endcode
+ *
+ * The exchange only communicates with its `peers`: messages can only be sent to a
+ * peer, are only received from peers, and `finish()` and `is_idle()` only involve
+ * peers. The peers must not include the calling rank or duplicates, and the peer
+ * relation must be symmetric: if rank A has rank B as a peer, rank B has rank A as a
+ * peer. Use `all_remote_ranks()` to communicate with every other rank.
  *
  * Receive buffers are allocated with `allocate_buffer_fn`, which is called on the
  * thread calling `progress()` and must not block or spill. Implementations follow
@@ -255,5 +262,15 @@ class MetadataPayloadExchange {
     [[nodiscard]] virtual bool is_idle() const = 0;
 };
 
+/**
+ * @brief Get all ranks of a communicator except the calling rank.
+ *
+ * Use as the peers of a `MetadataPayloadExchange` that communicates with every other
+ * rank.
+ *
+ * @param comm The communicator.
+ * @return The ranks in increasing order, excluding `comm.rank()`.
+ */
+[[nodiscard]] std::vector<Rank> all_remote_ranks(Communicator const& comm);
 
 }  // namespace rapidsmpf::communicator

@@ -277,6 +277,7 @@ Shuffler::Shuffler(
               : std::make_unique<communicator::TagMetadataPayloadExchange>(
                     comm_,
                     op_id,
+                    communicator::all_remote_ranks(*comm_),
                     [br](std::size_t size, AllocationMode mode) {
                         return allocate_receive_buffer(br, size, mode);
                     },

@@ -20,6 +20,7 @@ namespace rapidsmpf::communicator {
 TagMetadataPayloadExchange::TagMetadataPayloadExchange(
     std::shared_ptr<Communicator> comm,
     OpID op_id,
+    std::vector<Rank> peers,
     AllocateBufferFn allocate_buffer_fn,
     Duration allocation_timeout,
     BufferResource* br
@@ -27,6 +28,11 @@ TagMetadataPayloadExchange::TagMetadataPayloadExchange(
     : comm_(std::move(comm)),
       nranks_(comm_->nranks()),
       rank_(comm_->rank()),
+      peers_([&] {
+          std::ranges::sort(peers);
+          return std::move(peers);
+      }()),
+      is_peer_(safe_cast<std::size_t>(nranks_), false),
       metadata_tag_{op_id, 0},
       gpu_data_tag_{op_id, 1},
       allocate_buffer_fn_(std::move(allocate_buffer_fn)),
@@ -38,6 +44,19 @@ TagMetadataPayloadExchange::TagMetadataPayloadExchange(
       peer_expected_(safe_cast<std::size_t>(nranks_), 0),
       peer_terminated_(safe_cast<std::size_t>(nranks_), false) {
     RAPIDSMPF_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be NULL");
+    for (Rank peer : peers_) {
+        RAPIDSMPF_EXPECTS(
+            peer >= 0 && peer < nranks_, "peer is not a valid rank", std::out_of_range
+        );
+        RAPIDSMPF_EXPECTS(
+            peer != rank_, "peers cannot include the calling rank", std::invalid_argument
+        );
+        auto const p = safe_cast<std::size_t>(peer);
+        RAPIDSMPF_EXPECTS(
+            !is_peer_[p], "peers cannot contain duplicates", std::invalid_argument
+        );
+        is_peer_[p] = true;
+    }
     statistics_ = br_->statistics();
 }
 
@@ -58,6 +77,12 @@ void TagMetadataPayloadExchange::send(
     RAPIDSMPF_EXPECTS(!finished_, "send() called after finish()");
 
     for (auto const& message : messages) {
+        auto const dst = message->peer_rank();
+        RAPIDSMPF_EXPECTS(
+            dst >= 0 && dst < nranks_ && is_peer_[safe_cast<std::size_t>(dst)],
+            "the destination is not a peer",
+            std::invalid_argument
+        );
         RAPIDSMPF_EXPECTS(
             message->data() == nullptr || message->data()->mem_type() != MemoryType::DISK,
             "sending disk-backed payloads is not supported",
@@ -76,7 +101,6 @@ void TagMetadataPayloadExchange::send(
             (safe_cast<std::uint64_t>(comm_->rank()) << 32) | next_message_id_++;
 
         log.trace("send metadata to ", dst, " (message_id=", message_id, ")");
-        RAPIDSMPF_EXPECTS(dst != comm_->rank(), "sending message to ourselves");
 
         std::size_t payload_size =
             (message->data() != nullptr) ? message->data()->size : 0;
@@ -154,10 +178,7 @@ void TagMetadataPayloadExchange::finish() {
     // exactly how many application messages we sent to it, so the peer can
     // stop receiving once it has them all.
     // Format: [sentinel=UINT64_MAX (8 bytes)][message_count (8 bytes)]
-    for (Rank peer = 0; peer < nranks_; ++peer) {
-        if (peer == rank_) {
-            continue;
-        }
+    for (Rank peer : peers_) {
         auto termination = std::make_unique<std::vector<std::uint8_t>>(
             sizeof(std::uint64_t) + sizeof(std::size_t)
         );
@@ -180,10 +201,7 @@ bool TagMetadataPayloadExchange::is_idle() const {
     }
     // After finish(), also require all peers to have sent their termination
     // markers and all expected application messages to have been received.
-    for (Rank peer = 0; peer < nranks_; ++peer) {
-        if (peer == rank_) {
-            continue;
-        }
+    for (Rank peer : peers_) {
         auto const p = safe_cast<std::size_t>(peer);
         if (!peer_terminated_[p] || peer_received_[p] < peer_expected_[p]) {
             return false;
@@ -198,10 +216,7 @@ void TagMetadataPayloadExchange::receive_metadata() {
 
     // Use per-peer recv_from to avoid consuming messages belonging to a future
     // collective on the same tag (see rapidsai/rapidsmpf#927).
-    for (Rank peer = 0; peer < nranks_; ++peer) {
-        if (peer == rank_) {
-            continue;
-        }
+    for (Rank peer : peers_) {
         auto const p = safe_cast<std::size_t>(peer);
 
         // Skip peers that are fully done.
