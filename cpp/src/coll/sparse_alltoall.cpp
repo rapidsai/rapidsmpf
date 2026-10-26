@@ -13,6 +13,7 @@
 #include <vector>
 
 #include <rapidsmpf/coll/sparse_alltoall.hpp>
+#include <rapidsmpf/communicator/metadata_payload_exchange/tag.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 
@@ -30,7 +31,6 @@ SparseAlltoall::SparseAlltoall(
       br_{br},
       srcs_{std::move(srcs)},
       dsts_{std::move(dsts)},
-      op_id_{op_id},
       finished_callback_{std::move(finished_callback)} {
     RAPIDSMPF_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be null");
     RAPIDSMPF_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be null");
@@ -62,6 +62,20 @@ SparseAlltoall::SparseAlltoall(
             std::invalid_argument
         );
     }
+    // The peers are the union of the sources and the destinations.
+    std::vector<Rank> peers{srcs_};
+    peers.insert(peers.end(), dsts_.begin(), dsts_.end());
+    std::ranges::sort(peers);
+    auto const duplicates = std::ranges::unique(peers);
+    peers.erase(duplicates.begin(), duplicates.end());
+    exchange_ = std::make_unique<communicator::TagMetadataPayloadExchange>(
+        comm_,
+        op_id,
+        std::move(peers),
+        communicator::default_allocate_buffer,
+        br_->memory_reserve_timeout(),
+        br_
+    );
     function_id_ =
         comm_->progress_thread()->add_function([this]() { return event_loop(); });
 }
@@ -100,21 +114,9 @@ void SparseAlltoall::insert(Rank dst, PackedData&& packed_data) {
 
 void SparseAlltoall::insert_finished() {
     RAPIDSMPF_EXPECTS(
-        !locally_finished_.load(std::memory_order_acquire),
+        !locally_finished_.exchange(true, std::memory_order_acq_rel),
         "SparseAlltoall::insert_finished can only be called once"
     );
-    for (auto& [dst, ord] : next_ordinal_per_dst_) {
-        outgoing_.insert(
-            detail::Chunk::from_empty(
-                // Number of metadata messages we send to the destination rank, including
-                // this finish message.
-                ord.load(std::memory_order_acquire) + 1,
-                comm_->rank(),
-                dst
-            )
-        );
-    }
-    locally_finished_.store(true, std::memory_order_release);
 }
 
 void SparseAlltoall::wait(std::chrono::milliseconds timeout) {
@@ -155,110 +157,63 @@ std::vector<PackedData> SparseAlltoall::extract(Rank src) {
 }
 
 void SparseAlltoall::send_ready_messages() {
-    Tag const metadata_tag{op_id_, 0};
-    Tag const payload_tag{op_id_, 1};
     auto const& statistics = comm_->progress_thread()->statistics();
+    std::vector<std::unique_ptr<communicator::MetadataPayloadExchange::Message>> messages;
     for (auto& chunk : outgoing_.extract_ready()) {
-        auto const dst = chunk->destination();
-        fire_and_forget_.push_back(comm_->send(chunk->serialize(), dst, metadata_tag));
         if (chunk->data_size() > 0) {
             statistics->add_bytes_stat("sparsealltoall-payload-send", chunk->data_size());
-            fire_and_forget_.push_back(
-                comm_->send(chunk->release_data_buffer(), dst, payload_tag)
-            );
         }
-    }
-}
-
-void SparseAlltoall::receive_metadata_messages() {
-    Tag const metadata_tag{op_id_, 0};
-    for (auto& [src, state] : source_states_) {
-        while (!state.ready()) {
-            auto msg = comm_->recv_from(src, metadata_tag);
-            if (!msg) {
-                break;
-            }
-            state.received_count++;
-            auto chunk = detail::Chunk::deserialize(*msg, br_);
-            RAPIDSMPF_EXPECTS(
-                chunk->origin() == src,
-                "SparseAlltoall received metadata with unexpected origin"
-            );
-            if (chunk->is_finish()) {
-                RAPIDSMPF_EXPECTS(
-                    state.expected_count == 0,
-                    "SparseAlltoall received duplicate finish control"
-                );
-                state.expected_count = chunk->sequence();
-            } else {
-                state.incoming.push_back(std::move(chunk));
-            }
-        }
-    }
-}
-
-void SparseAlltoall::receive_data_messages() {
-    Tag const payload_tag{op_id_, 1};
-    auto const& statistics = comm_->progress_thread()->statistics();
-    for (auto& [src, state] : source_states_) {
-        std::ptrdiff_t processed = 0;
-        auto& queue = state.incoming;
-        for (auto& chunk : queue) {
-            if (!chunk->is_ready()) {
-                break;
-            }
-            processed++;
-            if (chunk->data_size() == 0) {
-                state.chunks.push_back(std::move(chunk));
-            } else {
-                statistics->add_bytes_stat(
-                    "sparsealltoall-payload-recv", chunk->data_size()
-                );
-                auto buffer = chunk->release_data_buffer();
-                receive_posted_.push_back(std::move(chunk));
-                receive_futures_.push_back(
-                    comm_->recv(src, payload_tag, std::move(buffer))
-                );
-            }
-        }
-        queue.erase(queue.begin(), queue.begin() + processed);
-    }
-}
-
-void SparseAlltoall::complete_data_messages() {
-    for (auto& chunk : detail::test_some(receive_posted_, receive_futures_, comm_.get()))
-    {
-        RAPIDSMPF_EXPECTS(
-            !chunk->is_finish(), "SparseAlltoall can only complete non-finish chunks"
+        messages.push_back(
+            std::make_unique<communicator::MetadataPayloadExchange::Message>(
+                chunk->destination(),
+                std::move(*chunk->serialize()),
+                chunk->release_data_buffer()
+            )
         );
-        auto& state = source_states_[chunk->origin()];
-        state.chunks.push_back(std::move(chunk));
+    }
+    if (!messages.empty()) {
+        exchange_->send(std::move(messages));
     }
 }
 
-bool SparseAlltoall::containers_empty() const {
-    return outgoing_.empty() && receive_posted_.empty() && receive_futures_.empty()
-           && fire_and_forget_.empty()
-           && std::ranges::all_of(source_states_, [](auto const& kv) {
-                  return kv.second.incoming.empty();
-              });
+void SparseAlltoall::receive_messages() {
+    auto const& statistics = comm_->progress_thread()->statistics();
+    for (auto& msg : exchange_->recv()) {
+        auto const src = msg->peer_rank();
+        auto chunk =
+            detail::Chunk::deserialize(msg->metadata(), msg->release_data(), br_);
+        RAPIDSMPF_EXPECTS(
+            !chunk->is_finish() && chunk->origin() == src,
+            "SparseAlltoall received an unexpected message"
+        );
+        auto state_it = source_states_.find(src);
+        RAPIDSMPF_EXPECTS(
+            state_it != source_states_.end(),
+            "SparseAlltoall received a message from a rank that is not a source"
+        );
+        if (chunk->data_size() > 0) {
+            statistics->add_bytes_stat("sparsealltoall-payload-recv", chunk->data_size());
+        }
+        state_it->second.chunks.push_back(std::move(chunk));
+    }
 }
 
 ProgressThread::ProgressState SparseAlltoall::event_loop() {
     send_ready_messages();
-    receive_metadata_messages();
-    receive_data_messages();
-    complete_data_messages();
-    if (!fire_and_forget_.empty()) {
-        std::ignore = comm_->test_some(fire_and_forget_);
-    }
-
-    bool const have_all_data = std::ranges::all_of(source_states_, [&](auto const& src) {
-        return src.second.ready();
-    });
-    if (locally_finished_.load(std::memory_order_acquire) && have_all_data
-        && containers_empty())
+    // `insert_finished()` is called after all `insert()` calls, so once it has been
+    // called and every inserted chunk has been sent, no more messages will be sent.
+    if (!exchange_finished_ && locally_finished_.load(std::memory_order_acquire)
+        && outgoing_.empty())
     {
+        exchange_->finish();
+        exchange_finished_ = true;
+    }
+    exchange_->progress();
+    receive_messages();
+
+    // After `finish()`, the exchange is idle once all messages from every peer have
+    // been received.
+    if (exchange_finished_ && exchange_->is_idle()) {
         {
             std::lock_guard lock(mutex_);
             can_extract_ = true;
