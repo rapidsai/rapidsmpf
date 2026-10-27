@@ -8,6 +8,9 @@
 #include <limits>
 #include <span>
 #include <sstream>
+#include <stdexcept>
+#include <tuple>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -20,9 +23,12 @@
 #include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/communicator/mpi.hpp>
+#include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
+#include <rapidsmpf/memory/memory_type.hpp>
+#include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/statistics.hpp>
@@ -419,6 +425,105 @@ TEST(BufferResource, AllocStatistics) {
     // timing stats should have the same count as bytes stats.
     EXPECT_EQ(stats->get_stat("alloc-device-time").count(), 2u);
     EXPECT_EQ(stats->get_stat("alloc-host-time").count(), 1u);
+}
+
+TEST(BufferResource, EnsureMemoryTypeKeepsBufferInAcceptedType) {
+    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    cuda::stream_ref stream{cudaStreamLegacy};
+    std::vector<std::uint8_t> metadata{1};
+    std::vector<std::uint8_t> payload{10, 20, 30};
+    auto data = create_packed_data(metadata, payload, stream, br.get()).data;
+    auto const* ptr = data.get();
+    auto ret = br->ensure_memory_type(std::move(data), ADDRESSABLE_MEMORY_TYPES);
+    EXPECT_EQ(ret.get(), ptr);
+}
+
+TEST(BufferResource, EnsureMemoryTypeRejectsInvalidArguments) {
+    auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    cuda::stream_ref stream{cudaStreamLegacy};
+    std::vector<std::uint8_t> metadata{1};
+    std::vector<std::uint8_t> payload{10, 20, 30};
+    EXPECT_THROW(
+        std::ignore = br->ensure_memory_type(nullptr, ADDRESSABLE_MEMORY_TYPES),
+        std::invalid_argument
+    );
+    auto data = create_packed_data(metadata, payload, stream, br.get()).data;
+    EXPECT_THROW(
+        std::ignore =
+            br->ensure_memory_type(std::move(data), std::span<MemoryType const>{}),
+        std::invalid_argument
+    );
+}
+
+TEST(BufferResource, EnsureMemoryTypeTriesInReverseOrder) {
+    TempDir temp_dir;
+    auto br = create_disk_br(temp_dir);
+    cuda::stream_ref stream{cudaStreamLegacy};
+    std::vector<std::uint8_t> metadata{1};
+    std::vector<std::uint8_t> payload{10, 20, 30};
+    auto make_disk_data = [&] {
+        return move_to_disk(create_packed_data(metadata, payload, stream, br.get()), *br)
+            .data;
+    };
+
+    // Host memory is tried first, even though device memory fits.
+    auto ret = br->ensure_memory_type(make_disk_data(), ADDRESSABLE_MEMORY_TYPES);
+    EXPECT_EQ(ret->mem_type(), MemoryType::HOST);
+
+    // Without host memory, device memory is next. Pinned memory is disabled.
+    br->set_memory_limit(MemoryType::HOST, 0);
+    ret = br->ensure_memory_type(make_disk_data(), ADDRESSABLE_MEMORY_TYPES);
+    EXPECT_EQ(ret->mem_type(), MemoryType::DEVICE);
+
+    // Without any memory, the last memory type is overbooked.
+    br->set_memory_limit(MemoryType::DEVICE, 0);
+    ret = br->ensure_memory_type(make_disk_data(), ADDRESSABLE_MEMORY_TYPES);
+    EXPECT_EQ(ret->mem_type(), MemoryType::HOST);
+    ret->stream().sync();
+    auto host_res =
+        br->reserve(MemoryType::HOST, payload.size(), AllowOverbooking::YES).first;
+    EXPECT_EQ(
+        br->move_to_host_buffer(std::move(ret), host_res)->copy_to_uint8_vector(), payload
+    );
+}
+
+TEST(BufferResource, EnsureMemoryTypeThrowsWithoutOverbooking) {
+    TempDir temp_dir;
+    auto br = create_disk_br(temp_dir, AllowOverbooking::NO);
+    cuda::stream_ref stream{cudaStreamLegacy};
+    std::vector<std::uint8_t> metadata{1};
+    std::vector<std::uint8_t> payload{10, 20, 30};
+    auto data =
+        move_to_disk(create_packed_data(metadata, payload, stream, br.get()), *br).data;
+    br->set_memory_limit(MemoryType::DEVICE, 0);
+    br->set_memory_limit(MemoryType::HOST, 0);
+    EXPECT_THROW(
+        std::ignore = br->ensure_memory_type(std::move(data), ADDRESSABLE_MEMORY_TYPES),
+        reservation_error
+    );
+}
+
+TEST(BufferResource, EnsureMemoryTypeUsesPinnedWhenHostIsFull) {
+    if (!is_pinned_memory_resources_supported()) {
+        GTEST_SKIP() << "Pinned memory not supported on this system";
+    }
+    TempDir temp_dir;
+    auto br = BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        PinnedPoolProperties{},
+        {{MemoryType::HOST, 0}},
+        std::nullopt,
+        std::make_shared<StreamPool>(1),
+        Statistics::disabled(),
+        temp_dir.path()
+    );
+    cuda::stream_ref stream{cudaStreamLegacy};
+    std::vector<std::uint8_t> metadata{1};
+    std::vector<std::uint8_t> payload{10, 20, 30};
+    auto data =
+        move_to_disk(create_packed_data(metadata, payload, stream, br.get()), *br).data;
+    auto ret = br->ensure_memory_type(std::move(data), ADDRESSABLE_MEMORY_TYPES);
+    EXPECT_EQ(ret->mem_type(), MemoryType::PINNED_HOST);
 }
 
 class BufferResourceReserveOrFailTest : public ::testing::Test {

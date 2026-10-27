@@ -28,6 +28,7 @@
 #include <rapidsmpf/memory/spill_manager.hpp>
 
 #include "environment.hpp"
+#include "utils.hpp"
 
 extern Environment* GlobalEnvironment;
 
@@ -204,6 +205,43 @@ TEST_P(SparseAlltoallMemoryTest, basic_ring_exchange) {
         auto received = exchange.extract(srcs.front());
         ASSERT_EQ(received.size(), 3);
         auto const src = srcs.front();
+        for (int i = 0; i < 3; ++i) {
+            EXPECT_EQ(decode_metadata(received[i]), src * 10 + i);
+            EXPECT_EQ(decode_payload(received[i]), src * 100 + i);
+        }
+    }
+}
+
+TEST_F(SparseAlltoallTest, inserts_disk_backed_data) {
+    auto const& comm = GlobalEnvironment->comm_;
+    auto [srcs, dsts] = ring_peers(comm);
+    TempDir temp_dir;
+    auto disk_br = create_disk_br(temp_dir);
+    rapidsmpf::coll::SparseAlltoall exchange(comm, 0, disk_br.get(), srcs, dsts);
+
+    if (!dsts.empty()) {
+        for (int i = 0; i < 3; ++i) {
+            exchange.insert(
+                dsts.front(),
+                move_to_disk(
+                    make_payload(
+                        comm->rank() * 10 + i,
+                        comm->rank() * 100 + i,
+                        rapidsmpf::MemoryType::DEVICE,
+                        *disk_br,
+                        disk_br->stream_pool()->get_stream()
+                    ),
+                    *disk_br
+                )
+            );
+        }
+    }
+    exchange.insert_finished();
+    exchange.wait(std::chrono::seconds{30});
+    if (!srcs.empty()) {
+        auto const src = srcs.front();
+        auto received = exchange.extract(src);
+        ASSERT_EQ(received.size(), 3);
         for (int i = 0; i < 3; ++i) {
             EXPECT_EQ(decode_metadata(received[i]), src * 10 + i);
             EXPECT_EQ(decode_payload(received[i]), src * 100 + i);
