@@ -97,7 +97,8 @@ std::size_t ReceivedChunks::data_size(MemoryType mem_type) const {
 std::size_t ReceivedChunks::spill(BufferResource* br, std::size_t amount) {
     RAPIDSMPF_NVTX_FUNC_RANGE(amount);
     std::lock_guard lock(mutex_);
-    if (data_size_unsafe(MemoryType::DEVICE) == 0) {  // early exit
+    // Return early if there is no device data to spill
+    if (data_size_unsafe(MemoryType::DEVICE) == 0) {
         return 0;
     }
     // TODO: use a clever strategy to decided which chunks to spill.
