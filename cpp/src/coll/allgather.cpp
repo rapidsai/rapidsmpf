@@ -10,10 +10,13 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <stdexcept>
+#include <vector>
 
 #include <rapidsmpf/coll/allgather.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/communicator/metadata_payload_exchange/tag.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/nvtx.hpp>
@@ -26,7 +29,7 @@ void AllGather::insert(std::uint64_t sequence_number, PackedData&& packed_data) 
     // With more than one rank, the data is sent, so it must be in a sendable memory type.
     if (comm_->nranks() > 1) {
         packed_data.data = br_->ensure_memory_type(
-            std::move(packed_data.data), ADDRESSABLE_MEMORY_TYPES
+            std::move(packed_data.data), exchange_->sendable_memory_types(next_rank())
         );
     }
     nlocal_insertions_.fetch_add(1, std::memory_order_relaxed);
@@ -47,7 +50,10 @@ void AllGather::insert(std::unique_ptr<detail::Chunk> chunk) {
         "Can't insert after locally indicating finished"
     );
     RAPIDSMPF_EXPECTS(
-        comm_->nranks() == 1 || contains(ADDRESSABLE_MEMORY_TYPES, chunk->memory_type()),
+        comm_->nranks() == 1
+            || contains(
+                exchange_->sendable_memory_types(next_rank()), chunk->memory_type()
+            ),
         "the chunk's memory type is not sendable",
         std::logic_error
     );
@@ -63,6 +69,10 @@ void AllGather::insert_finished() {
         )
     );
     locally_finished_.store(true, std::memory_order_release);
+}
+
+Rank AllGather::next_rank() const {
+    return (comm_->rank() + 1) % comm_->nranks();
 }
 
 void AllGather::mark_finish(std::uint64_t expected_chunks) noexcept {
@@ -143,9 +153,23 @@ AllGather::AllGather(
     : comm_{std::move(comm)},
       br_{br},
       finished_callback_{std::move(finished_callback)},
-      finish_counter_{comm_->nranks()},
-      op_id_{op_id},
-      remote_finish_counter_{comm_->nranks() - 1} {
+      finish_counter_{comm_->nranks()} {
+    // The peers are the next and the previous rank in the ring.
+    std::set<Rank> peers;
+    if (comm_->nranks() > 1) {
+        peers.insert((comm_->rank() + 1) % comm_->nranks());
+        peers.insert((comm_->rank() + comm_->nranks() - 1) % comm_->nranks());
+    }
+    // Received chunks are forwarded, so forced receives are not moved to disk.
+    exchange_ = std::make_unique<communicator::TagMetadataPayloadExchange>(
+        comm_,
+        op_id,
+        std::vector<Rank>(peers.begin(), peers.end()),
+        communicator::default_allocate_buffer,
+        br_->memory_reserve_timeout(),
+        br_,
+        communicator::TagMetadataPayloadExchange::ForcedReceive::KEEP_IN_MEMORY
+    );
     function_id_ =
         comm_->progress_thread()->add_function([this]() { return event_loop(); });
     spill_function_id_ = br_->spill_manager().add_spill_function(
@@ -162,58 +186,25 @@ ProgressThread::ProgressState AllGather::event_loop() {
      * Send side:
      * 1. chunk inserted
      * 2. extract ready chunks
-     * 3. for each ready chunk: send metadata to dst and post send for buffer
-     * 4. move to chunk to for_extraction_ once send completes
+     * 3. for each ready chunk: send it to dst, retained by the exchange
+     * 4. once the exchange releases it after the send, move the chunk to for_extraction_
      * 5. chunk is ready for extraction by user
      *
      * Receive side:
-     * 1. receive metadata from src
-     * 2. allocate chunk and post receive from src
-     * 3. Once receive completes
-     *  a. If chunk origin is destination (end-of-ring), move to for_extraction_
-     *  b. Otherwise insert chunk in inserted_
+     * 1. receive chunk from src
+     * 2. if chunk origin is destination (end-of-ring), move to for_extraction_
+     * 3. otherwise insert chunk in inserted_ to forward it
      *
-     * Note: we commit at the point of sending metadata of ready
-     * messages to send data immediately. This avoids the need for one
-     * ack round-trip.
+     * Finish chunks carry the number of insertions of their origin and are forwarded
+     * around the ring as soon as they are received.
+     *
+     * Once this rank will send nothing more, it calls `finish()` on the exchange. The
+     * exchange is then idle once all messages from both neighbours have been received,
+     * which makes it safe to reuse `op_id` after `wait_and_extract()` returns.
      */
-    Rank const dst = (comm_->rank() + 1) % comm_->nranks();
-    Rank const src = (comm_->rank() + comm_->nranks() - 1) % comm_->nranks();
+    Rank const dst = next_rank();
     auto const& statistics = comm_->progress_thread()->statistics();
-    // GPU data sends and metadata sends can be arbitrarily interleaved. To allow reuse of
-    // `op_id` once `wait_and_extract()` returns, we rely on a number of invariants
-    // enforced by the communication scheme.
-    //
-    // Suppose we have two successive allgathers separated by a wait_and_extract "barrier"
-    // that reuse the op_id:
-    //
-    // AG1(op_id)
-    // AG1.wait_and_extract()
-    // AG2(op_id)
-    //
-    // The requirements for safe reuse of the tag are that:
-    // 1. all metadata sends/receives from AG1 are posted before wait_and_extract returns
-    // 2. all data sends/receives are posted before wait_and_extract returns
-    //
-    // There can be arbitrary interleaving of messages (e.g. finish messages and normal
-    // metadata messages), and data messages and metadata messages, as long as these two
-    // invariants are upheld.
-    //
-    // The communication scheme in this loop enforces this in the following way.
-    // The finish condition requires that:
-    // - we have received finish messages from all ranks, defining the final extraction
-    //   goalpost;
-    // - The extraction postbox has reached a size equal to the advertised goalpost.
-    //
-    // Posting receives for more metadata is gated on both of these conditions, so we only
-    // post exactly the correct number of receives.
-    //
-    // To ensure that data sends/receives are correctly posted, note that data is only put
-    // in the extraction postbox _after_ it has been posted for send, therefore
-    // `wait_and_extract()` cannot return until all sends/receives have at least been
-    // posted, upholding the required invariants.
-    Tag metadata_tag{op_id_, 0};
-    Tag gpu_data_tag{op_id_, 1};
+    bool is_done{false};
     if (comm_->nranks() == 1) {
         // Note that we don't need to use extract_ready because there is no message
         // passing and our promise to the consumer is that extracted data chunks are valid
@@ -225,19 +216,22 @@ ProgressThread::ProgressState AllGather::event_loop() {
                 for_extraction_.insert(std::move(chunk));
             }
         }
+        is_done = received_all_data();
+        // The exchange has no peers and is unused, but it must still be finished.
+        if (is_done) {
+            exchange_->finish();
+        }
     } else {
-        // Chunks that are ready to send
+        using Message = communicator::MetadataPayloadExchange::Message;
+        // Send the chunks that are ready.
+        std::vector<std::unique_ptr<Message>> messages;
         for (auto&& chunk : inserted_.extract_ready()) {
-            // Tell the destination about them. All messages (data + finish) share
-            // metadata_tag so the no-overtaking guarantee on a single (src, tag) pair
-            // ensures current-collective messages arrive before any new-collective
-            // messages that reuse the same op_id.
-            fire_and_forget_.push_back(
-                comm_->send(chunk->serialize(), dst, metadata_tag)
-            );
             if (chunk->is_finish()) {
                 // Finish chunk contains as sequence number the number
                 // of insertions from that rank.
+                messages.push_back(
+                    std::make_unique<Message>(dst, std::move(*chunk->serialize()))
+                );
                 mark_finish(chunk->sequence());
             } else {
                 if (chunk->data_size() > 0) {
@@ -245,81 +239,64 @@ ProgressThread::ProgressState AllGather::event_loop() {
                         "allgather-payload-send", chunk->data_size()
                     );
                 }
-                auto buf = chunk->release_data_buffer();
-                sent_posted_.emplace_back(std::move(chunk));
-                sent_futures_.emplace_back(
-                    comm_->send(std::move(buf), dst, gpu_data_tag)
+                messages.push_back(
+                    std::make_unique<Message>(
+                        dst,
+                        std::move(*chunk->serialize()),
+                        chunk->release_data_buffer(),
+                        communicator::MetadataPayloadExchange::AfterSend::RETAIN
+                    )
                 );
             }
         }
-        // Receive metadata messages. All messages (data + finish) share metadata_tag, so
-        // the no-overtaking guarantee ensures current-collective messages arrive before
-        // any new-collective messages that reuse the same op_id. While either of these
-        // conditions are true, this allgather needs to consume more metadata messages.
-        while (remote_finish_counter_ > 0
-               || num_received_messages_ < num_expected_messages_)
-        {
-            auto const msg = comm_->recv_from(src, metadata_tag);
-            if (!msg) {
-                break;
-            }
-            auto chunk = detail::Chunk::deserialize(*msg, br_);
+        if (!messages.empty()) {
+            exchange_->send(std::move(messages));
+        }
+        exchange_->progress();
+
+        // Sent chunks are part of the result, so they are rebuilt from the released
+        // messages.
+        for (auto&& msg : exchange_->release_sent()) {
+            for_extraction_.insert(
+                detail::Chunk::deserialize(msg->metadata(), msg->release_data(), br_)
+            );
+        }
+
+        for (auto&& msg : exchange_->recv()) {
+            auto chunk =
+                detail::Chunk::deserialize(msg->metadata(), msg->release_data(), br_);
             if (chunk->is_finish()) {
-                remote_finish_counter_--;
                 num_expected_messages_ += chunk->sequence();
                 if (chunk->origin() != dst) {
-                    fire_and_forget_.push_back(
-                        comm_->send(chunk->serialize(), dst, metadata_tag)
+                    exchange_->send(
+                        std::make_unique<Message>(dst, msg->release_metadata())
                     );
                 }
                 mark_finish(chunk->sequence());
             } else {
                 num_received_messages_++;
-                to_receive_.emplace_back(std::move(chunk));
-            }
-        }
-        // Post receives if the chunk is ready
-        for (auto&& chunk : to_receive_) {
-            if (!chunk->is_ready()) {
-                break;
-            }
-            if (chunk->data_size() > 0) {
-                statistics->add_bytes_stat("allgather-payload-recv", chunk->data_size());
-            }
-            auto buf = chunk->release_data_buffer();
-            receive_posted_.emplace_back(std::move(chunk));
-            receive_futures_.emplace_back(comm_->recv(src, gpu_data_tag, std::move(buf)));
-        }
-        std::erase(to_receive_, nullptr);
-
-        std::ranges::for_each(
-            detail::test_some(receive_posted_, receive_futures_, comm_.get()),
-            [&](auto&& chunk) {
+                if (chunk->data_size() > 0) {
+                    statistics->add_bytes_stat(
+                        "allgather-payload-recv", chunk->data_size()
+                    );
+                }
                 if (chunk->origin() == dst) {
                     for_extraction_.insert(std::move(chunk));
                 } else {
                     inserted_.insert(std::move(chunk));
                 }
             }
-        );
-        for_extraction_.insert(
-            detail::test_some(sent_posted_, sent_futures_, comm_.get())
-        );
-        if (!fire_and_forget_.empty()) {
-            std::ignore = comm_->test_some(fire_and_forget_);
         }
+
+        // Once the finish chunks of all ranks are known, all chunks have been received
+        // and every chunk to forward has been sent, this rank sends nothing more.
+        if (finish_counter_.load(std::memory_order_acquire) == 0
+            && num_received_messages_ == num_expected_messages_ && inserted_.empty())
+        {
+            exchange_->finish();
+        }
+        is_done = received_all_data() && exchange_->is_finished() && exchange_->is_idle();
     }
-    bool const containers_empty =
-        (fire_and_forget_.empty() && sent_posted_.empty() && receive_posted_.empty()
-         && sent_futures_.empty() && receive_futures_.empty() && to_receive_.empty()
-         && inserted_.empty());
-    bool const received_all_data =
-        finish_counter_.load(std::memory_order_acquire) == 0
-        && extraction_goalpost_.load(std::memory_order_acquire) == for_extraction_.size();
-    // Finish progress and notify only if we've received all data and sent all data.
-    // The finish counter being zero includes us locally having inserted a finish marker,
-    // so it gates whether or not we will insert more into outgoing messages.
-    bool const is_done = received_all_data && containers_empty;
     if (is_done) {
         // We can release our output buffers so notify a waiter.
         {
@@ -333,6 +310,14 @@ ProgressThread::ProgressState AllGather::event_loop() {
         return ProgressThread::ProgressState::Done;
     }
     return ProgressThread::ProgressState::InProgress;
+}
+
+bool AllGather::received_all_data() const noexcept {
+    // The finish counter being zero includes us locally having inserted a finish marker,
+    // so it gates whether or not we will insert more into outgoing messages.
+    return inserted_.empty() && finish_counter_.load(std::memory_order_acquire) == 0
+           && extraction_goalpost_.load(std::memory_order_acquire)
+                  == for_extraction_.size();
 }
 
 }  // namespace rapidsmpf::coll

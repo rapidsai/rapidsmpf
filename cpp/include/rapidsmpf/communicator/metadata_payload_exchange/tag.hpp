@@ -140,6 +140,11 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
     void finish() override;
 
     /**
+     * @copydoc MetadataPayloadExchange::is_finished
+     */
+    bool is_finished() const override;
+
+    /**
      * @copydoc MetadataPayloadExchange::is_idle
      */
     bool is_idle() const override;

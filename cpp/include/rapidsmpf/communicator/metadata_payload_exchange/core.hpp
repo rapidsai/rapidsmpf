@@ -309,9 +309,16 @@ class MetadataPayloadExchange {
      * been received and all expected messages processed, the communication layer
      * considers itself idle and the tag/op_id can be reused.
      *
-     * @throws std::logic_error If called more than once.
+     * Calling it again has no effect.
      */
     virtual void finish() = 0;
+
+    /**
+     * @brief Check if finish() has been called.
+     *
+     * @return `true` if finish() has been called, otherwise `false`.
+     */
+    [[nodiscard]] virtual bool is_finished() const = 0;
 
     /**
      * @brief Check if the communication layer is currently idle.
