@@ -485,7 +485,8 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     ReservationAttributes attributes
 ) {
     if (size == 0) {
-        return {MemoryReservation(mem_type, this, 0), 0};
+        auto result = reserve_impl(mem_type, 0, allow_overbooking, nullptr);
+        return {std::move(result.reservation), result.total_overbooked_bytes};
     }
     std::array const types{mem_type};
     detail::RequestScope scope{

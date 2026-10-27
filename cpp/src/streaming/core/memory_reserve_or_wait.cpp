@@ -276,7 +276,7 @@ MemoryReserveOrWait::reserve_or_wait_or_overbook(
             }
         }
         scope.resolve_granted(result);
-        co_return {std::move(result.reservation), std::move(result.overbooked_bytes)};
+        co_return {std::move(result.reservation), result.total_overbooked_bytes};
     } catch (ReservationCancelled const&) {
         throw;
     } catch (std::exception const& e) {
