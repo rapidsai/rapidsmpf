@@ -5,9 +5,10 @@
 
 #pragma once
 
-#include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <functional>
+#include <mutex>
 #include <thread>
 
 #include <rapidsmpf/utils/misc.hpp>
@@ -28,7 +29,8 @@ class PausableThreadLoop {
      * method is called.
      *
      * If a sleep duration is provided, the thread will sleep for the specified duration
-     * between executions of the task.
+     * between executions of the task. The sleep is interrupted by `resume()`,
+     * `pause_nb()`, `pause()`, and `stop()`.
      *
      * A short sleep is introduced when running under Valgrind to avoid potential issues
      * with thread starvation.
@@ -78,11 +80,14 @@ class PausableThreadLoop {
     void pause() noexcept;
 
     /**
-     * @brief Resumes execution of the thread after being paused.
+     * @brief Resumes the thread and requests a prompt iteration of the loop function.
      *
-     * Calling resume on an already running loop is a no-op and is allowed.
+     * If the thread is paused or pausing, it is resumed. If it is sleeping, it starts
+     * its next iteration immediately. If it is in the middle of an iteration, the sleep
+     * after that iteration is skipped. Multiple calls before the next iteration starts
+     * are coalesced into one.
      *
-     * @return True if the state is changed to Running, false otherwise.
+     * @return True if the thread was paused or pausing, false otherwise.
      */
     bool resume() noexcept;
 
@@ -109,31 +114,39 @@ class PausableThreadLoop {
         Paused,  ///< Thread is paused (can be resumed)
         Pausing,  ///< Thread is pausing (transitioning to Paused)
         Running,  ///< Thread is running
+        SkipSleep,  ///< Thread is running, and starts its next iteration without sleeping
     };
 
-    // State transition matrix:
-    // | cur_state |         |          | nxt_state |          |         || Ops     |
-    // |           |---------|----------|-----------|----------|---------||         |
-    // |           | STOPPED | STOPPING | PAUSED    | PAUSING  | RUNNING ||---------|
-    // |-----------|---------|----------|-----------|----------|---------|| e_loop  |
-    // | STOPPED   | no_op   | X        | X         | X        | X       || pause   |
-    // | STOPPING  | e_loop  | no_op    | X         | X        | X       || resume  |
-    // | PAUSED    | X       | stop     | no_op     | X        | resume  || stop    |
-    // | PAUSING   | e_loop  | stop     | e_loop    | no_op    | resume  || no_op   |
-    // | RUNNING   | X       | stop     | X         | pause    | no_op   || X       |
+    // State transition matrix (e_loop: made by the event loop thread, X: impossible):
+    // | cur \ nxt  | STOPPED | STOPPING | PAUSED | PAUSING | RUNNING | SKIP_SLEEP |
+    // |------------|---------|----------|--------|---------|---------|------------|
+    // | STOPPED    | no_op   | X        | X      | X       | X       | X          |
+    // | STOPPING   | e_loop  | no_op    | X      | X       | X       | X          |
+    // | PAUSED     | X       | stop     | no_op  | X       | X       | resume     |
+    // | PAUSING    | e_loop  | stop     | e_loop | no_op   | X       | resume     |
+    // | RUNNING    | X       | stop     | X      | pause   | no_op   | resume     |
+    // | SKIP_SLEEP | X       | stop     | X      | pause   | e_loop  | no_op      |
     //
     // pause():
-    //  RUNNING -> PAUSING
+    //  RUNNING -> PAUSING | SKIP_SLEEP -> PAUSING
     // stop():
-    //  RUNNING -> STOPPING | PAUSING -> STOPPING | PAUSED -> STOPPING
+    //  RUNNING -> STOPPING | SKIP_SLEEP -> STOPPING | PAUSING -> STOPPING
+    //  | PAUSED -> STOPPING
     // resume():
-    //  PAUSING -> RUNNING | PAUSED -> RUNNING
+    //  PAUSED -> SKIP_SLEEP | PAUSING -> SKIP_SLEEP | RUNNING -> SKIP_SLEEP
     // automatic transition via event loop:
     //  PAUSING -> PAUSED
     //  STOPPING -> STOPPED
+    //  SKIP_SLEEP -> RUNNING (at the start of an iteration)
 
+    // `state_` is guarded by `mutex_`. Every change is followed
+    // by `cv_.notify_all()`. The loop function never runs while `mutex_` is held, so
+    // callers may hold their own locks (also taken by the loop function) while calling
+    // into this class.
+    mutable std::mutex mutex_;
+    std::condition_variable cv_;
+    State state_{State::Paused};
     std::thread thread_;
-    std::atomic<State> state_{State::Paused};
 };
 
 }  // namespace rapidsmpf::detail

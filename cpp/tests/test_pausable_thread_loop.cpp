@@ -121,3 +121,122 @@ TEST(PausableThreadLoop, CanDoCudaWorkOnFirstTick) {
         std::rethrow_exception(eptr);
     }
 }
+
+namespace {
+
+// Sleep duration that the tests below must never wait out.
+constexpr auto long_sleep = std::chrono::seconds{10};
+// Bound for the first iteration, which includes setting up the thread's CUDA context.
+constexpr auto setup_timeout = std::chrono::seconds{5};
+// Bound for anything that must interrupt the sleep.
+constexpr auto prompt = std::chrono::milliseconds{500};
+
+/// Counts loop iterations and lets the test wait for a given count.
+class IterationCounter {
+  public:
+    /// Records one iteration and returns the new count.
+    int increment() {
+        int count;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            count = ++count_;
+        }
+        cv_.notify_all();
+        return count;
+    }
+
+    [[nodiscard]] int get() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return count_;
+    }
+
+    /// Waits until at least `n` iterations have run. Returns false on timeout.
+    bool wait_for(int n, std::chrono::milliseconds timeout) {
+        std::unique_lock<std::mutex> lock(mutex_);
+        return cv_.wait_for(lock, timeout, [&] { return count_ >= n; });
+    }
+
+  private:
+    mutable std::mutex mutex_;
+    std::condition_variable cv_;
+    int count_{0};
+};
+
+}  // namespace
+
+TEST(PausableThreadLoop, ResumeInterruptsSleep) {
+    IterationCounter counter;
+    PausableThreadLoop loop([&] { counter.increment(); }, long_sleep);
+    loop.resume();
+
+    // The first iteration runs immediately, then the loop sleeps.
+    ASSERT_TRUE(counter.wait_for(1, setup_timeout));
+    EXPECT_EQ(counter.get(), 1);
+
+    loop.resume();
+    EXPECT_TRUE(counter.wait_for(2, prompt));
+    loop.stop();
+}
+
+TEST(PausableThreadLoop, ResumeDuringIterationSkipsNextSleep) {
+    IterationCounter counter;
+    std::promise<void> resumed;
+    auto resumed_future = resumed.get_future();
+    PausableThreadLoop loop(
+        [&] {
+            // Hold the first iteration open until the test has called resume().
+            if (counter.increment() == 1) {
+                resumed_future.wait();
+            }
+        },
+        long_sleep
+    );
+    loop.resume();
+    ASSERT_TRUE(counter.wait_for(1, setup_timeout));
+
+    // The first iteration is still running.
+    loop.resume();
+    resumed.set_value();
+    EXPECT_TRUE(counter.wait_for(2, prompt));
+    loop.stop();
+}
+
+TEST(PausableThreadLoop, ResumePausedLoopRunsOnce) {
+    IterationCounter counter;
+    PausableThreadLoop loop([&] { counter.increment(); }, long_sleep);
+    loop.resume();
+    ASSERT_TRUE(counter.wait_for(1, setup_timeout));
+    loop.pause();
+    ASSERT_EQ(counter.get(), 1);
+
+    // Resuming a paused loop runs one iteration, after which the loop sleeps as usual.
+    loop.resume();
+    EXPECT_TRUE(loop.is_running());
+    ASSERT_TRUE(counter.wait_for(2, prompt));
+    EXPECT_FALSE(counter.wait_for(3, std::chrono::milliseconds{100}));
+    loop.stop();
+}
+
+TEST(PausableThreadLoop, StopInterruptsSleep) {
+    IterationCounter counter;
+    PausableThreadLoop loop([&] { counter.increment(); }, long_sleep);
+    loop.resume();
+    ASSERT_TRUE(counter.wait_for(1, setup_timeout));
+
+    auto const start = std::chrono::steady_clock::now();
+    loop.stop();
+    EXPECT_LT(std::chrono::steady_clock::now() - start, prompt);
+}
+
+TEST(PausableThreadLoop, PauseInterruptsSleep) {
+    IterationCounter counter;
+    PausableThreadLoop loop([&] { counter.increment(); }, long_sleep);
+    loop.resume();
+    ASSERT_TRUE(counter.wait_for(1, setup_timeout));
+
+    auto const start = std::chrono::steady_clock::now();
+    loop.pause();
+    EXPECT_LT(std::chrono::steady_clock::now() - start, prompt);
+    EXPECT_FALSE(loop.is_running());
+    loop.stop();
+}
