@@ -1161,17 +1161,6 @@ TEST(BufferResourceDisk, MoveThroughDiskReservation) {
     );
 }
 
-TEST(BufferResourceDisk, BufferCopyRejectsDiskToDisk) {
-    TempDir disk_dir;
-    auto br = make_br_with_disk(disk_dir);
-    auto stream = cuda::stream_ref{cudaStreamLegacy};
-    auto disk_a = br->make_buffer(stream, br->reserve_or_fail(64, MemoryType::DISK));
-    auto disk_b = br->make_buffer(stream, br->reserve_or_fail(64, MemoryType::DISK));
-    EXPECT_THROW(
-        buffer_copy(br->statistics(), *disk_a, *disk_b, 64), std::invalid_argument
-    );
-}
-
 TEST(BufferResource, DeviceMrIsAddressableByMemoryRecorder) {
     constexpr std::size_t kAllocBytes = 1_MiB;
 
@@ -1273,6 +1262,28 @@ TEST_P(BufferResourceDiskCopyTest, DiskBufferCopyRoundTripWithOffsets) {
     auto destination = make_buffer(source->size);
     buffer_copy(br_->statistics(), *destination, *disk_buffer, source->size, 0, offset);
     EXPECT_EQ(copy_to_uint8_vector(*destination), expected);
+}
+
+TEST_P(BufferResourceDiskCopyTest, DiskToDiskCopyWithOffsets) {
+    constexpr std::size_t src_offset = 17;
+    constexpr std::size_t dst_offset = 5;
+    constexpr std::size_t size = 1024;
+    auto source = make_buffer(size + src_offset);
+    auto const pattern = fill_pattern(*source, source->size);
+
+    auto disk_a = make_disk_backed_buffer(source->size);
+    buffer_copy(br_->statistics(), *disk_a, *source, source->size);
+    auto disk_b = make_disk_backed_buffer(size + dst_offset);
+    buffer_copy(br_->statistics(), *disk_b, *disk_a, size, dst_offset, src_offset);
+
+    auto destination = make_buffer(size);
+    buffer_copy(br_->statistics(), *destination, *disk_b, size, 0, dst_offset);
+    EXPECT_EQ(
+        copy_to_uint8_vector(*destination),
+        std::vector<std::uint8_t>(
+            pattern.begin() + src_offset, pattern.begin() + src_offset + size
+        )
+    );
 }
 
 TEST_P(BufferResourceDiskCopyTest, DiskBufferCopyRejectsOutOfBoundsOffsets) {

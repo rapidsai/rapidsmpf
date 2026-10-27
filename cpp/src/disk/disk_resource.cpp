@@ -12,6 +12,7 @@
 #include <utility>
 
 #include <fcntl.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 #include <kvikio/compat_mode.hpp>
@@ -127,6 +128,76 @@ std::size_t DiskResource::read(
             false  // sync_default_stream
         )
         .get();
+}
+
+namespace {
+
+/// RAII file descriptor.
+class ScopedFd {
+  public:
+    ScopedFd(std::filesystem::path const& path, int flags)
+        : fd_{::open(path.c_str(), flags, 0644)} {
+        RAPIDSMPF_EXPECTS(
+            fd_ >= 0,
+            "failed to open " + path.string() + ": " + std::string{std::strerror(errno)},
+            std::runtime_error
+        );
+    }
+
+    ~ScopedFd() noexcept {
+        ::close(fd_);
+    }
+
+    ScopedFd(ScopedFd const&) = delete;
+    ScopedFd& operator=(ScopedFd const&) = delete;
+
+    [[nodiscard]] int get() const noexcept {
+        return fd_;
+    }
+
+  private:
+    int fd_;
+};
+
+}  // namespace
+
+std::size_t DiskResource::copy(
+    std::filesystem::path const& src_path,
+    std::filesystem::path const& dst_path,
+    std::size_t size,
+    std::ptrdiff_t src_offset,
+    std::ptrdiff_t dst_offset
+) const {
+    RAPIDSMPF_EXPECTS(
+        src_offset >= 0 && dst_offset >= 0,
+        "file offsets must be non-negative",
+        std::invalid_argument
+    );
+    ScopedFd src{src_path, O_RDONLY};
+    ScopedFd dst{dst_path, O_WRONLY | O_CREAT};
+
+    auto in_off = static_cast<off_t>(src_offset);
+    auto out_off = static_cast<off_t>(dst_offset);
+    std::size_t done = 0;
+
+    while (done < size) {
+        auto const n =
+            ::copy_file_range(src.get(), &in_off, dst.get(), &out_off, size - done, 0);
+        if (n < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            RAPIDSMPF_FAIL(
+                "copy_file_range failed: " + std::string{std::strerror(errno)},
+                std::runtime_error
+            );
+        }
+        if (n == 0) {
+            break;  // EOF on the source.
+        }
+        done += static_cast<std::size_t>(n);
+    }
+    return done;
 }
 
 void DiskResource::flush(std::filesystem::path const& path) const {
