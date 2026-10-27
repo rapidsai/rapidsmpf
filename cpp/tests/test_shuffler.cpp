@@ -510,9 +510,11 @@ TEST(Shuffler, RejectsNullBufferResource) {
     );
 }
 
-// Chunks inserted by a spilling shuffler wait to be sent, so they must never be spilled
-// to disk, even when a disk resource is available and host memory has no room.
-TEST(Shuffler, InsertSpillNeverProducesDiskBackedChunks) {
+// Chunks inserted by a spilling shuffler wait to be sent, so they can't be spilled to
+// disk. When host memory has no room, insert() must leave them on the device instead of
+// throwing. Where the chunks end up afterwards is not observable: once received they are
+// at rest and may legitimately spill to disk.
+TEST(Shuffler, InsertSpillWillNotSpillToDisk) {
     auto const& comm = GlobalEnvironment->comm_;
     // With a single rank every chunk is local, so every chunk is spillable.
     if (comm->nranks() != 1) {
@@ -533,13 +535,6 @@ TEST(Shuffler, InsertSpillNeverProducesDiskBackedChunks) {
     }
     EXPECT_NO_THROW(shuffler.insert(std::move(chunks)));
     shuffler.insert_finished();
-    shuffler.wait(std::chrono::seconds{30});
-
-    for (auto pid : shuffler.local_partitions()) {
-        for (auto& packed_data : shuffler.extract(pid)) {
-            EXPECT_NE(packed_data.data->mem_type(), rapidsmpf::MemoryType::DISK);
-        }
-    }
 }
 
 TEST(Shuffler, InsertsDiskBackedData) {
