@@ -341,7 +341,7 @@ class PostBox {
     [[nodiscard]] std::size_t spill(
         BufferResource* br,
         std::size_t amount,
-        std::span<MemoryType const> spill_target_types = preference_lt(MemoryType::DEVICE)
+        std::span<MemoryType const> spill_target_types
     );
 
   private:

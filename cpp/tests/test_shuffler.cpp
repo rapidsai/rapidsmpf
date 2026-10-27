@@ -510,12 +510,44 @@ TEST(Shuffler, RejectsNullBufferResource) {
     );
 }
 
+// Chunks inserted by a spilling shuffler wait to be sent, so they must never be spilled
+// to disk, even when a disk resource is available and host memory has no room.
+TEST(Shuffler, InsertSpillNeverProducesDiskBackedChunks) {
+    auto const& comm = GlobalEnvironment->comm_;
+    // With a single rank every chunk is local, so every chunk is spillable.
+    if (comm->nranks() != 1) {
+        GTEST_SKIP() << "Test requires a single rank";
+    }
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+    constexpr std::size_t n_elements = 100;
+    TempDir temp_dir;
+    auto br = create_br(temp_dir.path(), 0);
+    // A negative device limit makes insert() want to spill every chunk.
+    br->set_memory_limit(rapidsmpf::MemoryType::DEVICE, -(1LL << 40));
+    constexpr rapidsmpf::shuffler::PartID total_num_partitions = 2;
+    rapidsmpf::shuffler::Shuffler shuffler(comm, 0, total_num_partitions, br.get());
+
+    std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> chunks;
+    for (rapidsmpf::shuffler::PartID pid = 0; pid < total_num_partitions; ++pid) {
+        chunks.emplace(pid, generate_packed_data(n_elements, 0, stream, *br));
+    }
+    EXPECT_NO_THROW(shuffler.insert(std::move(chunks)));
+    shuffler.insert_finished();
+    shuffler.wait(std::chrono::seconds{30});
+
+    for (auto pid : shuffler.local_partitions()) {
+        for (auto& packed_data : shuffler.extract(pid)) {
+            EXPECT_NE(packed_data.data->mem_type(), rapidsmpf::MemoryType::DISK);
+        }
+    }
+}
+
 TEST(Shuffler, InsertsDiskBackedData) {
     auto const& comm = GlobalEnvironment->comm_;
     auto stream = cuda::stream_ref{cudaStreamLegacy};
     constexpr std::size_t n_elements = 100;
     TempDir temp_dir;
-    auto br = create_disk_br(temp_dir);
+    auto br = create_br(temp_dir.path());
     auto const total_num_partitions =
         rapidsmpf::safe_cast<rapidsmpf::shuffler::PartID>(2 * comm->nranks());
     rapidsmpf::shuffler::Shuffler shuffler(comm, 0, total_num_partitions, br.get());

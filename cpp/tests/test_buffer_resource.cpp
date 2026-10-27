@@ -29,6 +29,7 @@
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
+#include <rapidsmpf/memory/spill.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/statistics.hpp>
@@ -331,6 +332,42 @@ TEST(BufferResource, MemoryAvailableForReservationOfAllTypes) {
     }
 }
 
+TEST(BufferResource, SpillPartitionsToDiskWhenHostIsExhausted) {
+    TempDir temp_dir;
+    auto br = create_br(temp_dir.path(), 0);
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+    constexpr std::size_t size = 4_KiB;
+
+    std::vector<PackedData> partitions;
+    auto res = br->reserve_or_fail(size, MemoryType::DEVICE);
+    partitions.emplace_back(
+        std::make_unique<std::vector<std::uint8_t>>(std::size_t{1}, std::uint8_t{0}),
+        zeros(*br, size, stream, res)
+    );
+
+    // Pinned is disabled and host has no room, so the device data must go to disk.
+    partitions = spill_partitions(std::move(partitions), br.get());
+    ASSERT_EQ(partitions.size(), 1);
+    EXPECT_EQ(partitions[0].data->mem_type(), MemoryType::DISK);
+}
+
+TEST(BufferResource, SpillPartitionsFailsWithoutAnyTargetWithRoom) {
+    auto br = create_br(std::nullopt, 0);
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+    constexpr std::size_t size = 4_KiB;
+
+    std::vector<PackedData> partitions;
+    auto res = br->reserve_or_fail(size, MemoryType::DEVICE);
+    partitions.emplace_back(
+        std::make_unique<std::vector<std::uint8_t>>(std::size_t{1}, std::uint8_t{0}),
+        zeros(*br, size, stream, res)
+    );
+    EXPECT_THROW(
+        std::ignore = spill_partitions(std::move(partitions), br.get()),
+        std::runtime_error
+    );
+}
+
 TEST(BufferResource, RejectsZeroPinnedMaxPoolSize) {
     if (!is_pinned_memory_resources_supported()) {
         GTEST_SKIP() << "Pinned memory not supported on this system";
@@ -484,7 +521,7 @@ TEST(BufferResource, EnsureMemoryTypeRejectsInvalidArguments) {
 
 TEST(BufferResource, EnsureMemoryTypeTriesInReverseOrder) {
     TempDir temp_dir;
-    auto br = create_disk_br(temp_dir);
+    auto br = create_br(temp_dir.path());
     cuda::stream_ref stream{cudaStreamLegacy};
     std::vector<std::uint8_t> metadata{1};
     std::vector<std::uint8_t> payload{10, 20, 30};
@@ -516,7 +553,7 @@ TEST(BufferResource, EnsureMemoryTypeTriesInReverseOrder) {
 
 TEST(BufferResource, EnsureMemoryTypeThrowsWithoutOverbooking) {
     TempDir temp_dir;
-    auto br = create_disk_br(temp_dir, AllowOverbooking::NO);
+    auto br = create_br(temp_dir.path(), std::nullopt, AllowOverbooking::NO);
     cuda::stream_ref stream{cudaStreamLegacy};
     std::vector<std::uint8_t> metadata{1};
     std::vector<std::uint8_t> payload{10, 20, 30};

@@ -215,7 +215,7 @@ TEST_F(SparseAlltoallTest, inserts_disk_backed_data) {
     auto const& comm = GlobalEnvironment->comm_;
     auto [srcs, dsts] = ring_peers(comm);
     TempDir temp_dir;
-    auto disk_br = create_disk_br(temp_dir);
+    auto disk_br = create_br(temp_dir.path());
     rapidsmpf::coll::SparseAlltoall exchange(comm, 0, disk_br.get(), srcs, dsts);
 
     if (!dsts.empty()) {

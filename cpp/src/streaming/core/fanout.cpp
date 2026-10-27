@@ -39,7 +39,7 @@ Actor send_to_channels(
                                   Channel& ch_) -> coro::task<bool> {
         co_await ctx_.executor()->schedule();
         auto const& cd = msg_.content_description();
-        auto const mem_types = preference_leq(cd.principal_memory_type());
+        auto const mem_types = preference_leq(cd.principal_memory_type(), MEMORY_TYPES);
         auto res = ctx_.br()->reserve_or_fail(msg_sz_, mem_types);
         co_return co_await ch_.send(msg_.copy(res));
     };
@@ -226,7 +226,8 @@ struct UnboundedFanout {
                 auto const cd = spillable_messages->get_content_description(msg_id);
                 // Reserve memory for the output using the input message's memory type, or
                 // a lower-priority type if needed.
-                auto const mem_types = preference_leq(cd.principal_memory_type());
+                auto const mem_types =
+                    preference_leq(cd.principal_memory_type(), MEMORY_TYPES);
                 auto res = ctx.br()->reserve_or_fail(cd.content_size(), mem_types);
                 if (!co_await ch_out->send(spillable_messages->copy(msg_id, res))) {
                     // Failed to send message. Could be that the channel is shut down.
