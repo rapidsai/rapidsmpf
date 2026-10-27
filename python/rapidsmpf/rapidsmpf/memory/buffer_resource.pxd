@@ -25,8 +25,7 @@ from rapidsmpf.memory.memory_reservation cimport cpp_MemoryReservation
 from rapidsmpf.memory.pinned_memory_resource cimport (PinnedMemoryResource,
                                                       cpp_PinnedMemoryResource,
                                                       cpp_PinnedPoolProperties)
-from rapidsmpf.memory.reservation_attributes cimport \
-    cpp_ReservationAttributeMap
+from rapidsmpf.memory.reservation_attributes cimport cpp_ReservationAttributes
 from rapidsmpf.memory.spill_manager cimport SpillManager, cpp_SpillManager
 from rapidsmpf.rmm_resource_adaptor cimport (RmmResourceAdaptor,
                                              cpp_RmmResourceAdaptor)
@@ -76,7 +75,7 @@ cdef extern from "<rapidsmpf/memory/reservation_events.hpp>" namespace "rapidsmp
         vector[ReservationEventMemoryType] memory_types
         ReservationRequestPolicy policy
         optional[int64_t] net_memory_delta
-        cpp_ReservationAttributeMap attributes
+        cpp_ReservationAttributes attributes
 
     cdef cppclass cpp_RequestWaitingEvent "rapidsmpf::RequestWaitingEvent":
         uint64_t id
@@ -95,7 +94,7 @@ cdef extern from "<rapidsmpf/memory/reservation_events.hpp>" namespace "rapidsmp
         uint64_t id
         ReservationEventMemoryType memory_type
         size_t size
-        cpp_ReservationAttributeMap attributes
+        cpp_ReservationAttributes attributes
         uint64_t request_id
         uint64_t parent_id
 

@@ -566,32 +566,54 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * @param size The size of the buffer to allocate.
      * @param mem_types Range of memory types to try to reserve memory from.
+     * @param attributes Immutable telemetry attributes for the request.
      * @return A memory reservation, or `std::nullopt` if no memory type can satisfy the
      * request.
      */
     template <std::ranges::input_range Range>
         requires std::convertible_to<std::ranges::range_value_t<Range>, MemoryType>
     [[nodiscard]] std::optional<MemoryReservation> try_reserve(
-        std::size_t size,
-        Range mem_types,
-        ReservationAttributes const& attributes = {}
+        std::size_t size, Range mem_types, ReservationAttributes const& attributes = {}
     ) {
-        // try to reserve memory from the given order
-        for (auto const& mem_type : mem_types) {
-            if (mem_type == MemoryType::DISK && disk_resource_ == nullptr) {
-                continue;
+        if (size == 0) {
+            for (auto const mem_type : mem_types) {
+                if (has_memory_resource(mem_type)) {
+                    return MemoryReservation(mem_type, this, 0);
+                }
             }
-            if (mem_type == MemoryType::PINNED_HOST && !pinned_mr_.has_value()) {
-                // Pinned host memory is only available if the memory resource is
-                // available.
-                continue;
-            }
-            auto [res, _] = reserve(mem_type, size, AllowOverbooking::NO, attributes);
-            if (res.size() == size) {
-                return std::move(res);
-            }
+            return std::nullopt;
         }
-        return std::nullopt;
+        std::vector<MemoryType> types(
+            std::ranges::begin(mem_types), std::ranges::end(mem_types)
+        );
+        detail::RequestScope scope{
+            *this,
+            size,
+            types,
+            ReservationRequestPolicy::IMMEDIATE,
+            std::nullopt,
+            attributes
+        };
+        try {
+            for (auto const mem_type : types) {
+                if (!has_memory_resource(mem_type)) {
+                    continue;
+                }
+                auto result = reserve_impl(mem_type, size, AllowOverbooking::NO, &scope);
+                if (result.reservation.size() == size) {
+                    scope.resolve_granted(result);
+                    return std::move(result.reservation);
+                }
+            }
+            scope.resolve_empty(false);
+            return std::nullopt;
+        } catch (std::exception const& e) {
+            scope.resolve_failed(e.what());
+            throw;
+        } catch (...) {
+            scope.resolve_failed("unknown exception");
+            throw;
+        }
     }
 
     /**
@@ -599,6 +621,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * @param size The size of the buffer to allocate.
      * @param mem_type The memory type to try to reserve memory from.
+     * @param attributes Immutable telemetry attributes for the request.
      * @return A memory reservation, or `std::nullopt` if the request cannot be
      * satisfied.
      */

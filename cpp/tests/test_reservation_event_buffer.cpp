@@ -50,6 +50,32 @@ TEST(ReservationEventBuffer, StartRejectsAnActiveSession) {
     EXPECT_EQ(events[0].sequence, 0);
 }
 
+TEST(ReservationEventBuffer, TryReserveRecordsOneLogicalRequest) {
+    auto br = make_resource(0);
+    br->start_reservation_event_recording();
+
+    auto reservation =
+        br->try_reserve(100, std::array{MemoryType::DEVICE, MemoryType::HOST});
+    ASSERT_TRUE(reservation.has_value());
+    EXPECT_EQ(reservation->mem_type(), MemoryType::HOST);
+
+    auto events = br->stop_reservation_event_recording();
+    ASSERT_EQ(events.size(), 3);
+    auto const& submitted = std::get<RequestSubmittedEvent>(events[0].data);
+    EXPECT_EQ(
+        submitted.memory_types,
+        (std::vector<ReservationEventMemoryType>{
+            ReservationEventMemoryType::DEVICE, ReservationEventMemoryType::HOST
+        })
+    );
+    auto const& created = std::get<ReservationCreatedEvent>(events[1].data);
+    EXPECT_EQ(created.request_id, submitted.id);
+    auto const& resolved = std::get<RequestResolvedEvent>(events[2].data);
+    EXPECT_EQ(resolved.id, submitted.id);
+    EXPECT_EQ(resolved.outcome, ReservationRequestOutcome::GRANTED);
+    EXPECT_EQ(resolved.memory_type, ReservationEventMemoryType::HOST);
+}
+
 TEST(ReservationEventBuffer, RequestAndReservationLifecycleOwnsPayloads) {
     auto br = make_resource();
     br->start_reservation_event_recording();
@@ -87,18 +113,19 @@ TEST(ReservationEventBuffer, RequestAndReservationLifecycleOwnsPayloads) {
     );
     EXPECT_EQ(submitted.policy, ReservationRequestPolicy::IMMEDIATE);
     EXPECT_FALSE(submitted.net_memory_delta.has_value());
-    EXPECT_EQ(submitted.attributes.size(), 4);
-    EXPECT_EQ(std::get<std::string>(submitted.attributes.at("string")), "value");
-    EXPECT_EQ(std::get<std::int64_t>(submitted.attributes.at("integer")), 42);
-    EXPECT_TRUE(std::get<bool>(submitted.attributes.at("boolean")));
-    EXPECT_DOUBLE_EQ(std::get<double>(submitted.attributes.at("floating")), 1.5);
+    ASSERT_TRUE(submitted.attributes);
+    EXPECT_EQ(submitted.attributes->size(), 4);
+    EXPECT_EQ(std::get<std::string>(submitted.attributes->at("string")), "value");
+    EXPECT_EQ(std::get<std::int64_t>(submitted.attributes->at("integer")), 42);
+    EXPECT_TRUE(std::get<bool>(submitted.attributes->at("boolean")));
+    EXPECT_DOUBLE_EQ(std::get<double>(submitted.attributes->at("floating")), 1.5);
 
     auto const& created = std::get<ReservationCreatedEvent>(events[1].data);
     EXPECT_EQ(created.memory_type, ReservationEventMemoryType::DEVICE);
     EXPECT_EQ(created.size, 100);
     EXPECT_EQ(created.request_id, submitted.id);
     EXPECT_EQ(created.parent_id, 0);
-    EXPECT_EQ(created.attributes, submitted.attributes);
+    EXPECT_EQ(created.attributes.get(), submitted.attributes.get());
 
     auto const& resolved = std::get<RequestResolvedEvent>(events[2].data);
     EXPECT_EQ(resolved.outcome, ReservationRequestOutcome::GRANTED);
@@ -118,7 +145,7 @@ TEST(ReservationEventBuffer, RequestAndReservationLifecycleOwnsPayloads) {
     EXPECT_NE(child_created.id, created.id);
     EXPECT_EQ(child_created.parent_id, created.id);
     EXPECT_EQ(child_created.request_id, 0);
-    EXPECT_EQ(child_created.attributes, submitted.attributes);
+    EXPECT_EQ(child_created.attributes.get(), submitted.attributes.get());
 
     auto const& child_resize = std::get<ReservationResizedEvent>(events[5].data);
     EXPECT_EQ(child_resize.id, child_created.id);

@@ -49,13 +49,6 @@ ReservationEventMemoryType reservation_event_memory_type(MemoryType type) {
     RAPIDSMPF_FAIL("unknown memory type", std::invalid_argument);
 }
 
-ReservationAttributeMap copy_attributes(ReservationAttributes const& attributes) {
-    if (attributes) {
-        return *attributes;
-    }
-    return {};
-}
-
 }  // namespace
 
 void BufferResource::record_reservation_event(ReservationEventData data) noexcept {
@@ -108,9 +101,7 @@ void BufferResource::emit_request_submitted(
         types.push_back(reservation_event_memory_type(type));
     }
     record_reservation_event(
-        RequestSubmittedEvent{
-            id, size, std::move(types), policy, delta, copy_attributes(attributes)
-        }
+        RequestSubmittedEvent{id, size, std::move(types), policy, delta, attributes}
     );
 }
 
@@ -156,7 +147,7 @@ void BufferResource::emit_reservation_created(
             reservation.id(),
             reservation_event_memory_type(reservation.mem_type()),
             reservation.size(),
-            copy_attributes(reservation.attributes()),
+            reservation.attributes(),
             request_id,
             parent_id
         }

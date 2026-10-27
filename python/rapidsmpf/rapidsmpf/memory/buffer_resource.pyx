@@ -150,10 +150,14 @@ cdef extern from * nogil:
     ) except +ex_handler
 
 
-cdef object _reservation_attributes_to_dict(cpp_ReservationAttributeMap attributes):
+cdef object _reservation_attributes_to_dict(cpp_ReservationAttributes attributes):
     cdef dict result = {}
     cdef object value
-    for item in attributes:
+    cdef cpp_ReservationAttributeMap attributes_copy
+    if attributes.get() == NULL:
+        return result
+    attributes_copy = deref(attributes.get())
+    for item in attributes_copy:
         if item.second.index() == 0:
             value = cpp_variant_get[string](item.second).decode()
         elif item.second.index() == 1:

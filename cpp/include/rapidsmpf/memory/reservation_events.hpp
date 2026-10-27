@@ -62,7 +62,7 @@ struct RequestSubmittedEvent {
     std::vector<ReservationEventMemoryType> memory_types;  ///< Memory preference order.
     ReservationRequestPolicy policy;  ///< Request policy.
     std::optional<std::int64_t> net_memory_delta;  ///< Optional expected net change.
-    ReservationAttributeMap attributes;  ///< Owned request attributes.
+    ReservationAttributes attributes;  ///< Shared immutable request attributes.
 };
 
 /** @brief Payload emitted when a reservation request begins waiting. */
@@ -87,7 +87,7 @@ struct ReservationCreatedEvent {
     std::uint64_t id;  ///< Reservation identifier.
     ReservationEventMemoryType memory_type;  ///< Reserved memory type.
     std::size_t size;  ///< Initial reserved bytes.
-    ReservationAttributeMap attributes;  ///< Owned reservation attributes.
+    ReservationAttributes attributes;  ///< Shared immutable reservation attributes.
     std::uint64_t request_id;  ///< Originating request identifier, or zero.
     std::uint64_t parent_id;  ///< Parent reservation identifier, or zero.
 };
