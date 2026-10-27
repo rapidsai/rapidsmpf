@@ -71,13 +71,6 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
             exchange_br != nullptr ? exchange_br : br.get(),
             forced_receive
         );
-        finished = false;
-    }
-
-    /// Call `finish()` on the exchange under test.
-    void finish() {
-        comm_interface->finish();
-        finished = true;
     }
 
     /// Finish the exchange under test, if any, and progress it until it is idle.
@@ -85,9 +78,7 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
         if (comm_interface == nullptr) {
             return;
         }
-        if (!finished) {
-            finish();
-        }
+        comm_interface->finish();
         auto const deadline = Clock::now() + std::chrono::seconds{30};
         while (!comm_interface->is_idle() && Clock::now() < deadline) {
             comm_interface->progress();
@@ -204,12 +195,20 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
     cuda::stream_ref stream{cudaStreamLegacy};
     std::shared_ptr<BufferResource> br;
     std::unique_ptr<TagMetadataPayloadExchange> comm_interface;
-    bool finished{false};  ///< Whether `finish()` was called on `comm_interface`.
 };
 
 TEST_F(MetadataPayloadExchangeTest, InitialState) {
     // Communication interface should start in idle state
     EXPECT_TRUE(comm_interface->is_idle());
+    EXPECT_FALSE(comm_interface->is_finished());
+}
+
+TEST_F(MetadataPayloadExchangeTest, IsFinishedAfterFinish) {
+    comm_interface->finish();
+    EXPECT_TRUE(comm_interface->is_finished());
+    // Calling `finish()` again has no effect.
+    comm_interface->finish();
+    EXPECT_TRUE(comm_interface->is_finished());
 }
 
 TEST_F(MetadataPayloadExchangeTest, BroadcastData) {
@@ -861,7 +860,7 @@ TEST_F(MetadataPayloadExchangeTest, RingPeers) {
             create_test_message(next_rank, {static_cast<std::uint8_t>(i)}, data_size)
         );
     }
-    finish();
+    comm_interface->finish();
     auto received = receive(num_messages);
     ASSERT_EQ(received.size(), num_messages);
     for (int i = 0; i < num_messages; ++i) {
@@ -899,7 +898,7 @@ TEST_F(MetadataPayloadExchangeTest, SparsePeers) {
             create_test_message(peer, {static_cast<std::uint8_t>(comm->rank())}, 128)
         );
     }
-    finish();
+    comm_interface->finish();
     auto received = receive(peers.size());
     ASSERT_EQ(received.size(), peers.size());
     std::vector<Rank> sources;
@@ -965,7 +964,7 @@ TEST_F(MetadataPayloadExchangeTest, IsNotIdleUntilReceivedMessageIsReturned) {
     Rank const next_rank = (comm->rank() + 1) % comm->nranks();
 
     comm_interface->send(create_test_message(next_rank, {0x01}, 64));
-    finish();
+    comm_interface->finish();
     // After finish(), the exchange is busy until the message has arrived, and then
     // until recv() has returned it.
     for (int i = 0; i < 100; ++i) {

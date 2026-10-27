@@ -216,7 +216,9 @@ TagMetadataPayloadExchange::release_sent() {
 }
 
 void TagMetadataPayloadExchange::finish() {
-    RAPIDSMPF_EXPECTS(!finished_, "finish() called more than once");
+    if (finished_) {
+        return;
+    }
     finished_ = true;
 
     // Send a termination marker to every peer. The marker tells each peer
@@ -231,6 +233,10 @@ void TagMetadataPayloadExchange::finish() {
             metadata_tag_
         ));
     }
+}
+
+bool TagMetadataPayloadExchange::is_finished() const {
+    return finished_;
 }
 
 bool TagMetadataPayloadExchange::is_idle() const {
