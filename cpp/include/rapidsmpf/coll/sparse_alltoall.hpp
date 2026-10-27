@@ -99,6 +99,9 @@ class SparseAlltoall {
      * caller must establish a total order of the insertions, otherwise the reconstruction
      * order on the receive side is unspecified.
      *
+     * Data that is not in a memory type that can be sent, such as disk-backed data,
+     * is moved with `BufferResource::ensure_memory_type()` first, which may block.
+     *
      * @note Concurrent insertion by multiple threads is supported.
      *
      * @note the caller must ensure that `insert_finished()` is called _after_ all
@@ -106,6 +109,9 @@ class SparseAlltoall {
      *
      * @param dst Destination rank. Must be present in the constructor's `dsts`.
      * @param packed_data Packed payload and metadata to send.
+     *
+     * @throws rapidsmpf::reservation_error If the data must be moved, no memory is
+     * available, and overbooking is not allowed.
      */
     void insert(Rank dst, PackedData&& packed_data);
 

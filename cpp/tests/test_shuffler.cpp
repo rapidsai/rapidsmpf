@@ -576,6 +576,72 @@ INSTANTIATE_TEST_SUITE_P(
     }
 );
 
+TEST(Shuffler, RejectsNullCommunicator) {
+    auto br =
+        rapidsmpf::BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    EXPECT_THROW(
+        rapidsmpf::shuffler::Shuffler(nullptr, 0, 1, br.get()), std::logic_error
+    );
+}
+
+TEST(Shuffler, RejectsNullBufferResource) {
+    EXPECT_THROW(
+        rapidsmpf::shuffler::Shuffler(GlobalEnvironment->comm_, 0, 1, nullptr),
+        std::logic_error
+    );
+}
+
+TEST(Shuffler, InsertsDiskBackedData) {
+    auto const& comm = GlobalEnvironment->comm_;
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+    constexpr std::size_t n_elements = 100;
+    TempDir temp_dir;
+    auto br = create_disk_br(temp_dir);
+    auto const total_num_partitions =
+        rapidsmpf::safe_cast<rapidsmpf::shuffler::PartID>(2 * comm->nranks());
+    rapidsmpf::shuffler::Shuffler shuffler(comm, 0, total_num_partitions, br.get());
+
+    // Every rank inserts a disk-backed chunk into every partition. The offset encodes
+    // the inserting rank and the partition.
+    auto offset = [&](rapidsmpf::Rank rank, rapidsmpf::shuffler::PartID pid) {
+        return rapidsmpf::safe_cast<int>(rank) * 1000
+               + rapidsmpf::safe_cast<int>(pid) * 10;
+    };
+    std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> chunks;
+    for (rapidsmpf::shuffler::PartID pid = 0; pid < total_num_partitions; ++pid) {
+        chunks.emplace(
+            pid,
+            move_to_disk(
+                generate_packed_data(n_elements, offset(comm->rank(), pid), stream, *br),
+                *br
+            )
+        );
+    }
+    shuffler.insert(std::move(chunks));
+    shuffler.insert_finished();
+    shuffler.wait(std::chrono::seconds{30});
+
+    for (auto pid : shuffler.local_partitions()) {
+        auto extracted = shuffler.extract(pid);
+        ASSERT_EQ(extracted.size(), rapidsmpf::safe_cast<std::size_t>(comm->nranks()));
+        std::vector<int> offsets;
+        for (auto& packed_data : extracted) {
+            int first;
+            std::memcpy(&first, packed_data.metadata->data(), sizeof(first));
+            offsets.push_back(first);
+            EXPECT_NO_FATAL_FAILURE(validate_packed_data(
+                std::move(packed_data), n_elements, first, stream, *br
+            ));
+        }
+        std::ranges::sort(offsets);
+        for (rapidsmpf::Rank rank = 0; rank < comm->nranks(); ++rank) {
+            EXPECT_EQ(
+                offsets[rapidsmpf::safe_cast<std::size_t>(rank)], offset(rank, pid)
+            );
+        }
+    }
+}
+
 TEST(Shuffler, SpillOnInsertAndExtraction) {
     rapidsmpf::shuffler::PartID const total_num_partitions = 2;
     auto stream = cuda::stream_ref{cudaStreamLegacy};

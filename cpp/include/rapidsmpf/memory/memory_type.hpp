@@ -46,6 +46,12 @@ constexpr std::array ADDRESSABLE_MEMORY_TYPES{
  */
 constexpr std::array SPILL_TARGET_MEMORY_TYPES{MemoryType::PINNED_HOST, MemoryType::HOST};
 
+// Data waiting to be sent may be spilled, so the spill targets must be addressable.
+static_assert(std::ranges::all_of(SPILL_TARGET_MEMORY_TYPES, [](MemoryType mt) {
+    return std::ranges::find(ADDRESSABLE_MEMORY_TYPES, mt)
+           != ADDRESSABLE_MEMORY_TYPES.end();
+}));
+
 /**
  * @brief Get the memory types with preference lower than or equal to @p mem_type.
  *

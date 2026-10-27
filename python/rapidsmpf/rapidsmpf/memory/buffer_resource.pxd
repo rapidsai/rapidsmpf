@@ -18,6 +18,8 @@ from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.config cimport Options, cpp_Options
 from rapidsmpf.memory.buffer cimport Buffer, MemoryType, cpp_Buffer
+from rapidsmpf.memory.host_memory_resource cimport (HostMemoryResource,
+                                                    cpp_HostMemoryResource)
 from rapidsmpf.memory.memory_reservation cimport cpp_MemoryReservation
 from rapidsmpf.memory.pinned_memory_resource cimport (PinnedMemoryResource,
                                                       cpp_PinnedMemoryResource,
@@ -58,6 +60,8 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
             shared_ptr[cpp_StreamPool],
             shared_ptr[cpp_Statistics],
             optional[cpp_path],
+            cpp_Duration,
+            AllowOverbooking,
         ) except +ex_handler
         int64_t memory_available_for_reservation(
             MemoryType mem_type
@@ -71,6 +75,8 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
         cpp_RmmResourceAdaptor& device_mr_adaptor() noexcept
         optional[cpp_PinnedMemoryResource] try_pinned_mr() except +ex_handler
         const shared_ptr[cpp_DiskResource]& disk_resource() noexcept
+        cpp_Duration memory_reserve_timeout() noexcept
+        AllowOverbooking allow_overbooking_by_default() noexcept
         unique_ptr[cpp_Buffer] make_buffer(
             size_t size,
             stream_ref stream,

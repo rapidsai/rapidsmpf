@@ -66,6 +66,45 @@ convert_chunks_to_messages(
     return messages;
 }
 
+using AllocationMode = communicator::MetadataPayloadExchange::AllocationMode;
+
+/**
+ * @brief Allocate a shuffler receive buffer.
+ *
+ * See `communicator::MetadataPayloadExchange::AllocateBufferFn`. The shuffler's policy
+ * is to overbook host memory as a last resort: a forced allocation that doesn't fit in
+ * any memory type is made in host memory, beyond the host memory limit. If
+ * `allow_overbooking_by_default` is disabled, it throws instead, which is a fatal,
+ * unrecoverable error.
+ *
+ * @param br The buffer resource to allocate from.
+ * @param size The size of the buffer in bytes.
+ * @param mode Whether the allocation may fail.
+ * @return The buffer, or `nullptr` if @p mode allows failing and nothing fits.
+ *
+ * @throw std::runtime_error if the allocation must succeed, nothing fits, and
+ * overbooking is not allowed.
+ */
+std::unique_ptr<Buffer> allocate_receive_buffer(
+    BufferResource* br, std::size_t size, AllocationMode mode
+) {
+    auto res = br->try_reserve(size, ADDRESSABLE_MEMORY_TYPES);
+    if (!res.has_value()) {
+        if (mode == AllocationMode::MAY_FAIL) {
+            return nullptr;
+        }
+        RAPIDSMPF_EXPECTS(
+            br->allow_overbooking_by_default() == AllowOverbooking::YES,
+            "receive buffer allocation made no progress within the allocation timeout "
+            "and overbooking is not allowed",
+            std::runtime_error
+        );
+        // Fall back to overbooking host memory as a last resort.
+        res = br->reserve(MemoryType::HOST, size, AllowOverbooking::YES).first;
+    }
+    return br->make_buffer(br->stream_pool()->get_stream(), std::move(*res));
+}
+
 }  // namespace
 
 class Shuffler::Progress {
@@ -223,22 +262,26 @@ Shuffler::Shuffler(
 )
     : total_num_partitions{total_num_partitions},
       partition_owner{std::move(partition_owner_fn)},
-      br_{br},
+      br_{[br] {
+          RAPIDSMPF_EXPECTS(br != nullptr, "the buffer resource pointer cannot be NULL");
+          return br;
+      }()},
       to_send_{},
       received_{safe_cast<std::size_t>(total_num_partitions)},
-      comm_{std::move(comm)},
+      comm_{[&comm] {
+          RAPIDSMPF_EXPECTS(comm != nullptr, "the communicator pointer cannot be NULL");
+          return std::move(comm);
+      }()},
       mpe_{
           mpe ? std::move(mpe)
               : std::make_unique<communicator::TagMetadataPayloadExchange>(
                     comm_,
                     op_id,
-                    [this](std::size_t size) -> std::unique_ptr<Buffer> {
-                        return br_->make_buffer(
-                            br_->stream_pool()->get_stream(),
-                            br_->reserve_or_fail(size, ADDRESSABLE_MEMORY_TYPES)
-                        );
+                    [br](std::size_t size, AllocationMode mode) {
+                        return allocate_receive_buffer(br, size, mode);
                     },
-                    comm_->progress_thread()->statistics()
+                    br->memory_reserve_timeout(),
+                    br
                 )
       },
       local_partitions_{local_partitions(comm_, total_num_partitions, partition_owner)},
@@ -248,8 +291,6 @@ Shuffler::Shuffler(
     RAPIDSMPF_EXPECTS(
         total_num_partitions > 0, "number of partitions must be strictly positive"
     );
-    RAPIDSMPF_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be NULL");
-    RAPIDSMPF_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be NULL");
 
     // We need to register the progress function with the progress thread, but
     // that cannot be done in the constructor's initializer list because the
@@ -310,6 +351,14 @@ void Shuffler::insert_into_received(detail::Chunk&& chunk) {
 
 void Shuffler::insert(detail::Chunk&& chunk) {
     Rank dst_rank = partition_owner(comm_, chunk.part_id(), total_num_partitions);
+    // Validate before counting the chunk, so a rejected chunk isn't announced to its
+    // destination in `insert_finished()`.
+    RAPIDSMPF_EXPECTS(
+        dst_rank == comm_->rank() || !chunk.is_data_buffer_set()
+            || contains(mpe_->sendable_memory_types(dst_rank), chunk.data_memory_type()),
+        "data for another rank is not in a sendable memory type",
+        std::logic_error
+    );
     if (!chunk.is_control_message()) {
         std::atomic_ref(outbound_chunk_counter_[safe_cast<std::size_t>(dst_rank)])
             .fetch_add(1, std::memory_order_relaxed);
@@ -335,11 +384,22 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
             continue;
         }
 
+        // Data for another rank must be in a memory type that can be sent to it.
+        if (Rank const dst_rank = partition_owner(comm_, pid, total_num_partitions);
+            dst_rank != comm_->rank())
+        {
+            packed_data.data = br_->ensure_memory_type(
+                std::move(packed_data.data), mpe_->sendable_memory_types(dst_rank)
+            );
+        }
+
         // Check if we should spill the chunk before inserting into the inbox.
         std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE);
         if (headroom < 0 && packed_data.data
             && packed_data.data->mem_type() == MemoryType::DEVICE)
         {
+            // NB: the chunk may be for another rank. If the spill targets ever include
+            // `MemoryType::DISK`, this must still spill to sendable memory types only.
             auto reservation =
                 br_->reserve_or_fail(packed_data.data->size, SPILL_TARGET_MEMORY_TYPES);
             auto chunk = create_chunk(pid, std::move(packed_data));

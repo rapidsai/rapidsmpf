@@ -15,6 +15,7 @@
 #include <rapidsmpf/coll/sparse_alltoall.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/memory/memory_type.hpp>
 
 namespace rapidsmpf::coll {
 
@@ -88,6 +89,8 @@ void SparseAlltoall::insert(Rank dst, PackedData&& packed_data) {
         ordinal_it != next_ordinal_per_dst_.end(),
         "SparseAlltoall::insert destination is not a valid destination"
     );
+    packed_data.data =
+        br_->ensure_memory_type(std::move(packed_data.data), ADDRESSABLE_MEMORY_TYPES);
     outgoing_.insert(
         detail::Chunk::from_packed_data(
             ordinal_it->second.fetch_add(1, std::memory_order_acq_rel),

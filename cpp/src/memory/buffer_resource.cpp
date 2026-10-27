@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <limits>
 #include <optional>
+#include <ranges>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -36,7 +37,9 @@ BufferResource::BufferResource(
     std::optional<Duration> periodic_spill_check,
     std::shared_ptr<StreamPool> stream_pool,
     std::shared_ptr<Statistics> statistics,
-    std::shared_ptr<DiskResource> disk_resource
+    std::shared_ptr<DiskResource> disk_resource,
+    Duration memory_reserve_timeout,
+    AllowOverbooking allow_overbooking_by_default
 )
     : owning_mr_{std::move(device_mr)},
       pinned_mr_{std::move(pinned_mr)},
@@ -44,7 +47,9 @@ BufferResource::BufferResource(
       disk_resource_{std::move(disk_resource)},
       stream_pool_{std::move(stream_pool)},
       spill_manager_{this, periodic_spill_check},
-      statistics_{std::move(statistics)} {
+      statistics_{std::move(statistics)},
+      memory_reserve_timeout_{memory_reserve_timeout},
+      allow_overbooking_by_default_{allow_overbooking_by_default} {
     // Default every limit to unlimited, then apply caller overrides.
     for (auto& limit : memory_limits_) {
         limit.store(std::numeric_limits<std::int64_t>::max(), std::memory_order_relaxed);
@@ -65,7 +70,9 @@ std::shared_ptr<BufferResource> BufferResource::create(
     std::optional<Duration> periodic_spill_check,
     std::shared_ptr<StreamPool> stream_pool,
     std::shared_ptr<Statistics> statistics,
-    std::optional<std::filesystem::path> spill_directory
+    std::optional<std::filesystem::path> spill_directory,
+    Duration memory_reserve_timeout,
+    AllowOverbooking allow_overbooking_by_default
 ) {
     std::optional<PinnedMemoryResource> pinned_mr;
     if (pinned_pool_properties.has_value()) {
@@ -98,7 +105,9 @@ std::shared_ptr<BufferResource> BufferResource::create(
         periodic_spill_check,
         std::move(stream_pool),
         std::move(statistics),
-        std::move(disk_res)
+        std::move(disk_res),
+        memory_reserve_timeout,
+        allow_overbooking_by_default
     }};
 
     // Install the back-reference on the owned resources *after* construction so
@@ -133,7 +142,9 @@ std::shared_ptr<BufferResource> BufferResource::from_options(
         periodic_spill_check_from_options(options),
         stream_pool_from_options(options),
         std::move(statistics),
-        spill_dir_from_options(options)
+        spill_dir_from_options(options),
+        memory_reserve_timeout_from_options(options),
+        allow_overbooking_by_default_from_options(options)
     );
 }
 
@@ -276,6 +287,9 @@ std::size_t BufferResource::release(MemoryReservation& reservation, std::size_t 
 std::unique_ptr<Buffer> BufferResource::make_buffer(
     std::size_t size, cuda::stream_ref stream, MemoryReservation& reservation
 ) {
+    RAPIDSMPF_EXPECTS(
+        stream != cuda::invalid_stream, "stream must be valid", std::invalid_argument
+    );
     auto const mem_type = reservation.mem_type_;
     // A disk buffer is created with mkstemp, which never touches the stream, so a
     // stream-ordered timing would measure stream backlog rather than the creation.
@@ -329,20 +343,19 @@ std::unique_ptr<Buffer> BufferResource::move(
     std::shared_ptr<SpillTrackToken> spill_token
 ) {
     RAPIDSMPF_EXPECTS(
+        stream != cuda::invalid_stream, "stream must be valid", std::invalid_argument
+    );
+    RAPIDSMPF_EXPECTS(
         spill_token == nullptr || is_host_accessible(data->memory_resource()),
         "a spill token cannot be attached to device memory",
         std::invalid_argument
     );
-    cuda::stream_ref upstream = data->stream();
-    if (upstream.get() != stream.get()) {
-        // Default-constructed RMM buffers have no stream or work to join.
-        bool const empty_without_stream =
-            data->capacity() == 0 && upstream == cuda::invalid_stream;
-        if (!empty_without_stream) {
-            cuda_stream_join(stream, upstream);
-        }
-        data->set_stream(stream);
+    // An empty buffer owns no memory, so there is no work to join. This also covers
+    // default-constructed RMM buffers, which have no stream.
+    if (data->capacity() > 0) {
+        cuda_stream_join(stream, data->stream());
     }
+    data->set_stream(stream);
 
     if (is_host_accessible(data->memory_resource())) {
         auto pinned_host_buffer = std::make_unique<HostBuffer>(
@@ -395,6 +408,32 @@ std::unique_ptr<Buffer> BufferResource::move(
         ret->spill_track_token_ = std::move(token);
     }
     return ret;
+}
+
+std::unique_ptr<Buffer> BufferResource::ensure_memory_type(
+    std::unique_ptr<Buffer> buffer, std::span<MemoryType const> accepted
+) {
+    RAPIDSMPF_EXPECTS(
+        buffer != nullptr, "the buffer pointer cannot be NULL", std::invalid_argument
+    );
+    RAPIDSMPF_EXPECTS(
+        !accepted.empty(),
+        "the accepted memory types cannot be empty",
+        std::invalid_argument
+    );
+    if (contains(accepted, buffer->mem_type())) {
+        return buffer;
+    }
+    auto res = try_reserve(buffer->size, accepted | std::views::reverse);
+    if (!res.has_value()) {
+        RAPIDSMPF_EXPECTS(
+            allow_overbooking_by_default() == AllowOverbooking::YES,
+            "cannot reserve memory to move the buffer and overbooking is not allowed",
+            rapidsmpf::reservation_error
+        );
+        res = reserve(accepted.back(), buffer->size, AllowOverbooking::YES).first;
+    }
+    return move(std::move(buffer), *res);
 }
 
 std::unique_ptr<rmm::device_buffer> BufferResource::move_to_device_buffer(
@@ -486,6 +525,16 @@ std::shared_ptr<StreamPool> stream_pool_from_options(config::Options options) {
         std::invalid_argument
     );
     return std::make_shared<StreamPool>(num_streams);
+}
+
+Duration memory_reserve_timeout_from_options(config::Options options) {
+    return options.get<Duration>("memory_reserve_timeout", parse_duration);
+}
+
+AllowOverbooking allow_overbooking_by_default_from_options(config::Options options) {
+    return options.get<bool>("allow_overbooking_by_default", parse_string<bool>)
+               ? AllowOverbooking::YES
+               : AllowOverbooking::NO;
 }
 
 }  // namespace rapidsmpf

@@ -10,10 +10,12 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 
 #include <rapidsmpf/coll/allgather.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/utils/misc.hpp>
@@ -21,6 +23,12 @@
 namespace rapidsmpf::coll {
 
 void AllGather::insert(std::uint64_t sequence_number, PackedData&& packed_data) {
+    // With more than one rank, the data is sent, so it must be in a sendable memory type.
+    if (comm_->nranks() > 1) {
+        packed_data.data = br_->ensure_memory_type(
+            std::move(packed_data.data), ADDRESSABLE_MEMORY_TYPES
+        );
+    }
     nlocal_insertions_.fetch_add(1, std::memory_order_relaxed);
     return insert(
         detail::Chunk::from_packed_data(
@@ -37,6 +45,11 @@ void AllGather::insert(std::unique_ptr<detail::Chunk> chunk) {
     RAPIDSMPF_EXPECTS(
         !locally_finished_.load(std::memory_order_acquire),
         "Can't insert after locally indicating finished"
+    );
+    RAPIDSMPF_EXPECTS(
+        comm_->nranks() == 1 || contains(ADDRESSABLE_MEMORY_TYPES, chunk->memory_type()),
+        "the chunk's memory type is not sendable",
+        std::logic_error
     );
     inserted_.insert(std::move(chunk));
 }
@@ -100,7 +113,10 @@ std::size_t AllGather::spill(std::optional<std::size_t> amount) {
     }
     std::size_t spilled{0};
     if (spill_need > 0) {
-        // Spill from ready post box then inserted postbox
+        // Spill from ready post box then inserted postbox.
+        // NB: the inserted postbox holds chunks waiting to be sent. If the spill
+        // targets ever include `MemoryType::DISK`, it must still spill to sendable
+        // memory types only.
         spilled = for_extraction_.spill(br_, spill_need);
         if (spilled < spill_need) {
             spilled += inserted_.spill(br_, spill_need - spilled);

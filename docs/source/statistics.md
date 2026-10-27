@@ -10,6 +10,8 @@ This table gives an overview of the different statistics collected.
 | `buffer-spilled-time` | How long spilled data remains spilled until unspilled back into device memory. |
 | `event-loop-total` | Time spent in in the background `ProgressThread` event-loop. |
 | `recv-into-host-memory` | Data received directly into host memory rather than device memory, due to memory pressure at receive time. |
+| `metadata-payload-exchange-forced-allocations` | Receive buffers that `MetadataPayloadExchange` allocated after the allocation timeout (`memory_reserve_timeout` in the shuffler) passed without any receive buffer allocation succeeding. Such an allocation may overbook memory. |
+| `metadata-payload-exchange-moved-to-disk` | Received payloads of forced allocations that `MetadataPayloadExchange` moved to disk before delivering them, to free the forced memory. Only recorded when the buffer resource has a disk resource. |
 | `reserve-{memtype}-wait-avoided` | Reservation requests that `MemoryReserveOrWait` satisfied at once, over all requests. A miss means the request had to wait. |
 | `reserve-{memtype}-wait-timeout` | Waiting requests that were forced through when the timeout ran out, including any spill extension, over the requests that had to wait. A miss means the request was admitted, possibly during a spill extension. |
 | `reserve-{memtype}-wait-satisfied-time` | Time requests spent waiting before being admitted without forced progress, including any time spent in a spill extension. |
