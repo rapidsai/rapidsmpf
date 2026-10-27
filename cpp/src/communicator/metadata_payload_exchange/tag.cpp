@@ -20,9 +20,11 @@ namespace rapidsmpf::communicator {
 TagMetadataPayloadExchange::TagMetadataPayloadExchange(
     std::shared_ptr<Communicator> comm,
     OpID op_id,
+    std::vector<Rank> peers,
     AllocateBufferFn allocate_buffer_fn,
     Duration allocation_timeout,
-    BufferResource* br
+    BufferResource* br,
+    ForcedReceive forced_receive
 )
     : comm_(std::move(comm)),
       nranks_(comm_->nranks()),
@@ -32,13 +34,45 @@ TagMetadataPayloadExchange::TagMetadataPayloadExchange(
       allocate_buffer_fn_(std::move(allocate_buffer_fn)),
       allocation_timeout_(allocation_timeout),
       br_(br),
-      num_awaiting_buffer_(safe_cast<std::size_t>(nranks_), 0),
-      messages_sent_to_(safe_cast<std::size_t>(nranks_), 0),
-      peer_received_(safe_cast<std::size_t>(nranks_), 0),
-      peer_expected_(safe_cast<std::size_t>(nranks_), 0),
-      peer_terminated_(safe_cast<std::size_t>(nranks_), false) {
+      forced_receive_(forced_receive) {
     RAPIDSMPF_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be NULL");
+    for (Rank peer : peers) {
+        RAPIDSMPF_EXPECTS(
+            peer >= 0 && peer < nranks_, "peer is not a valid rank", std::out_of_range
+        );
+        RAPIDSMPF_EXPECTS(
+            peer != rank_, "peers cannot include the calling rank", std::invalid_argument
+        );
+        RAPIDSMPF_EXPECTS(
+            peers_.try_emplace(peer).second,
+            "peers cannot contain duplicates",
+            std::invalid_argument
+        );
+    }
     statistics_ = br_->statistics();
+}
+
+TagMetadataPayloadExchange::~TagMetadataPayloadExchange() noexcept {
+    if (finished_ && TagMetadataPayloadExchange::is_idle()) {
+        return;
+    }
+    try {
+        comm_->logger()->warn(
+            "destroying a TagMetadataPayloadExchange that is not finished and idle (",
+            finished_ ? "finished" : "not finished",
+            ", sends in flight: ",
+            fire_and_forget_.size(),
+            ", receives in flight: ",
+            in_transit_futures_.size(),
+            ", uncollected received messages: ",
+            received_messages_.size(),
+            ", unreleased sent messages: ",
+            sent_messages_.size(),
+            ")"
+        );
+    } catch (...) {
+        // Ignore logging failures.
+    }
 }
 
 void TagMetadataPayloadExchange::send(
@@ -58,6 +92,10 @@ void TagMetadataPayloadExchange::send(
     RAPIDSMPF_EXPECTS(!finished_, "send() called after finish()");
 
     for (auto const& message : messages) {
+        auto const dst = message->peer_rank();
+        RAPIDSMPF_EXPECTS(
+            peers_.contains(dst), "the destination is not a peer", std::invalid_argument
+        );
         RAPIDSMPF_EXPECTS(
             message->data() == nullptr
                 || contains(
@@ -72,7 +110,8 @@ void TagMetadataPayloadExchange::send(
     // Send metadata followed immediately by data for each message
     for (auto&& message : messages) {
         auto dst = message->peer_rank();
-        messages_sent_to_[safe_cast<std::size_t>(dst)]++;
+        auto& state = peers_.at(dst);
+        state.messages_sent++;
 
         // Assign sequential message ID
         // Format: [rank (32 bits)][sequence (32 bits)]
@@ -80,15 +119,17 @@ void TagMetadataPayloadExchange::send(
             (safe_cast<std::uint64_t>(comm_->rank()) << 32) | next_message_id_++;
 
         log.trace("send metadata to ", dst, " (message_id=", message_id, ")");
-        RAPIDSMPF_EXPECTS(dst != comm_->rank(), "sending message to ourselves");
 
         std::size_t payload_size =
             (message->data() != nullptr) ? message->data()->size : 0;
 
         // Append metadata: [original_metadata][message_id][payload_size]
-        // Release the original metadata and append protocol fields to avoid copying
-        auto combined_metadata =
-            std::make_unique<std::vector<std::uint8_t>>(message->release_metadata());
+        // A retained message keeps its metadata, so it is copied. Otherwise, it is
+        // released to avoid the copy.
+        auto combined_metadata = std::make_unique<std::vector<std::uint8_t>>(
+            message->after_send() == AfterSend::RETAIN ? message->metadata()
+                                                       : message->release_metadata()
+        );
 
         // Reserve space for message_id and payload_size at the end
         std::size_t original_size = combined_metadata->size();
@@ -113,10 +154,16 @@ void TagMetadataPayloadExchange::send(
         );
 
         // Send data immediately after metadata (if any)
+        std::unique_ptr<Communicator::Future> payload_future;
         if (payload_size > 0) {
-            fire_and_forget_.push_back(
-                comm_->send(message->release_data(), dst, gpu_data_tag_)
+            payload_future = comm_->send(message->release_data(), dst, gpu_data_tag_);
+        }
+        if (message->after_send() == AfterSend::RETAIN) {
+            state.retained_messages.push_back(
+                {std::move(message), std::move(payload_future)}
             );
+        } else if (payload_future) {
+            fire_and_forget_.push_back(std::move(payload_future));
         }
     }
 
@@ -138,6 +185,7 @@ void TagMetadataPayloadExchange::progress() {
     std::ranges::move(completed_data, std::back_inserter(received_messages_));
 
     cleanup_completed_operations();
+    complete_retained_messages();
 
     statistics_->add_duration_stat(
         "metadata-payload-exchange-progress", Clock::now() - t0
@@ -150,6 +198,11 @@ TagMetadataPayloadExchange::recv() {
     return std::move(received_messages_);
 }
 
+std::vector<std::unique_ptr<MetadataPayloadExchange::Message>>
+TagMetadataPayloadExchange::release_sent() {
+    return std::move(sent_messages_);
+}
+
 void TagMetadataPayloadExchange::finish() {
     RAPIDSMPF_EXPECTS(!finished_, "finish() called more than once");
     finished_ = true;
@@ -158,15 +211,12 @@ void TagMetadataPayloadExchange::finish() {
     // exactly how many application messages we sent to it, so the peer can
     // stop receiving once it has them all.
     // Format: [sentinel=UINT64_MAX (8 bytes)][message_count (8 bytes)]
-    for (Rank peer = 0; peer < nranks_; ++peer) {
-        if (peer == rank_) {
-            continue;
-        }
+    for (auto const& [peer, state] : peers_) {
         auto termination = std::make_unique<std::vector<std::uint8_t>>(
             sizeof(std::uint64_t) + sizeof(std::size_t)
         );
         std::memcpy(termination->data(), &termination_sentinel_, sizeof(std::uint64_t));
-        auto count = messages_sent_to_[safe_cast<std::size_t>(peer)];
+        auto count = state.messages_sent;
         std::memcpy(
             termination->data() + sizeof(std::uint64_t), &count, sizeof(std::size_t)
         );
@@ -177,23 +227,16 @@ void TagMetadataPayloadExchange::finish() {
 }
 
 bool TagMetadataPayloadExchange::is_idle() const {
-    bool const io_idle = fire_and_forget_.empty() && incoming_messages_.empty()
-                         && in_transit_messages_.empty() && in_transit_futures_.empty();
-    if (!finished_) {
-        return io_idle;
+    if (!fire_and_forget_.empty() || !in_transit_futures_.empty()
+        || !received_messages_.empty() || !sent_messages_.empty())
+    {
+        return false;
     }
     // After finish(), also require all peers to have sent their termination
     // markers and all expected application messages to have been received.
-    for (Rank peer = 0; peer < nranks_; ++peer) {
-        if (peer == rank_) {
-            continue;
-        }
-        auto const p = safe_cast<std::size_t>(peer);
-        if (!peer_terminated_[p] || peer_received_[p] < peer_expected_[p]) {
-            return false;
-        }
-    }
-    return io_idle;
+    return std::ranges::all_of(peers_, [&](auto const& peer) {
+        return peer.second.io_idle() && (!finished_ || peer.second.received_all());
+    });
 }
 
 void TagMetadataPayloadExchange::receive_metadata() {
@@ -202,14 +245,9 @@ void TagMetadataPayloadExchange::receive_metadata() {
 
     // Use per-peer recv_from to avoid consuming messages belonging to a future
     // collective on the same tag (see rapidsai/rapidsmpf#927).
-    for (Rank peer = 0; peer < nranks_; ++peer) {
-        if (peer == rank_) {
-            continue;
-        }
-        auto const p = safe_cast<std::size_t>(peer);
-
+    for (auto& [peer, state] : peers_) {
         // Skip peers that are fully done.
-        if (peer_terminated_[p] && peer_received_[p] >= peer_expected_[p]) {
+        if (state.received_all()) {
             continue;
         }
 
@@ -243,8 +281,8 @@ void TagMetadataPayloadExchange::receive_metadata() {
 
             // Check for termination marker.
             if (message_id == termination_sentinel_) {
-                peer_expected_[p] = payload_size;  // payload_size carries the count
-                peer_terminated_[p] = true;
+                state.messages_expected = payload_size;  // payload_size carries the count
+                state.terminated = true;
                 log->trace(
                     "recv termination from ",
                     peer,
@@ -256,7 +294,7 @@ void TagMetadataPayloadExchange::receive_metadata() {
             }
 
             // Normal application message.
-            peer_received_[p]++;
+            state.messages_received++;
 
             std::vector<std::uint8_t> original_metadata(
                 msg->begin(),
@@ -268,15 +306,15 @@ void TagMetadataPayloadExchange::receive_metadata() {
             );
 
             log->trace("recv_from ", peer, " (message_id=", message_id, ")");
-            auto& tag_msg = incoming_messages_[peer].emplace_back(
+            auto& tag_msg = state.incoming.emplace_back(
                 std::move(message), message_id, payload_size, next_arrival_++
             );
             if (payload_size > 0) {
                 // Buffers are allocated in message order per peer, so only try to
                 // allocate when no earlier message from this peer is still waiting.
-                num_awaiting_buffer_[p]++;
+                state.num_awaiting_buffer++;
                 total_awaiting_buffer_++;
-                if (num_awaiting_buffer_[p] == 1) {
+                if (state.num_awaiting_buffer == 1) {
                     try_attach_receive_buffer(tag_msg, AllocationMode::MAY_FAIL);
                 }
                 if (tag_msg.is_awaiting_buffer() && !allocation_stall_start_.has_value())
@@ -302,9 +340,8 @@ TagMetadataPayloadExchange::setup_data_receives() {
     force_allocation_progress_if_stalled();
 
     // Process messages per rank, breaking only when a rank's buffer isn't ready
-    for (auto rank_it = incoming_messages_.begin(); rank_it != incoming_messages_.end();)
-    {
-        auto& [src, messages] = *rank_it;
+    for (auto& [src, state] : peers_) {
+        auto& messages = state.incoming;
 
         // Process messages for this rank in order
         auto msg_it = messages.begin();
@@ -349,16 +386,14 @@ TagMetadataPayloadExchange::setup_data_receives() {
                     "in transit future already exists"
                 );
                 // Store in per-rank vector to maintain order
-                in_transit_messages_[src].push_back(std::move(tag_message));
+                state.in_transit.push_back(std::move(tag_message));
                 // Break to ensure we don't return later messages before this one
                 // completes
                 break;
             } else {
                 // Control/metadata-only message
                 // Only return if there are no earlier in-transit messages from this rank
-                if (in_transit_messages_.count(src) == 0
-                    || in_transit_messages_[src].empty())
-                {
+                if (state.in_transit.empty()) {
                     completed_messages.push_back(std::move(tag_msg.message));
                     msg_it = messages.erase(msg_it);
                 } else {
@@ -367,13 +402,6 @@ TagMetadataPayloadExchange::setup_data_receives() {
                     break;
                 }
             }
-        }
-
-        // Remove rank entry if all messages have been processed
-        if (messages.empty()) {
-            rank_it = incoming_messages_.erase(rank_it);
-        } else {
-            ++rank_it;
         }
     }
 
@@ -397,10 +425,8 @@ TagMetadataPayloadExchange::complete_data_transfers() {
         std::unordered_set<std::uint64_t> finished_set(finished.begin(), finished.end());
 
         // Process each rank's in-transit messages in order
-        for (auto rank_it = in_transit_messages_.begin();
-             rank_it != in_transit_messages_.end();)
-        {
-            auto& [src, messages] = *rank_it;
+        for (auto& [src, state] : peers_) {
+            auto& messages = state.in_transit;
 
             // Return messages in order, stopping at the first incomplete one
             while (!messages.empty()) {
@@ -417,7 +443,9 @@ TagMetadataPayloadExchange::complete_data_transfers() {
                     auto future = std::move(future_it->second);
                     auto received_buffer = comm_->release_data(std::move(future));
 
-                    if (tag_msg.forced_allocation) {
+                    if (tag_msg.forced_allocation
+                        && forced_receive_ == ForcedReceive::MOVE_TO_DISK)
+                    {
                         try_move_to_disk(received_buffer);
                     }
                     tag_msg.message->set_data(std::move(received_buffer));
@@ -431,13 +459,6 @@ TagMetadataPayloadExchange::complete_data_transfers() {
                     // to maintain order
                     break;
                 }
-            }
-
-            // Remove rank entry if all messages have been completed
-            if (messages.empty()) {
-                rank_it = in_transit_messages_.erase(rank_it);
-            } else {
-                ++rank_it;
             }
         }
     }
@@ -455,7 +476,7 @@ bool TagMetadataPayloadExchange::try_attach_receive_buffer(
     RAPIDSMPF_EXPECTS(
         tag_msg.is_awaiting_buffer(), "message is not waiting for a buffer"
     );
-    auto buffer = allocate_buffer_fn_(tag_msg.expected_payload_size, mode);
+    auto buffer = allocate_buffer_fn_(br_, tag_msg.expected_payload_size, mode);
     if (buffer == nullptr) {
         RAPIDSMPF_EXPECTS(
             mode == AllocationMode::MAY_FAIL,
@@ -466,8 +487,7 @@ bool TagMetadataPayloadExchange::try_attach_receive_buffer(
     }
     tag_msg.message->set_data(std::move(buffer));
 
-    auto const p = safe_cast<std::size_t>(tag_msg.message->peer_rank());
-    num_awaiting_buffer_[p]--;
+    peers_.at(tag_msg.message->peer_rank()).num_awaiting_buffer--;
     total_awaiting_buffer_--;
 
     // An allocation succeeded, so restart the stall period if messages still wait.
@@ -488,9 +508,10 @@ void TagMetadataPayloadExchange::force_allocation_progress_if_stalled() {
     // Find the oldest message waiting for a buffer. Per peer, that is the first
     // waiting message, since buffers are allocated in message order.
     TagMessage* oldest = nullptr;
-    for (auto& [_, messages] : incoming_messages_) {
-        auto it = std::ranges::find_if(messages, &TagMessage::is_awaiting_buffer);
-        if (it != messages.end() && (oldest == nullptr || it->arrival < oldest->arrival))
+    for (auto& [_, state] : peers_) {
+        auto it = std::ranges::find_if(state.incoming, &TagMessage::is_awaiting_buffer);
+        if (it != state.incoming.end()
+            && (oldest == nullptr || it->arrival < oldest->arrival))
         {
             oldest = &*it;
         }
@@ -525,5 +546,22 @@ void TagMetadataPayloadExchange::cleanup_completed_operations() {
     }
 }
 
+void TagMetadataPayloadExchange::complete_retained_messages() {
+    for (auto& [_, state] : peers_) {
+        auto& retained = state.retained_messages;
+        // Release messages in send order, stopping at the first incomplete send.
+        auto it = retained.begin();
+        for (; it != retained.end(); ++it) {
+            if (it->future != nullptr) {
+                if (!comm_->test(it->future)) {
+                    break;
+                }
+                it->message->set_data(comm_->release_data(std::move(it->future)));
+            }
+            sent_messages_.push_back(std::move(it->message));
+        }
+        retained.erase(retained.begin(), it);
+    }
+}
 
 }  // namespace rapidsmpf::communicator
