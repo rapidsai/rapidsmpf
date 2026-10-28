@@ -72,6 +72,8 @@ from rapidsmpf.statistics cimport Statistics
 
 cdef extern from * nogil:
     """
+    #include <type_traits>
+
     namespace {
     // Copy the `HostMemoryResource` behind `br->host_mr()`. The copy promotes the
     // resource's back-reference, so the result keeps `br` alive.
@@ -124,6 +126,63 @@ cdef extern from * nogil:
             br->reserve_or_fail(size, mem_types, std::move(attributes))
         );
     }
+
+    static_assert(
+        std::variant_size_v<rapidsmpf::ReservationEventData> == 7,
+        "Update the Python reservation-event bridge for the new event type"
+    );
+
+    struct CythonReservationEventView {
+        std::size_t kind;
+        void const* payload;
+    };
+
+    CythonReservationEventView cpp_reservation_event_view(
+        rapidsmpf::ReservationEvent const& event
+    ) noexcept {
+        return std::visit(
+            [](auto const& payload) {
+                using T = std::decay_t<decltype(payload)>;
+                std::size_t kind;
+                if constexpr (std::is_same_v<T, rapidsmpf::RequestSubmittedEvent>) {
+                    kind = 0;
+                } else if constexpr (
+                    std::is_same_v<T, rapidsmpf::RequestWaitingEvent>
+                ) {
+                    kind = 1;
+                } else if constexpr (
+                    std::is_same_v<T, rapidsmpf::RequestResolvedEvent>
+                ) {
+                    kind = 2;
+                } else if constexpr (
+                    std::is_same_v<T, rapidsmpf::ReservationCreatedEvent>
+                ) {
+                    kind = 3;
+                } else if constexpr (
+                    std::is_same_v<T, rapidsmpf::ReservationResizedEvent>
+                ) {
+                    kind = 4;
+                } else if constexpr (
+                    std::is_same_v<T, rapidsmpf::ReservationReleasedEvent>
+                ) {
+                    kind = 5;
+                } else {
+                    static_assert(
+                        std::is_same_v<T, rapidsmpf::MemoryLimitChangedEvent>
+                    );
+                    kind = 6;
+                }
+                return CythonReservationEventView{kind, &payload};
+            },
+            event.data
+        );
+    }
+
+    rapidsmpf::ReservationEvent const* cpp_reservation_event_at(
+        rapidsmpf::ReservationEventBatch const& batch, std::size_t index
+    ) noexcept {
+        return &batch[index];
+    }
     }  // namespace
     """
     optional[cpp_HostMemoryResource] cpp_br_host_mr(
@@ -148,9 +207,21 @@ cdef extern from * nogil:
         vector[MemoryType],
         cpp_ReservationAttributes,
     ) except +ex_handler
+    cdef cppclass CythonReservationEventView:
+        size_t kind
+        const void* payload
+    CythonReservationEventView cpp_reservation_event_view(
+        const cpp_ReservationEvent&
+    ) noexcept
+    const cpp_ReservationEvent* cpp_reservation_event_at(
+        const cpp_ReservationEventBatch&,
+        size_t,
+    ) noexcept
 
 
-cdef object _reservation_attributes_to_dict(cpp_ReservationAttributes attributes):
+cdef object _reservation_attributes_to_dict(
+    const cpp_ReservationAttributes& attributes
+):
     cdef dict result = {}
     cdef object value
     cdef cpp_ReservationAttributeMap attributes_copy
@@ -170,92 +241,109 @@ cdef object _reservation_attributes_to_dict(cpp_ReservationAttributes attributes
     return result
 
 
-cdef dict _reservation_event_to_dict(cpp_ReservationEvent event):
+cdef dict _reservation_event_to_dict(const cpp_ReservationEvent* event):
     cdef dict result = {
-        "sequence": event.sequence,
-        "timestamp_ns": event.timestamp_ns,
+        "sequence": event[0].sequence,
+        "timestamp_ns": event[0].timestamp_ns,
     }
-    cdef cpp_RequestSubmittedEvent submitted
-    cdef cpp_RequestWaitingEvent waiting
-    cdef cpp_RequestResolvedEvent resolved
-    cdef cpp_ReservationCreatedEvent created
-    cdef cpp_ReservationResizedEvent resized
-    cdef cpp_ReservationReleasedEvent released
-    cdef cpp_MemoryLimitChangedEvent limit
+    cdef const cpp_RequestSubmittedEvent* submitted
+    cdef const cpp_RequestWaitingEvent* waiting
+    cdef const cpp_RequestResolvedEvent* resolved
+    cdef const cpp_ReservationCreatedEvent* created
+    cdef const cpp_ReservationResizedEvent* resized
+    cdef const cpp_ReservationReleasedEvent* released
+    cdef const cpp_MemoryLimitChangedEvent* limit
     cdef list memory_types
-    cdef size_t index = event.data.index()
-    if index == 0:
-        submitted = cpp_variant_get[cpp_RequestSubmittedEvent](event.data)
+    cdef size_t memory_type_index
+    cdef CythonReservationEventView view = cpp_reservation_event_view(event[0])
+    if view.kind == 0:
+        submitted = <const cpp_RequestSubmittedEvent*>view.payload
         memory_types = []
-        for memory_type in submitted.memory_types:
-            memory_types.append(<ReservationEventMemoryType>memory_type)
+        for memory_type_index in range(submitted[0].memory_types.size()):
+            memory_types.append(
+                <ReservationEventMemoryType>(
+                    submitted[0].memory_types[memory_type_index]
+                )
+            )
         result.update({
             "kind": "request_submitted",
-            "id": submitted.id,
-            "size": submitted.size,
+            "id": submitted[0].id,
+            "size": submitted[0].size,
             "memory_types": memory_types,
-            "policy": <ReservationRequestPolicy>submitted.policy,
+            "policy": <ReservationRequestPolicy>submitted[0].policy,
             "net_memory_delta": (
-                submitted.net_memory_delta.value()
-                if submitted.net_memory_delta.has_value()
+                submitted[0].net_memory_delta.value()
+                if submitted[0].net_memory_delta.has_value()
                 else None
             ),
-            "attributes": _reservation_attributes_to_dict(submitted.attributes),
+            "attributes": _reservation_attributes_to_dict(
+                submitted[0].attributes
+            ),
         })
-    elif index == 1:
-        waiting = cpp_variant_get[cpp_RequestWaitingEvent](event.data)
-        result.update({"kind": "request_waiting", "id": waiting.id})
-    elif index == 2:
-        resolved = cpp_variant_get[cpp_RequestResolvedEvent](event.data)
+    elif view.kind == 1:
+        waiting = <const cpp_RequestWaitingEvent*>view.payload
+        result.update({"kind": "request_waiting", "id": waiting[0].id})
+    elif view.kind == 2:
+        resolved = <const cpp_RequestResolvedEvent*>view.payload
         result.update({
             "kind": "request_resolved",
-            "id": resolved.id,
-            "outcome": <ReservationRequestOutcome>resolved.outcome,
-            "reservation_id": resolved.reservation_id,
-            "memory_type": <ReservationEventMemoryType>resolved.memory_type,
-            "size": resolved.size,
-            "overbooked_bytes": resolved.overbooked_bytes,
-            "timed_out": bool(resolved.timed_out),
-            "error": resolved.error.decode(),
+            "id": resolved[0].id,
+            "outcome": <ReservationRequestOutcome>resolved[0].outcome,
+            "reservation_id": resolved[0].reservation_id,
+            "memory_type": <ReservationEventMemoryType>resolved[0].memory_type,
+            "size": resolved[0].size,
+            "overbooked_bytes": resolved[0].overbooked_bytes,
+            "timed_out": bool(resolved[0].timed_out),
+            "error": resolved[0].error.decode(),
         })
-    elif index == 3:
-        created = cpp_variant_get[cpp_ReservationCreatedEvent](event.data)
+    elif view.kind == 3:
+        created = <const cpp_ReservationCreatedEvent*>view.payload
         result.update({
             "kind": "reservation_created",
-            "id": created.id,
-            "memory_type": <ReservationEventMemoryType>created.memory_type,
-            "size": created.size,
-            "attributes": _reservation_attributes_to_dict(created.attributes),
-            "request_id": created.request_id,
-            "parent_id": created.parent_id,
+            "id": created[0].id,
+            "memory_type": <ReservationEventMemoryType>created[0].memory_type,
+            "size": created[0].size,
+            "attributes": _reservation_attributes_to_dict(
+                created[0].attributes
+            ),
+            "request_id": created[0].request_id,
+            "parent_id": created[0].parent_id,
         })
-    elif index == 4:
-        resized = cpp_variant_get[cpp_ReservationResizedEvent](event.data)
+    elif view.kind == 4:
+        resized = <const cpp_ReservationResizedEvent*>view.payload
         result.update({
             "kind": "reservation_resized",
-            "id": resized.id,
-            "size": resized.size,
-            "reason": <ReservationResizeReason>resized.reason,
+            "id": resized[0].id,
+            "size": resized[0].size,
+            "reason": <ReservationResizeReason>resized[0].reason,
         })
-    elif index == 5:
-        released = cpp_variant_get[cpp_ReservationReleasedEvent](event.data)
+    elif view.kind == 5:
+        released = <const cpp_ReservationReleasedEvent*>view.payload
         result.update({
             "kind": "reservation_released",
-            "id": released.id,
-            "reason": <ReservationReleaseReason>released.reason,
+            "id": released[0].id,
+            "reason": <ReservationReleaseReason>released[0].reason,
         })
     else:
-        limit = cpp_variant_get[cpp_MemoryLimitChangedEvent](event.data)
+        limit = <const cpp_MemoryLimitChangedEvent*>view.payload
         result.update({
             "kind": "memory_limit_changed",
-            "memory_type": <ReservationEventMemoryType>limit.memory_type,
-            "configured_limit": limit.configured_limit,
+            "memory_type": <ReservationEventMemoryType>limit[0].memory_type,
+            "configured_limit": limit[0].configured_limit,
         })
     return result
 
 
-cdef list _reservation_event_batch_to_list(cpp_ReservationEventBatch batch):
-    return [_reservation_event_to_dict(event) for event in batch]
+cdef list _reservation_event_batch_to_list(
+    const cpp_ReservationEventBatch& batch
+):
+    cdef list result = []
+    cdef size_t index
+    for index in range(batch.size()):
+        result.append(
+            _reservation_event_to_dict(cpp_reservation_event_at(batch, index))
+        )
+    return result
 
 
 @no_gc_clear
@@ -696,14 +784,14 @@ cdef class BufferResource:
         cdef cpp_ReservationEventBatch batch
         with nogil:
             batch = deref(self._handle).drain_reservation_events()
-        return _reservation_event_batch_to_list(move(batch))
+        return _reservation_event_batch_to_list(batch)
 
     def stop_reservation_event_recording(self):
         """Disable recording and return the final owned event batch."""
         cdef cpp_ReservationEventBatch batch
         with nogil:
             batch = deref(self._handle).stop_reservation_event_recording()
-        return _reservation_event_batch_to_list(move(batch))
+        return _reservation_event_batch_to_list(batch)
 
     def reserve(
         self,

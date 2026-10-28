@@ -656,7 +656,9 @@ void BufferResource::clear_reservation(MemoryReservation& reservation) noexcept 
         std::lock_guard const lock(mutex_);
         auto& reserved =
             memory_reserved_[static_cast<std::size_t>(reservation.mem_type_)];
-        assert(reserved >= reservation.size_);
+        RAPIDSMPF_EXPECTS_FATAL(
+            reserved >= reservation.size_, "corrupted reservation stat"
+        );
         reserved -= reservation.size_;
         reservation.size_ = 0;
     }

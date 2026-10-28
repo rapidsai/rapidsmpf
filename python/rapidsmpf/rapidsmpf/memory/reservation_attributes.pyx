@@ -8,6 +8,8 @@ from libcpp.string cimport string
 
 from collections.abc import Mapping
 
+from rapidsmpf._detail.exception_handling cimport ex_handler
+
 
 cdef extern from *:
     """
@@ -58,27 +60,28 @@ cdef extern from *:
     }
     }  // namespace
     """
-    shared_ptr[cpp_ReservationAttributeMap] cpp_make_reservation_attributes()
+    shared_ptr[cpp_ReservationAttributeMap] cpp_make_reservation_attributes(
+    ) except +ex_handler
     void cpp_add_reservation_attribute(
         const shared_ptr[cpp_ReservationAttributeMap]&,
         string,
         string,
-    )
+    ) except +ex_handler
     void cpp_add_reservation_attribute(
         const shared_ptr[cpp_ReservationAttributeMap]&,
         string,
         int64_t,
-    )
+    ) except +ex_handler
     void cpp_add_reservation_attribute(
         const shared_ptr[cpp_ReservationAttributeMap]&,
         string,
         bool_t,
-    )
+    ) except +ex_handler
     void cpp_add_reservation_attribute(
         const shared_ptr[cpp_ReservationAttributeMap]&,
         string,
         double,
-    )
+    ) except +ex_handler
     cpp_ReservationAttributes cpp_freeze_reservation_attributes(
         shared_ptr[cpp_ReservationAttributeMap]
     )
