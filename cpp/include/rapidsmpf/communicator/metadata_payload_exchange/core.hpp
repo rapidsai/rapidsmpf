@@ -54,7 +54,8 @@ namespace rapidsmpf::communicator {
  * peer. This is not checked: if rank B does not have rank A as a peer, rank A waits
  * forever for the termination marker of rank B and never becomes idle, and messages
  * from rank A stay unreceived on rank B, where a later exchange reusing the operation
- * ID may receive them. Use `all_remote_ranks()` to communicate with every other rank.
+ * ID may receive them. Use `all_remote_ranks()` to communicate with every
+ * other rank.
  *
  * An exchange is used in three steps:
  * 1. Send messages with `send()`, and call `progress()`, `recv()` and `release_sent()`
@@ -326,17 +327,6 @@ class MetadataPayloadExchange {
      */
     [[nodiscard]] virtual bool is_idle() const = 0;
 };
-
-/**
- * @brief Get all ranks of a communicator except the calling rank.
- *
- * Use as the peers of a `MetadataPayloadExchange` that communicates with every other
- * rank.
- *
- * @param comm The communicator.
- * @return The ranks in increasing order, excluding `comm.rank()`.
- */
-[[nodiscard]] std::vector<Rank> all_remote_ranks(Communicator const& comm);
 
 /**
  * @brief The default receive buffer allocator of a `MetadataPayloadExchange`.

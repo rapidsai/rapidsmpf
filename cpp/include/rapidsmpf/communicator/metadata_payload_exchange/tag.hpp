@@ -5,7 +5,7 @@
 #pragma once
 
 #include <cstdint>
-#include <map>
+#include <deque>
 #include <memory>
 #include <optional>
 #include <span>
@@ -192,9 +192,9 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
     /// @brief The communication state of a single peer.
     struct PeerState {
         // Received messages waiting for their data receive to be set up, in order.
-        std::vector<TagMessage> incoming;
+        std::deque<TagMessage> incoming;
         // Messages whose data is in transit, in order.
-        std::vector<TagMessage> in_transit;
+        std::deque<TagMessage> in_transit;
         // Retained messages whose send is in flight, in send order.
         std::vector<RetainedMessage> retained_messages;
         // Messages in `incoming` waiting for a receive buffer.
@@ -240,7 +240,7 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
     ForcedReceive const forced_receive_;
 
     // The state of each peer.
-    std::map<Rank, PeerState> peers_;
+    std::unordered_map<Rank, PeerState> peers_;
 
     // Receive buffer allocation state:
     // - `total_awaiting_buffer_`: messages waiting for a buffer, over all peers.

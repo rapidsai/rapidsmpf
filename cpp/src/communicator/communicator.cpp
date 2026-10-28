@@ -6,10 +6,12 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <ranges>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/communicator/logger.hpp>
@@ -51,6 +53,12 @@ std::shared_ptr<Logger> Logger::from_options(config::Options options) {
 void Logger::set_name(std::string name) {
     std::lock_guard<std::mutex> lock(mutex_);
     name_ = std::move(name);
+}
+
+std::vector<Rank> all_remote_ranks(Communicator const& comm) {
+    auto ranks = std::views::iota(Rank{0}, comm.nranks())
+                 | std::views::filter([rank = comm.rank()](Rank r) { return r != rank; });
+    return {ranks.begin(), ranks.end()};
 }
 
 }  // namespace rapidsmpf

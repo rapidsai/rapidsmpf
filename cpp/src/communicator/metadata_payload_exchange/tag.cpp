@@ -17,6 +17,35 @@
 
 namespace rapidsmpf::communicator {
 
+namespace {
+
+/**
+ * @brief Append the protocol trailer to the metadata of a message.
+ *
+ * Format: [metadata][message_id (8 bytes)][payload_size (8 bytes)]
+ *
+ * @param metadata The metadata of the message.
+ * @param message_id The message ID.
+ * @param payload_size The size of the payload in bytes.
+ * @return The metadata with the trailer appended.
+ */
+std::unique_ptr<std::vector<std::uint8_t>> make_combined_metadata(
+    std::vector<std::uint8_t> metadata, std::uint64_t message_id, std::size_t payload_size
+) {
+    auto ret = std::make_unique<std::vector<std::uint8_t>>(std::move(metadata));
+    std::size_t const original_size = ret->size();
+    ret->resize(original_size + sizeof(std::uint64_t) + sizeof(std::size_t));
+    std::memcpy(ret->data() + original_size, &message_id, sizeof(std::uint64_t));
+    std::memcpy(
+        ret->data() + original_size + sizeof(std::uint64_t),
+        &payload_size,
+        sizeof(std::size_t)
+    );
+    return ret;
+}
+
+}  // namespace
+
 TagMetadataPayloadExchange::TagMetadataPayloadExchange(
     std::shared_ptr<Communicator> comm,
     OpID op_id,
@@ -123,35 +152,18 @@ void TagMetadataPayloadExchange::send(
         std::size_t payload_size =
             (message->data() != nullptr) ? message->data()->size : 0;
 
-        // Append metadata: [original_metadata][message_id][payload_size]
         // A retained message keeps its metadata, so it is copied. Otherwise, it is
         // released to avoid the copy.
-        auto combined_metadata = std::make_unique<std::vector<std::uint8_t>>(
-            message->after_send() == AfterSend::RETAIN ? message->metadata()
-                                                       : message->release_metadata()
-        );
-
-        // Reserve space for message_id and payload_size at the end
-        std::size_t original_size = combined_metadata->size();
-        combined_metadata->resize(
-            original_size + sizeof(std::uint64_t) + sizeof(std::size_t)
-        );
-
-        // Append message_id
-        std::memcpy(
-            combined_metadata->data() + original_size, &message_id, sizeof(std::uint64_t)
-        );
-
-        // Append payload_size
-        std::memcpy(
-            combined_metadata->data() + original_size + sizeof(std::uint64_t),
-            &payload_size,
-            sizeof(std::size_t)
-        );
-
-        fire_and_forget_.push_back(
-            comm_->send(std::move(combined_metadata), dst, metadata_tag_)
-        );
+        fire_and_forget_.push_back(comm_->send(
+            make_combined_metadata(
+                message->after_send() == AfterSend::RETAIN ? message->metadata()
+                                                           : message->release_metadata(),
+                message_id,
+                payload_size
+            ),
+            dst,
+            metadata_tag_
+        ));
 
         // Send data immediately after metadata (if any)
         std::unique_ptr<Communicator::Future> payload_future;
@@ -210,19 +222,14 @@ void TagMetadataPayloadExchange::finish() {
     // Send a termination marker to every peer. The marker tells each peer
     // exactly how many application messages we sent to it, so the peer can
     // stop receiving once it has them all.
-    // Format: [sentinel=UINT64_MAX (8 bytes)][message_count (8 bytes)]
+    // The marker has no metadata, the sentinel as message ID and the message count as
+    // payload size.
     for (auto const& [peer, state] : peers_) {
-        auto termination = std::make_unique<std::vector<std::uint8_t>>(
-            sizeof(std::uint64_t) + sizeof(std::size_t)
-        );
-        std::memcpy(termination->data(), &termination_sentinel_, sizeof(std::uint64_t));
-        auto count = state.messages_sent;
-        std::memcpy(
-            termination->data() + sizeof(std::uint64_t), &count, sizeof(std::size_t)
-        );
-        fire_and_forget_.push_back(
-            comm_->send(std::move(termination), peer, metadata_tag_)
-        );
+        fire_and_forget_.push_back(comm_->send(
+            make_combined_metadata({}, termination_sentinel_, state.messages_sent),
+            peer,
+            metadata_tag_
+        ));
     }
 }
 
@@ -453,7 +460,7 @@ TagMetadataPayloadExchange::complete_data_transfers() {
                     completed_messages.push_back(std::move(tag_msg.message));
 
                     in_transit_futures_.erase(future_it);
-                    messages.erase(messages.begin());
+                    messages.pop_front();
                 } else {
                     // First message not complete yet, stop processing this rank
                     // to maintain order
