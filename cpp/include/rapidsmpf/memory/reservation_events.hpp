@@ -12,17 +12,10 @@
 #include <variant>
 #include <vector>
 
+#include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/memory/reservation_attributes.hpp>
 
 namespace rapidsmpf {
-
-/** @brief Memory type encoded in reservation telemetry. */
-enum class ReservationEventMemoryType : std::uint32_t {
-    DEVICE = 0,
-    HOST = 1,
-    PINNED_HOST = 2,
-    DISK = 3
-};
 
 /** @brief Policy used by a reservation request. */
 enum class ReservationRequestPolicy : std::uint32_t {
@@ -59,7 +52,7 @@ enum class ReservationReleaseReason : std::uint32_t {
 struct RequestSubmittedEvent {
     std::uint64_t id;  ///< Request identifier.
     std::size_t size;  ///< Requested bytes.
-    std::vector<ReservationEventMemoryType> memory_types;  ///< Memory preference order.
+    std::vector<MemoryType> memory_types;  ///< Memory preference order.
     ReservationRequestPolicy policy;  ///< Request policy.
     std::optional<std::int64_t> net_memory_delta;  ///< Optional expected net change.
     ReservationAttributes attributes;  ///< Shared immutable request attributes.
@@ -75,7 +68,7 @@ struct RequestResolvedEvent {
     std::uint64_t id;  ///< Request identifier.
     ReservationRequestOutcome outcome;  ///< Terminal outcome.
     std::uint64_t reservation_id;  ///< Granted reservation identifier, or zero.
-    std::optional<ReservationEventMemoryType> memory_type;  ///< Granted memory type.
+    std::optional<MemoryType> memory_type;  ///< Granted memory type.
     std::size_t size;  ///< Granted bytes.
     std::size_t overbooked_bytes;  ///< Bytes granted beyond availability.
     bool timed_out;  ///< Whether forced progress resolved the request.
@@ -85,7 +78,7 @@ struct RequestResolvedEvent {
 /** @brief Payload emitted when a reservation is created. */
 struct ReservationCreatedEvent {
     std::uint64_t id;  ///< Reservation identifier.
-    ReservationEventMemoryType memory_type;  ///< Reserved memory type.
+    MemoryType memory_type;  ///< Reserved memory type.
     std::size_t size;  ///< Initial reserved bytes.
     ReservationAttributes attributes;  ///< Shared immutable reservation attributes.
     std::uint64_t request_id;  ///< Originating request identifier, or zero.
@@ -107,7 +100,7 @@ struct ReservationReleasedEvent {
 
 /** @brief Payload emitted when a configured memory limit changes. */
 struct MemoryLimitChangedEvent {
-    ReservationEventMemoryType memory_type;  ///< Changed memory type.
+    MemoryType memory_type;  ///< Changed memory type.
     std::int64_t configured_limit;  ///< New signed configured limit.
 };
 
@@ -122,16 +115,15 @@ using ReservationEventData = std::variant<
     MemoryLimitChangedEvent>;
 
 /**
- * @brief One owned reservation event.
+ * @brief One reservation event.
  *
  * `sequence` starts at zero for each recording session. `timestamp_ns` is the
- * event occurrence time as Unix nanoseconds. Payload strings, vectors, and
- * attributes are owned by the event and remain valid after the producer returns.
+ * event occurrence time as Unix nanoseconds.
  */
 struct ReservationEvent {
     std::uint64_t sequence;  ///< Global sequence within the recording session.
     std::int64_t timestamp_ns;  ///< Unix timestamp in nanoseconds.
-    ReservationEventData data;  ///< Owned event payload.
+    ReservationEventData data;  ///< Event payload.
 };
 
 /** @brief An ordered batch removed from the in-memory event buffer. */

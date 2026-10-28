@@ -452,8 +452,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     /**
      * @brief Start a new reservation event recording session.
      *
-     * Recording is disabled by default. A session starts with sequence zero and
-     * owns every payload it records.
+     * Recording is disabled by default. A session starts with sequence zero.
      *
      * @throws std::logic_error if recording is already active.
      */

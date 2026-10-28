@@ -35,20 +35,6 @@ namespace rapidsmpf {
 
 namespace {
 
-ReservationEventMemoryType reservation_event_memory_type(MemoryType type) {
-    switch (type) {
-    case MemoryType::DEVICE:
-        return ReservationEventMemoryType::DEVICE;
-    case MemoryType::HOST:
-        return ReservationEventMemoryType::HOST;
-    case MemoryType::PINNED_HOST:
-        return ReservationEventMemoryType::PINNED_HOST;
-    case MemoryType::DISK:
-        return ReservationEventMemoryType::DISK;
-    }
-    RAPIDSMPF_FAIL("unknown memory type", std::invalid_argument);
-}
-
 template <typename Clock>
 std::int64_t clock_now_ns() {
     return std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -104,13 +90,15 @@ void BufferResource::emit_request_submitted(
     if (!recording_enabled_.load(std::memory_order_acquire)) {
         return;
     }
-    std::vector<ReservationEventMemoryType> types;
-    types.reserve(memory_types.size());
-    for (auto type : memory_types) {
-        types.push_back(reservation_event_memory_type(type));
-    }
     record_reservation_event(
-        RequestSubmittedEvent{id, size, std::move(types), policy, delta, attributes}
+        RequestSubmittedEvent{
+            id,
+            size,
+            {memory_types.begin(), memory_types.end()},
+            policy,
+            delta,
+            attributes
+        }
     );
 }
 
@@ -136,9 +124,7 @@ void BufferResource::emit_request_resolved(
             id,
             outcome,
             result == nullptr ? 0 : result->reservation.id(),
-            result == nullptr
-                ? std::nullopt
-                : std::optional{reservation_event_memory_type(result->mem_type)},
+            result == nullptr ? std::nullopt : std::optional{result->mem_type},
             result == nullptr ? 0 : result->reservation.size(),
             result == nullptr ? 0 : result->overbooked_bytes,
             timed_out,
@@ -158,7 +144,7 @@ void BufferResource::emit_reservation_created(
     record_reservation_event(
         ReservationCreatedEvent{
             reservation.id(),
-            reservation_event_memory_type(reservation.mem_type()),
+            reservation.mem_type(),
             reservation.size(),
             reservation.attributes(),
             request_id,
@@ -415,9 +401,7 @@ void BufferResource::set_memory_limit(MemoryType mem_type, std::int64_t limit) n
     memory_limits_[static_cast<std::size_t>(mem_type)].store(
         limit, std::memory_order_release
     );
-    record_reservation_event(
-        MemoryLimitChangedEvent{reservation_event_memory_type(mem_type), limit}
-    );
+    record_reservation_event(MemoryLimitChangedEvent{mem_type, limit});
 }
 
 void BufferResource::start_reservation_event_recording() {

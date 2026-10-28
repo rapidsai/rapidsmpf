@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.memory.packed_data import PackedData
@@ -17,4 +17,5 @@ def unspill_partitions(
     *,
     br: BufferResource,
     allow_overbooking: bool,
+    attributes: Mapping[str, str | int | bool | float] | None = None,
 ) -> list[PackedData]: ...

@@ -49,6 +49,7 @@ std::vector<PackedData> spill_partitions(
  * @param br Buffer resource responsible for memory reservation and spills.
  * @param allow_overbooking If false, ensures enough memory is freed to satisfy the
  * reservation; otherwise, allows overbooking even if spilling was insufficient.
+ * @param attributes Immutable telemetry attributes for the unspill reservation.
  *
  * @return A vector of `PackedData`, each with a buffer in device memory.
  *
@@ -58,7 +59,8 @@ std::vector<PackedData> spill_partitions(
 std::vector<PackedData> unspill_partitions(
     std::vector<PackedData>&& partitions,
     BufferResource* br,
-    AllowOverbooking allow_overbooking
+    AllowOverbooking allow_overbooking,
+    ReservationAttributes const& attributes = {}
 );
 
 }  // namespace rapidsmpf

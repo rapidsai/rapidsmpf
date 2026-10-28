@@ -261,7 +261,7 @@ cdef dict _reservation_event_to_dict(const cpp_ReservationEvent* event):
         memory_types = []
         for memory_type_index in range(submitted[0].memory_types.size()):
             memory_types.append(
-                <ReservationEventMemoryType>(
+                <MemoryType>(
                     submitted[0].memory_types[memory_type_index]
                 )
             )
@@ -291,7 +291,7 @@ cdef dict _reservation_event_to_dict(const cpp_ReservationEvent* event):
             "outcome": <ReservationRequestOutcome>resolved[0].outcome,
             "reservation_id": resolved[0].reservation_id,
             "memory_type": (
-                <ReservationEventMemoryType>resolved[0].memory_type.value()
+                <MemoryType>resolved[0].memory_type.value()
                 if resolved[0].memory_type.has_value()
                 else None
             ),
@@ -305,7 +305,7 @@ cdef dict _reservation_event_to_dict(const cpp_ReservationEvent* event):
         result.update({
             "kind": "reservation_created",
             "id": created[0].id,
-            "memory_type": <ReservationEventMemoryType>created[0].memory_type,
+            "memory_type": <MemoryType>created[0].memory_type,
             "size": created[0].size,
             "attributes": _reservation_attributes_to_dict(
                 created[0].attributes
@@ -332,7 +332,7 @@ cdef dict _reservation_event_to_dict(const cpp_ReservationEvent* event):
         limit = <const cpp_MemoryLimitChangedEvent*>view.payload
         result.update({
             "kind": "memory_limit_changed",
-            "memory_type": <ReservationEventMemoryType>limit[0].memory_type,
+            "memory_type": <MemoryType>limit[0].memory_type,
             "configured_limit": limit[0].configured_limit,
         })
     return result
@@ -782,7 +782,7 @@ cdef class BufferResource:
         """
         Atomically return events recorded so far while keeping recording active.
 
-        Each event is an owned dictionary containing ``sequence``, ``timestamp_ns``,
+        Each event is a dictionary containing ``sequence``, ``timestamp_ns``,
         ``kind``, and the fields for that event kind.
         """
         cdef cpp_ReservationEventBatch batch
@@ -791,7 +791,7 @@ cdef class BufferResource:
         return _reservation_event_batch_to_list(batch)
 
     def stop_reservation_event_recording(self):
-        """Disable recording and return the final owned event batch."""
+        """Disable recording and return the final event batch."""
         cdef cpp_ReservationEventBatch batch
         with nogil:
             batch = deref(self._handle).stop_reservation_event_recording()

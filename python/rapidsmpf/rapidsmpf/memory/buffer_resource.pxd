@@ -44,11 +44,6 @@ cdef extern from "<rapidsmpf/disk/disk_resource.hpp>" nogil:
         const cpp_path& directory() noexcept
 
 cdef extern from "<rapidsmpf/memory/reservation_events.hpp>" namespace "rapidsmpf":
-    cpdef enum class ReservationEventMemoryType(unsigned int):
-        DEVICE
-        HOST
-        PINNED_HOST
-        DISK
     cpdef enum class ReservationRequestPolicy(unsigned int):
         IMMEDIATE
         OVERBOOK
@@ -72,7 +67,7 @@ cdef extern from "<rapidsmpf/memory/reservation_events.hpp>" namespace "rapidsmp
     cdef cppclass cpp_RequestSubmittedEvent "rapidsmpf::RequestSubmittedEvent":
         uint64_t id
         size_t size
-        vector[ReservationEventMemoryType] memory_types
+        vector[MemoryType] memory_types
         ReservationRequestPolicy policy
         optional[int64_t] net_memory_delta
         cpp_ReservationAttributes attributes
@@ -84,7 +79,7 @@ cdef extern from "<rapidsmpf/memory/reservation_events.hpp>" namespace "rapidsmp
         uint64_t id
         ReservationRequestOutcome outcome
         uint64_t reservation_id
-        optional[ReservationEventMemoryType] memory_type
+        optional[MemoryType] memory_type
         size_t size
         size_t overbooked_bytes
         bool_t timed_out
@@ -92,7 +87,7 @@ cdef extern from "<rapidsmpf/memory/reservation_events.hpp>" namespace "rapidsmp
 
     cdef cppclass cpp_ReservationCreatedEvent "rapidsmpf::ReservationCreatedEvent":
         uint64_t id
-        ReservationEventMemoryType memory_type
+        MemoryType memory_type
         size_t size
         cpp_ReservationAttributes attributes
         uint64_t request_id
@@ -108,7 +103,7 @@ cdef extern from "<rapidsmpf/memory/reservation_events.hpp>" namespace "rapidsmp
         ReservationReleaseReason reason
 
     cdef cppclass cpp_MemoryLimitChangedEvent "rapidsmpf::MemoryLimitChangedEvent":
-        ReservationEventMemoryType memory_type
+        MemoryType memory_type
         int64_t configured_limit
 
     cdef cppclass cpp_ReservationEventData "rapidsmpf::ReservationEventData":

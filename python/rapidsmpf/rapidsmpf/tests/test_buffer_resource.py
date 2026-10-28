@@ -19,7 +19,6 @@ from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import (
     BufferResource,
     OwningDeviceMemoryResource,
-    ReservationEventMemoryType,
     ReservationReleaseReason,
     ReservationRequestOutcome,
     ReservationRequestPolicy,
@@ -161,7 +160,7 @@ def test_reservation_event_recording_lifecycle() -> None:
     submitted = cast("Any", first[0])
     created = cast("Any", first[1])
     resolved = cast("Any", first[2])
-    assert submitted["memory_types"] == [ReservationEventMemoryType.DEVICE]
+    assert submitted["memory_types"] == [MemoryType.DEVICE]
     assert submitted["policy"] is ReservationRequestPolicy.IMMEDIATE
     assert submitted["net_memory_delta"] is None
     assert submitted["attributes"] == {
@@ -191,7 +190,7 @@ def test_reservation_event_recording_lifecycle() -> None:
     ]
     assert [event["sequence"] for event in final] == [3, 4, 5, 6]
     assert cast("Any", final[0])["reason"] is ReservationReleaseReason.CLEARED
-    assert cast("Any", final[1])["memory_type"] is ReservationEventMemoryType.DEVICE
+    assert cast("Any", final[1])["memory_type"] is MemoryType.DEVICE
     assert cast("Any", final[1])["configured_limit"] == -7
     assert cast("Any", final[3])["memory_type"] is None
     assert br.stop_reservation_event_recording() == []

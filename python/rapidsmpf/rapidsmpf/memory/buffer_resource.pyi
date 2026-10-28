@@ -25,12 +25,6 @@ from rapidsmpf.statistics import Statistics
 
 _ReservationAttributeValue = str | int | bool | float
 
-class ReservationEventMemoryType(IntEnum):
-    DEVICE = ...
-    HOST = ...
-    PINNED_HOST = ...
-    DISK = ...
-
 class ReservationRequestPolicy(IntEnum):
     IMMEDIATE = ...
     OVERBOOK = ...
@@ -62,7 +56,7 @@ class _RequestSubmittedEvent(_ReservationEventBase):
     kind: Literal["request_submitted"]
     id: int
     size: int
-    memory_types: list[ReservationEventMemoryType]
+    memory_types: list[MemoryType]
     policy: ReservationRequestPolicy
     net_memory_delta: int | None
     attributes: dict[str, _ReservationAttributeValue]
@@ -76,7 +70,7 @@ class _RequestResolvedEvent(_ReservationEventBase):
     id: int
     outcome: ReservationRequestOutcome
     reservation_id: int
-    memory_type: ReservationEventMemoryType | None
+    memory_type: MemoryType | None
     size: int
     overbooked_bytes: int
     timed_out: bool
@@ -85,7 +79,7 @@ class _RequestResolvedEvent(_ReservationEventBase):
 class _ReservationCreatedEvent(_ReservationEventBase):
     kind: Literal["reservation_created"]
     id: int
-    memory_type: ReservationEventMemoryType
+    memory_type: MemoryType
     size: int
     attributes: dict[str, _ReservationAttributeValue]
     request_id: int
@@ -104,7 +98,7 @@ class _ReservationReleasedEvent(_ReservationEventBase):
 
 class _MemoryLimitChangedEvent(_ReservationEventBase):
     kind: Literal["memory_limit_changed"]
-    memory_type: ReservationEventMemoryType
+    memory_type: MemoryType
     configured_limit: int
 
 _ReservationEvent = (

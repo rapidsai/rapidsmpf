@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Spill and unspill packed partitions between device and host memory."""
 
@@ -12,6 +12,8 @@ from rapidsmpf.memory.buffer_resource cimport (AllowOverbooking,
                                                cpp_BufferResource)
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
+from rapidsmpf.memory.reservation_attributes cimport (
+    cpp_ReservationAttributes, reservation_attributes_from_mapping)
 
 
 cdef vector[cpp_PackedData] _partitions_py_to_cpp(partitions):
@@ -35,6 +37,7 @@ cdef extern from "<rapidsmpf/memory/spill.hpp>" nogil:
             vector[cpp_PackedData] partitions,
             cpp_BufferResource* br,
             AllowOverbooking allow_overbooking,
+            cpp_ReservationAttributes attributes,
         ) except +ex_handler
 
 
@@ -86,6 +89,7 @@ cpdef object unspill_partitions(
     object partitions,
     BufferResource br,
     object allow_overbooking,
+    object attributes=None,
 ):
     """
     Move spilled partitions back to device memory.
@@ -110,6 +114,8 @@ cpdef object unspill_partitions(
     allow_overbooking
         If False, ensures enough memory is freed to satisfy the reservation;
         otherwise, allows overbooking even if spilling was insufficient.
+    attributes
+        Optional telemetry attributes for the unspill reservation.
 
     Returns
     -------
@@ -128,10 +134,14 @@ cpdef object unspill_partitions(
     cdef AllowOverbooking ab = (
         AllowOverbooking.YES if allow_overbooking else AllowOverbooking.NO
     )
+    cdef cpp_ReservationAttributes cpp_attributes = (
+        reservation_attributes_from_mapping(attributes)
+    )
     with nogil:
         _ret = cpp_unspill_partitions(
             move(_partitions),
             _br,
             ab,
+            move(cpp_attributes),
         )
     return packed_data_vector_to_list(move(_ret), br)
