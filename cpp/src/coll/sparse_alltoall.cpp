@@ -262,7 +262,7 @@ void SparseAlltoall::complete_data_messages() {
         RAPIDSMPF_EXPECTS(
             !chunk->is_finish(), "SparseAlltoall can only complete non-finish chunks"
         );
-        auto& state = source_states_[chunk->origin()];
+        auto& state = source_states_.at(chunk->origin());
         state.chunks.insert(std::move(chunk));
     }
 }
