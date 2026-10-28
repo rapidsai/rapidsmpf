@@ -76,7 +76,7 @@ class _RequestResolvedEvent(_ReservationEventBase):
     id: int
     outcome: ReservationRequestOutcome
     reservation_id: int
-    memory_type: ReservationEventMemoryType
+    memory_type: ReservationEventMemoryType | None
     size: int
     overbooked_bytes: int
     timed_out: bool

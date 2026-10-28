@@ -49,6 +49,14 @@ ReservationEventMemoryType reservation_event_memory_type(MemoryType type) {
     RAPIDSMPF_FAIL("unknown memory type", std::invalid_argument);
 }
 
+template <typename Clock>
+std::int64_t clock_now_ns() {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+               Clock::now().time_since_epoch()
+    )
+        .count();
+}
+
 }  // namespace
 
 void BufferResource::record_reservation_event(ReservationEventData data) noexcept {
@@ -60,12 +68,13 @@ void BufferResource::record_reservation_event(ReservationEventData data) noexcep
         return;
     }
     try {
-        auto const now = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                             std::chrono::system_clock::now().time_since_epoch()
-        )
-                             .count();
-        // Preserve both Unix-time meaning and ordering if the wall clock is adjusted.
-        auto const timestamp = std::max(now, recording_->last_timestamp_ns + 1);
+        auto const elapsed =
+            clock_now_ns<std::chrono::steady_clock>() - recording_->steady_time_anchor_ns;
+        auto const anchored_timestamp = recording_->unix_time_anchor_ns + elapsed;
+        // The steady-clock offset is immune to wall-clock adjustments. Preserve strict
+        // ordering as well when multiple events land in the same clock tick.
+        auto const timestamp =
+            std::max(anchored_timestamp, recording_->last_timestamp_ns + 1);
         recording_->events.push_back(
             {recording_->next_sequence, timestamp, std::move(data)}
         );
@@ -127,8 +136,9 @@ void BufferResource::emit_request_resolved(
             id,
             outcome,
             result == nullptr ? 0 : result->reservation.id(),
-            result == nullptr ? ReservationEventMemoryType::DEVICE
-                              : reservation_event_memory_type(result->mem_type),
+            result == nullptr
+                ? std::nullopt
+                : std::optional{reservation_event_memory_type(result->mem_type)},
             result == nullptr ? 0 : result->reservation.size(),
             result == nullptr ? 0 : result->overbooked_bytes,
             timed_out,
@@ -418,6 +428,8 @@ void BufferResource::start_reservation_event_recording() {
         std::logic_error
     );
     recording_.emplace();
+    recording_->unix_time_anchor_ns = clock_now_ns<std::chrono::system_clock>();
+    recording_->steady_time_anchor_ns = clock_now_ns<std::chrono::steady_clock>();
     recording_enabled_.store(true, std::memory_order_release);
 }
 

@@ -176,15 +176,24 @@ def test_reservation_event_recording_lifecycle() -> None:
 
     reservation.clear()
     br.set_memory_limit(MemoryType.DEVICE, -7)
+    empty, _ = br.reserve(
+        MemoryType.DEVICE,
+        1,
+        allow_overbooking=False,
+    )
+    assert empty.size == 0
     final = br.stop_reservation_event_recording()
     assert [event["kind"] for event in final] == [
         "reservation_released",
         "memory_limit_changed",
+        "request_submitted",
+        "request_resolved",
     ]
-    assert [event["sequence"] for event in final] == [3, 4]
+    assert [event["sequence"] for event in final] == [3, 4, 5, 6]
     assert cast("Any", final[0])["reason"] is ReservationReleaseReason.CLEARED
     assert cast("Any", final[1])["memory_type"] is ReservationEventMemoryType.DEVICE
     assert cast("Any", final[1])["configured_limit"] == -7
+    assert cast("Any", final[3])["memory_type"] is None
     assert br.stop_reservation_event_recording() == []
 
 

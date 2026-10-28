@@ -290,7 +290,11 @@ cdef dict _reservation_event_to_dict(const cpp_ReservationEvent* event):
             "id": resolved[0].id,
             "outcome": <ReservationRequestOutcome>resolved[0].outcome,
             "reservation_id": resolved[0].reservation_id,
-            "memory_type": <ReservationEventMemoryType>resolved[0].memory_type,
+            "memory_type": (
+                <ReservationEventMemoryType>resolved[0].memory_type.value()
+                if resolved[0].memory_type.has_value()
+                else None
+            ),
             "size": resolved[0].size,
             "overbooked_bytes": resolved[0].overbooked_bytes,
             "timed_out": bool(resolved[0].timed_out),

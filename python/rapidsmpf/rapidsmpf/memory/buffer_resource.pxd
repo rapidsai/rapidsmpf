@@ -84,7 +84,7 @@ cdef extern from "<rapidsmpf/memory/reservation_events.hpp>" namespace "rapidsmp
         uint64_t id
         ReservationRequestOutcome outcome
         uint64_t reservation_id
-        ReservationEventMemoryType memory_type
+        optional[ReservationEventMemoryType] memory_type
         size_t size
         size_t overbooked_bytes
         bool_t timed_out

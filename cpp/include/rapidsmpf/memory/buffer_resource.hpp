@@ -1023,6 +1023,8 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     struct RecordingSession {
         ReservationEventBatch events;
         std::uint64_t next_sequence{0};
+        std::int64_t unix_time_anchor_ns{0};
+        std::int64_t steady_time_anchor_ns{0};
         std::int64_t last_timestamp_ns{-1};
     };
 

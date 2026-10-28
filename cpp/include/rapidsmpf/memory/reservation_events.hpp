@@ -75,7 +75,7 @@ struct RequestResolvedEvent {
     std::uint64_t id;  ///< Request identifier.
     ReservationRequestOutcome outcome;  ///< Terminal outcome.
     std::uint64_t reservation_id;  ///< Granted reservation identifier, or zero.
-    ReservationEventMemoryType memory_type;  ///< Granted memory type.
+    std::optional<ReservationEventMemoryType> memory_type;  ///< Granted memory type.
     std::size_t size;  ///< Granted bytes.
     std::size_t overbooked_bytes;  ///< Bytes granted beyond availability.
     bool timed_out;  ///< Whether forced progress resolved the request.

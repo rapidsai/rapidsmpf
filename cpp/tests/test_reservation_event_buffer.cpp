@@ -196,15 +196,15 @@ TEST(ReservationEventBuffer, EmptyFailedAndLimitEventsPreserveValues) {
 
     auto events = br->stop_reservation_event_recording();
     ASSERT_EQ(events.size(), 5);
-    EXPECT_EQ(
-        std::get<RequestResolvedEvent>(events[1].data).outcome,
-        ReservationRequestOutcome::EMPTY
-    );
+    auto const& empty_resolved = std::get<RequestResolvedEvent>(events[1].data);
+    EXPECT_EQ(empty_resolved.outcome, ReservationRequestOutcome::EMPTY);
+    EXPECT_FALSE(empty_resolved.memory_type.has_value());
     auto const& limit = std::get<MemoryLimitChangedEvent>(events[2].data);
     EXPECT_EQ(limit.memory_type, ReservationEventMemoryType::DEVICE);
     EXPECT_EQ(limit.configured_limit, -7);
     auto const& failed = std::get<RequestResolvedEvent>(events[4].data);
     EXPECT_EQ(failed.outcome, ReservationRequestOutcome::FAILED);
+    EXPECT_FALSE(failed.memory_type.has_value());
     EXPECT_NE(failed.error.find("failed to reserve memory"), std::string::npos);
 }
 

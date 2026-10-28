@@ -619,6 +619,34 @@ TEST_P(StreamingMemoryReserveOrWait, StatisticsRecordWaitAvoided) {
     );
 }
 
+TEST_P(StreamingMemoryReserveOrWait, StatisticsRecordZeroSizeFastPaths) {
+    auto [br_stats, stats] = make_br_with_stats(/* device_limit = */ 0);
+    MemoryReserveOrWait mrow{
+        config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
+        MemoryType::DEVICE,
+        ctx->executor(),
+        br_stats
+    };
+
+    coro::sync_wait([](MemoryReserveOrWait& mrow) -> Actor {
+        auto waited = co_await mrow.reserve_or_wait(0, 0);
+        auto [overbooked, overbooked_bytes] =
+            co_await mrow.reserve_or_wait_or_overbook(0, 0);
+        auto failed = co_await mrow.reserve_or_wait_or_fail(0, 0);
+        EXPECT_EQ(waited.size(), 0);
+        EXPECT_EQ(overbooked.size(), 0);
+        EXPECT_EQ(overbooked_bytes, 0);
+        EXPECT_EQ(failed.size(), 0);
+    }(mrow));
+
+    auto const request_bytes = stats->get_stat("reserve-device-request-bytes");
+    EXPECT_EQ(request_bytes.count(), 3u);
+    EXPECT_EQ(request_bytes.value(), 0.0);
+    auto const avoided = stats->get_stat("reserve-device-wait-avoided");
+    EXPECT_EQ(avoided.count(), 3u);
+    EXPECT_EQ(avoided.value(), 3.0);
+}
+
 TEST_P(StreamingMemoryReserveOrWait, StatisticsRecordWaitSatisfied) {
     if (is_running_under_valgrind()) {
         GTEST_SKIP() << "Test runs very slow in valgrind";

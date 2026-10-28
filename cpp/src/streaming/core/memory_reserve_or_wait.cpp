@@ -126,7 +126,9 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
 coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
     std::size_t size, std::int64_t net_memory_delta, ReservationAttributes attributes
 ) {
+    record_stat("request-bytes", static_cast<double>(size));
     if (size == 0) {
+        record_stat("wait-avoided", 1);
         co_return std::move(
             br_->reserve_impl(mem_type_, 0, AllowOverbooking::NO, nullptr).reservation
         );
@@ -166,8 +168,6 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
 coro::task<detail::ReserveResult> MemoryReserveOrWait::reserve_or_wait_impl(
     std::size_t size, std::int64_t net_memory_delta, detail::RequestScope& scope
 ) {
-    record_stat("request-bytes", static_cast<double>(size));
-
     // First, check whether the requested memory is immediately available.
     auto result = br_->reserve_impl(mem_type_, size, AllowOverbooking::NO, &scope);
     if (result.reservation.size() == size) {
@@ -244,7 +244,9 @@ coro::task<std::pair<MemoryReservation, std::size_t>>
 MemoryReserveOrWait::reserve_or_wait_or_overbook(
     std::size_t size, std::int64_t net_memory_delta, ReservationAttributes attributes
 ) {
+    record_stat("request-bytes", static_cast<double>(size));
     if (size == 0) {
+        record_stat("wait-avoided", 1);
         auto result = br_->reserve_impl(mem_type_, 0, AllowOverbooking::NO, nullptr);
         co_return std::pair{std::move(result.reservation), std::size_t{0}};
     }
@@ -297,7 +299,9 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait_or_fail(
 coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait_or_fail(
     std::size_t size, std::int64_t net_memory_delta, ReservationAttributes attributes
 ) {
+    record_stat("request-bytes", static_cast<double>(size));
     if (size == 0) {
+        record_stat("wait-avoided", 1);
         co_return std::move(
             br_->reserve_impl(mem_type_, 0, AllowOverbooking::NO, nullptr).reservation
         );
