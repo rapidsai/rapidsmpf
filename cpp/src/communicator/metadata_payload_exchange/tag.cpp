@@ -4,7 +4,9 @@
  */
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
+#include <sstream>
 #include <unordered_set>
 #include <utility>
 
@@ -194,6 +196,61 @@ bool TagMetadataPayloadExchange::is_idle() const {
         }
     }
     return io_idle;
+}
+
+std::string TagMetadataPayloadExchange::str() const {
+    std::stringstream ss;
+    ss << "TagMetadataPayloadExchange(finished=" << finished_
+       << ", fire_and_forget=" << fire_and_forget_.size()
+       << ", in_transit_futures=" << in_transit_futures_.size()
+       << ", received_messages=" << received_messages_.size()
+       << ", total_awaiting_buffer=" << total_awaiting_buffer_ << ", allocation_stall=";
+    if (allocation_stall_start_.has_value()) {
+        ss << std::chrono::duration<double>(Clock::now() - *allocation_stall_start_)
+                  .count()
+           << "s";
+    } else {
+        ss << "none";
+    }
+    ss << ", peers=[";
+    for (Rank peer = 0; peer < nranks_; ++peer) {
+        if (peer == rank_) {
+            continue;
+        }
+        auto const p = safe_cast<std::size_t>(peer);
+        auto const incoming = incoming_messages_.find(peer);
+        auto const in_transit = in_transit_messages_.find(peer);
+        ss << "{peer=" << peer << ", sent=" << messages_sent_to_[p]
+           << ", received=" << peer_received_[p] << ", expected=";
+        if (peer_terminated_[p]) {
+            ss << peer_expected_[p];
+        } else {
+            ss << "?";
+        }
+        ss << ", incoming="
+           << (incoming == incoming_messages_.end() ? 0 : incoming->second.size())
+           << ", awaiting_buffer=" << num_awaiting_buffer_[p] << ", in_transit="
+           << (in_transit == in_transit_messages_.end() ? 0 : in_transit->second.size());
+        // The head of the incoming queue blocks every later message from this peer.
+        if (incoming != incoming_messages_.end() && !incoming->second.empty()) {
+            auto const& head = incoming->second.front();
+            ss << ", head=(id=" << (head.message_id & 0xFFFFFFFF)
+               << ", size=" << head.expected_payload_size << ", ";
+            if (head.expected_payload_size == 0) {
+                ss << "metadata-only";
+            } else if (head.is_awaiting_buffer()) {
+                ss << "awaiting-buffer";
+            } else if (!head.message->data()->is_latest_write_done()) {
+                ss << "buffer-not-ready";
+            } else {
+                ss << "buffer-ready";
+            }
+            ss << ")";
+        }
+        ss << "}, ";
+    }
+    ss << "])";
+    return ss.str();
 }
 
 void TagMetadataPayloadExchange::receive_metadata() {

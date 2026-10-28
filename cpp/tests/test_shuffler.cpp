@@ -371,7 +371,7 @@ void test_shuffler(
     }
     shuffler.insert_finished();
 
-    EXPECT_NO_THROW(shuffler.wait(wait_timeout));
+    ASSERT_NO_THROW(shuffler.wait(wait_timeout));
 
     for (auto local_pidx : shuffler.local_partitions()) {
         validate_partition_data(

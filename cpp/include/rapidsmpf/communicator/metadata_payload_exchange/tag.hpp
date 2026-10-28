@@ -119,6 +119,11 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      */
     bool is_idle() const override;
 
+    /**
+     * @copydoc MetadataPayloadExchange::str
+     */
+    [[nodiscard]] std::string str() const override;
+
   private:
     /**
      * @brief Internal wrapper for tracking protocol-specific state.

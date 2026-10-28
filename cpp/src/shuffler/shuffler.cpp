@@ -113,8 +113,9 @@ class Shuffler::Progress {
      * @brief Construct a new shuffler progress instance.
      *
      * @param shuffler Reference to the shuffler instance that this will progress.
+     * @param op_id The operation ID of the shuffle.
      */
-    Progress(Shuffler& shuffler) : shuffler_(shuffler) {}
+    Progress(Shuffler& shuffler, OpID op_id) : shuffler_(shuffler), op_id_(op_id) {}
 
     /**
      * @brief Executes a single iteration of the shuffler's event loop.
@@ -158,6 +159,7 @@ class Shuffler::Progress {
 
                 auto messages =
                     convert_chunks_to_messages(std::move(ready_chunks), peer_rank_fn);
+                last_activity_ = Clock::now();
 
                 shuffler_.mpe_->send(std::move(messages));
             }
@@ -169,6 +171,9 @@ class Shuffler::Progress {
 
             shuffler_.mpe_->progress();
             auto completed_messages = shuffler_.mpe_->recv();
+            if (!completed_messages.empty()) {
+                last_activity_ = Clock::now();
+            }
 
             for (auto&& message : completed_messages) {
                 auto chunk = detail::Chunk::deserialize(
@@ -200,6 +205,8 @@ class Shuffler::Progress {
             mpe_finish_called_ = true;
         }
 
+        report_if_slow();
+
         // There are no messages to be posted, or waiting to be completed.
         bool const containers_empty =
             shuffler_.mpe_->is_idle() && shuffler_.to_send_.empty();
@@ -229,8 +236,45 @@ class Shuffler::Progress {
     }
 
   private:
+    /**
+     * @brief Periodically log the shuffler state while the shuffle is unfinished.
+     */
+    void report_if_slow() {
+        auto const now = Clock::now();
+        if (shuffler_.can_extract_ || now - start_ < report_interval
+            || now - last_report_ < report_interval)
+        {
+            return;
+        }
+        last_report_ = now;
+        shuffler_.comm_->logger()->warn(
+            "Shuffler(op_id=",
+            static_cast<int>(op_id_),
+            ") unfinished after ",
+            std::chrono::duration<double>(now - start_).count(),
+            "s, last activity ",
+            std::chrono::duration<double>(now - last_activity_).count(),
+            "s ago: locally_finished=",
+            shuffler_.locally_finished_.load(std::memory_order_acquire),
+            ", mpe_finish_called=",
+            mpe_finish_called_,
+            ", to_send_empty=",
+            shuffler_.to_send_.empty(),
+            ", ",
+            shuffler_.finish_counter_.str(),
+            ", ",
+            shuffler_.mpe_->str()
+        );
+    }
+
+    static constexpr auto report_interval = std::chrono::seconds{5};
+
     Shuffler& shuffler_;
+    OpID const op_id_;
     bool mpe_finish_called_{false};
+    Clock::time_point const start_{Clock::now()};
+    Clock::time_point last_activity_{start_};
+    Clock::time_point last_report_{};
 
 #if RAPIDSMPF_VERBOSE_INFO
     std::int64_t p_iters = 0;  ///< Number of progress iterations (for NVTX)
@@ -298,7 +342,7 @@ Shuffler::Shuffler(
     // NB: this only works because `Shuffler` is not movable, otherwise if moved,
     // `this` will become invalid.
     progress_thread_function_id_ = comm_->progress_thread()->add_function(
-        [progress = std::make_shared<Progress>(*this)]() { return (*progress)(); }
+        [progress = std::make_shared<Progress>(*this, op_id)]() { return (*progress)(); }
     );
 
     // Register a spill function that spill buffers in this shuffler.

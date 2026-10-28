@@ -8,6 +8,7 @@
 #include <functional>
 #include <memory>
 #include <span>
+#include <string>
 #include <vector>
 
 #include <rapidsmpf/communicator/communicator.hpp>
@@ -270,6 +271,15 @@ class MetadataPayloadExchange {
      * @return `true` if the communication layer is idle; `false` if activity is ongoing.
      */
     [[nodiscard]] virtual bool is_idle() const = 0;
+
+    /**
+     * @brief Get a description of the communication state.
+     *
+     * Must be called from the thread that drives `progress()`.
+     *
+     * @return A human-readable description of this instance.
+     */
+    [[nodiscard]] virtual std::string str() const = 0;
 };
 
 
