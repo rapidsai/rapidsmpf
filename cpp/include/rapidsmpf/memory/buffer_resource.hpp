@@ -56,6 +56,10 @@ enum class AllowOverbooking : bool {
 
 class BufferResource;
 
+namespace streaming {
+class MemoryReserveOrWait;
+}
+
 namespace detail {
 
 /// @cond
@@ -532,15 +536,6 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         ReservationAttributes attributes
     );
 
-    /// @cond
-    detail::ReserveResult reserve_impl(
-        MemoryType mem_type,
-        std::size_t size,
-        AllowOverbooking allow_overbooking,
-        detail::RequestScope* request
-    );
-    /// @endcond
-
     /**
      * @brief Reserve device memory and spill if necessary.
      *
@@ -961,11 +956,18 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
   private:
     friend class MemoryReservation;
     friend class detail::RequestScope;
+    friend class streaming::MemoryReserveOrWait;
 
     [[nodiscard]] bool reservation_event_recording_enabled() const noexcept {
         return recording_enabled_.load(std::memory_order_acquire);
     }
 
+    detail::ReserveResult reserve_impl(
+        MemoryType mem_type,
+        std::size_t size,
+        AllowOverbooking allow_overbooking,
+        detail::RequestScope* request
+    );
     std::uint64_t next_reservation_id() noexcept;
     std::uint64_t next_request_id() noexcept;
     void emit_request_submitted(
