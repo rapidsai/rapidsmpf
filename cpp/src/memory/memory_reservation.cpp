@@ -31,7 +31,12 @@ MemoryReservation MemoryReservation::split(std::size_t size) {
         return {mem_type_, br_, 0, 0, attrs_};
     }
     size_ -= size;
-    MemoryReservation child{mem_type_, br_, size, br_->next_reservation_id(), attrs_};
+    auto const child_id = id_ != 0 && br_->reservation_event_recording_enabled()
+                              ? br_->next_reservation_id()
+                              : 0;
+    MemoryReservation child{
+        mem_type_, br_, size, child_id, child_id == 0 ? ReservationAttributes{} : attrs_
+    };
     if (size_ == 0) {
         br_->emit_reservation_released(id_, ReservationReleaseReason::RELEASED_SPLIT);
     } else {

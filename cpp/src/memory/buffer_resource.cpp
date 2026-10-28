@@ -106,6 +106,9 @@ void BufferResource::emit_request_submitted(
 }
 
 void BufferResource::emit_request_waiting(std::uint64_t id) {
+    if (id == 0) {
+        return;
+    }
     record_reservation_event(RequestWaitingEvent{id});
 }
 
@@ -157,6 +160,9 @@ void BufferResource::emit_reservation_created(
 void BufferResource::emit_reservation_resized(
     std::uint64_t id, std::size_t size, ReservationResizeReason reason
 ) {
+    if (id == 0) {
+        return;
+    }
     record_reservation_event(ReservationResizedEvent{id, size, reason});
 }
 
@@ -177,12 +183,17 @@ RequestScope::RequestScope(
     std::span<MemoryType const> memory_types,
     ReservationRequestPolicy policy,
     std::optional<std::int64_t> net_memory_delta,
-    ReservationAttributes attributes
+    ReservationAttributes const& attributes
 )
-    : br_{&br}, id_{br.next_request_id()}, attributes_{std::move(attributes)} {
-    br_->emit_request_submitted(
-        id_, size, memory_types, policy, net_memory_delta, attributes_
-    );
+    : br_{&br},
+      active_{br.reservation_event_recording_enabled()},
+      id_{active_ ? br.next_request_id() : 0},
+      attributes_{active_ ? attributes : ReservationAttributes{}} {
+    if (active_) {
+        br_->emit_request_submitted(
+            id_, size, memory_types, policy, net_memory_delta, attributes_
+        );
+    }
 }
 
 RequestScope::~RequestScope() noexcept {
@@ -190,7 +201,7 @@ RequestScope::~RequestScope() noexcept {
 }
 
 void RequestScope::waiting() {
-    if (!waiting_emitted_) {
+    if (active_ && !waiting_emitted_) {
         waiting_emitted_ = true;
         br_->emit_request_waiting(id_);
     }
@@ -207,7 +218,9 @@ void RequestScope::resolve(
         return;
     }
     resolved_ = true;
-    br_->emit_request_resolved(id_, outcome, result, timed_out, error);
+    if (active_) {
+        br_->emit_request_resolved(id_, outcome, result, timed_out, error);
+    }
 }
 
 void RequestScope::resolve_granted(ReserveResult const& result) {
@@ -546,11 +559,12 @@ detail::ReserveResult BufferResource::reserve_impl(
             mem_type,
             this,
             size,
-            size == 0 ? 0 : next_reservation_id(),
+            size == 0 || request == nullptr || !request->active() ? 0
+                                                                  : next_reservation_id(),
             request == nullptr ? ReservationAttributes{} : request->attributes()
         );
     }
-    if (size > 0) {
+    if (reservation.id() != 0) {
         emit_reservation_created(reservation, request == nullptr ? 0 : request->id(), 0);
     }
     return {std::move(reservation), mem_type, std::min(size, overbooking), overbooking};

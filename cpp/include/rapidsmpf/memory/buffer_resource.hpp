@@ -77,7 +77,7 @@ class RequestScope {
         std::span<MemoryType const> memory_types,
         ReservationRequestPolicy policy,
         std::optional<std::int64_t> net_memory_delta,
-        ReservationAttributes attributes
+        ReservationAttributes const& attributes
     );
     ~RequestScope() noexcept;
     RequestScope(RequestScope const&) = delete;
@@ -89,6 +89,10 @@ class RequestScope {
 
     [[nodiscard]] ReservationAttributes const& attributes() const noexcept {
         return attributes_;
+    }
+
+    [[nodiscard]] bool active() const noexcept {
+        return active_;
     }
 
     void waiting();
@@ -106,6 +110,7 @@ class RequestScope {
     );
 
     BufferResource* br_;
+    bool active_;
     std::uint64_t id_;
     ReservationAttributes attributes_;
     bool waiting_emitted_{false};
@@ -583,9 +588,18 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
             }
             return std::nullopt;
         }
-        std::vector<MemoryType> types(
-            std::ranges::begin(mem_types), std::ranges::end(mem_types)
-        );
+        std::vector<MemoryType> type_storage;
+        std::span<MemoryType const> types;
+        if constexpr (std::ranges::contiguous_range<Range>
+                      && std::ranges::sized_range<Range>)
+        {
+            types = {std::ranges::data(mem_types), std::ranges::size(mem_types)};
+        } else {
+            type_storage.assign(
+                std::ranges::begin(mem_types), std::ranges::end(mem_types)
+            );
+            types = type_storage;
+        }
         detail::RequestScope scope{
             *this,
             size,
@@ -664,7 +678,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     template <std::ranges::input_range Range>
         requires std::convertible_to<std::ranges::range_value_t<Range>, MemoryType>
     [[nodiscard]] MemoryReservation reserve_or_fail(
-        std::size_t size, Range mem_types, ReservationAttributes attributes = {}
+        std::size_t size, Range mem_types, ReservationAttributes const& attributes = {}
     ) {
         if (size == 0) {
             for (auto const mem_type : mem_types) {
@@ -674,16 +688,25 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
             }
             RAPIDSMPF_FAIL("failed to reserve memory", std::runtime_error);
         }
-        std::vector<MemoryType> types(
-            std::ranges::begin(mem_types), std::ranges::end(mem_types)
-        );
+        std::vector<MemoryType> type_storage;
+        std::span<MemoryType const> types;
+        if constexpr (std::ranges::contiguous_range<Range>
+                      && std::ranges::sized_range<Range>)
+        {
+            types = {std::ranges::data(mem_types), std::ranges::size(mem_types)};
+        } else {
+            type_storage.assign(
+                std::ranges::begin(mem_types), std::ranges::end(mem_types)
+            );
+            types = type_storage;
+        }
         detail::RequestScope scope{
             *this,
             size,
             types,
             ReservationRequestPolicy::IMMEDIATE,
             std::nullopt,
-            std::move(attributes)
+            attributes
         };
         try {
             for (auto const mem_type : types) {
@@ -717,11 +740,11 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @throws std::runtime_error if no memory reservation was made.
      */
     [[nodiscard]] MemoryReservation reserve_or_fail(
-        std::size_t size, MemoryType mem_type, ReservationAttributes attributes = {}
+        std::size_t size,
+        MemoryType mem_type,
+        ReservationAttributes const& attributes = {}
     ) {
-        return reserve_or_fail(
-            size, std::ranges::single_view{mem_type}, std::move(attributes)
-        );
+        return reserve_or_fail(size, std::ranges::single_view{mem_type}, attributes);
     }
 
     /**
@@ -938,6 +961,11 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
   private:
     friend class MemoryReservation;
     friend class detail::RequestScope;
+
+    [[nodiscard]] bool reservation_event_recording_enabled() const noexcept {
+        return recording_enabled_.load(std::memory_order_acquire);
+    }
+
     std::uint64_t next_reservation_id() noexcept;
     std::uint64_t next_request_id() noexcept;
     void emit_request_submitted(

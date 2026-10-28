@@ -37,6 +37,26 @@ TEST(ReservationEventBuffer, RecordingIsDisabledByDefault) {
     EXPECT_TRUE(br->stop_reservation_event_recording().empty());
 }
 
+TEST(ReservationEventBuffer, DisabledRecordingSkipsTelemetryState) {
+    auto br = make_resource();
+    auto attributes =
+        std::make_shared<ReservationAttributeMap const>(ReservationAttributeMap{
+            {"rapidsmpf.site", std::string{"test"}},
+        });
+
+    auto reservation = br->reserve_or_fail(100, MemoryType::DEVICE, attributes);
+    EXPECT_EQ(reservation.id(), 0);
+    EXPECT_FALSE(reservation.attributes());
+
+    auto child = reservation.split(40);
+    EXPECT_EQ(child.id(), 0);
+    EXPECT_FALSE(child.attributes());
+
+    child.clear();
+    reservation.clear();
+    EXPECT_TRUE(br->drain_reservation_events().empty());
+}
+
 TEST(ReservationEventBuffer, StartRejectsAnActiveSession) {
     auto br = make_resource();
     br->start_reservation_event_recording();
