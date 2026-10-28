@@ -145,6 +145,10 @@ class SparseAlltoall {
      * @param src Source rank. Must be present in the constructor's `srcs`.
      * @return All messages received from `src`.
      *
+     * @note When the buffer resource has a disk resource, chunks received under memory
+     * pressure are stored on disk, so extracted chunks may be disk-backed. Use
+     * `unspill_partitions()` to move them back to device memory.
+     *
      * @note Concurrent extraction is supported, behaviour is undefined if two threads
      * attempt to extract data from the same source.
      *
