@@ -4,6 +4,7 @@
  */
 
 
+#include <algorithm>
 #include <cstdint>
 #include <limits>
 #include <span>
@@ -1283,6 +1284,46 @@ TEST_P(BufferResourceDiskCopyTest, DiskToDiskCopyWithOffsets) {
         std::vector<std::uint8_t>(
             pattern.begin() + src_offset, pattern.begin() + src_offset + size
         )
+    );
+}
+
+TEST_P(BufferResourceDiskCopyTest, DiskToDiskCopyPreservesBytesOutsideRange) {
+    constexpr std::size_t size = 256;
+    constexpr std::size_t dst_offset = 100;
+    auto src_host = make_buffer(size);
+    auto const src_pattern = fill_pattern(*src_host, size);
+    auto dst_host = make_buffer(size * 2);
+    auto const dst_pattern = fill_pattern(*dst_host, size * 2);
+
+    auto disk_a = make_disk_backed_buffer(size);
+    buffer_copy(br_->statistics(), *disk_a, *src_host, size);
+    auto disk_b = make_disk_backed_buffer(size * 2);
+    buffer_copy(br_->statistics(), *disk_b, *dst_host, size * 2);
+
+    buffer_copy(br_->statistics(), *disk_b, *disk_a, size, dst_offset, 0);
+
+    auto readback = make_buffer(size * 2);
+    buffer_copy(br_->statistics(), *readback, *disk_b, size * 2);
+    auto expected = dst_pattern;
+    std::ranges::copy(src_pattern, expected.begin() + dst_offset);
+    EXPECT_EQ(copy_to_uint8_vector(*readback), expected);
+}
+
+TEST_P(BufferResourceDiskCopyTest, DiskToDiskCopyRejectsSourceRangePastFileSize) {
+    constexpr std::size_t size = 128;
+    auto source = make_buffer(size);
+    fill_pattern(*source, size);
+    auto disk_a = make_disk_backed_buffer(size);
+    buffer_copy(br_->statistics(), *disk_a, *source, size);
+    auto disk_b = make_disk_backed_buffer(size);
+
+    EXPECT_THROW(
+        buffer_copy(br_->statistics(), *disk_b, *disk_a, 2, 0, size - 1),
+        std::invalid_argument
+    );
+    EXPECT_THROW(
+        buffer_copy(br_->statistics(), *disk_b, *disk_a, size + 1, 0, 0),
+        std::invalid_argument
     );
 }
 

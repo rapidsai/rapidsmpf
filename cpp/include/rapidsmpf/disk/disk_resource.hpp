@@ -96,22 +96,28 @@ class DiskResource : public BackRefMixin<BufferResource> {
     /**
      * @brief Copy bytes from one file to another and block until the transfer completes.
      *
-     * Uses `copy_file_range(2)`. The destination is created if missing, and existing
-     * bytes outside the written range are preserved.
+     * Synchronizes @p stream first, so the copy runs after all work already enqueued on
+     * it (as in `write()` and `read()`). The transfer itself is host-side, using
+     * `copy_file_range(2)`. The destination is created if missing, and existing bytes
+     * outside the written range are preserved.
      *
      * @param src_path Source file path.
      * @param dst_path Destination file path. Must differ from @p src_path.
      * @param size Number of bytes to copy.
+     * @param stream CUDA stream to synchronize before the copy.
      * @param src_offset Byte offset within the source file.
      * @param dst_offset Byte offset within the destination file.
      * @return Number of bytes transferred. The caller must check this against
      *         @p size.
+     * @throws std::invalid_argument if @p src_path equals @p dst_path or an offset is
+     *         negative.
      * @throws std::runtime_error if the kernel or filesystem rejects the copy.
      */
     [[nodiscard]] std::size_t copy(
         std::filesystem::path const& src_path,
         std::filesystem::path const& dst_path,
         std::size_t size,
+        cuda::stream_ref stream,
         std::ptrdiff_t src_offset = 0,
         std::ptrdiff_t dst_offset = 0
     ) const;

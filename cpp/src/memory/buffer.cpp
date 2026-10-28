@@ -212,7 +212,7 @@ void buffer_copy(
             std::invalid_argument
         );
         auto const transferred = disk_dst.disk_resource()->copy(
-            disk_src.path(), disk_dst.path(), size, src_offset, dst_offset
+            disk_src.path(), disk_dst.path(), size, dst.stream(), src_offset, dst_offset
         );
         RAPIDSMPF_EXPECTS(
             transferred == size,

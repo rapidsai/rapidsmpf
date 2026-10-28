@@ -165,9 +165,15 @@ std::size_t DiskResource::copy(
     std::filesystem::path const& src_path,
     std::filesystem::path const& dst_path,
     std::size_t size,
+    cuda::stream_ref stream,
     std::ptrdiff_t src_offset,
     std::ptrdiff_t dst_offset
 ) const {
+    RAPIDSMPF_EXPECTS(
+        src_path != dst_path,
+        "source and destination paths must differ",
+        std::invalid_argument
+    );
     RAPIDSMPF_EXPECTS(
         src_offset >= 0 && dst_offset >= 0,
         "file offsets must be non-negative",
@@ -175,6 +181,7 @@ std::size_t DiskResource::copy(
     );
     ScopedFd src{src_path, O_RDONLY};
     ScopedFd dst{dst_path, O_WRONLY | O_CREAT};
+    stream.sync();
 
     auto in_off = static_cast<off_t>(src_offset);
     auto out_off = static_cast<off_t>(dst_offset);
