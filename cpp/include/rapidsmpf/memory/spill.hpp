@@ -34,18 +34,18 @@ std::vector<PackedData> spill_partitions(
 );
 
 /**
- * @brief Move spilled partitions (i.e., packed tables in host memory) back to device
- * memory.
+ * @brief Move spilled partitions back to device memory.
  *
  * Each partition is inspected to determine whether its buffer resides in device memory.
- * Buffers already in device memory are left untouched. Host-resident buffers are moved
- * to device memory using the provided buffer resource and the buffer's CUDA stream.
+ * Buffers already in device memory are left untouched. Buffers in any other supported
+ * tier, including disk, are moved to device memory using the provided buffer resource.
  *
  * If insufficient device memory is available, the buffer resource's spill manager is
  * invoked to free memory. If overbooking occurs and spilling fails to reclaim enough
  * memory, behavior depends on the `allow_overbooking` flag.
  *
- * @param partitions The partitions to unspill, potentially containing host-resident data.
+ * @param partitions The partitions to unspill, potentially containing host- or
+ * disk-resident data.
  * @param br Buffer resource responsible for memory reservation and spills.
  * @param allow_overbooking If false, ensures enough memory is freed to satisfy the
  * reservation; otherwise, allows overbooking even if spilling was insufficient.
