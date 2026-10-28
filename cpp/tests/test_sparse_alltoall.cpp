@@ -25,6 +25,7 @@
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
+#include <rapidsmpf/memory/spill_manager.hpp>
 
 #include "environment.hpp"
 #include "utils.hpp"
@@ -245,6 +246,50 @@ TEST_F(SparseAlltoallTest, inserts_disk_backed_data) {
             EXPECT_EQ(decode_metadata(received[i]), src * 10 + i);
             EXPECT_EQ(decode_payload(received[i]), src * 100 + i);
         }
+    }
+}
+
+// Spilling only touches the ready (fully received) chunks: after completion, a spill
+// request moves received device data to host memory without corrupting it.
+TEST_F(SparseAlltoallTest, spill_ready_chunks) {
+    auto const& comm = GlobalEnvironment->comm_;
+    auto [srcs, dsts] = ring_peers(comm);
+    constexpr int n_messages = 3;
+
+    rapidsmpf::coll::SparseAlltoall exchange(comm, 0, br.get(), srcs, dsts);
+    if (!dsts.empty()) {
+        for (int i = 0; i < n_messages; ++i) {
+            exchange.insert(
+                dsts.front(),
+                make_payload(
+                    comm->rank() * 10 + i,
+                    comm->rank() * 100 + i,
+                    rapidsmpf::MemoryType::DEVICE,
+                    *br,
+                    br->stream_pool()->get_stream()
+                )
+            );
+        }
+    }
+    exchange.insert_finished();
+    exchange.wait(std::chrono::seconds{30});
+
+    // Ask for more than is available, so everything spillable is spilled.
+    auto const spilled = br->spill_manager().spill(1 << 20);
+    if (srcs.empty()) {
+        EXPECT_EQ(spilled, 0);
+        return;
+    }
+    // The received chunks must all have been (and only be) device resident before.
+    EXPECT_EQ(spilled, n_messages * sizeof(int));
+
+    auto const src = srcs.front();
+    auto received = exchange.extract(src);
+    ASSERT_EQ(received.size(), n_messages);
+    for (int i = 0; i < n_messages; ++i) {
+        EXPECT_EQ(received[i].data->mem_type(), rapidsmpf::MemoryType::HOST);
+        EXPECT_EQ(decode_metadata(received[i]), src * 10 + i);
+        EXPECT_EQ(decode_payload(received[i]), src * 100 + i);
     }
 }
 
