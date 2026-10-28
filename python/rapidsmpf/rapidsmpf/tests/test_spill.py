@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
@@ -35,3 +35,33 @@ def test_spill_unspill_roundtrip(
     assert len(unspilled) == num_partitions
     for partition_id, partition in enumerate(unspilled):
         validate_packed_data(partition, num_elements, partition_id * 100)
+
+
+def test_unspill_attributes_are_recorded(
+    device_mr: rmm.mr.CudaMemoryResource,
+    stream: Stream,
+) -> None:
+    br = BufferResource(device_mr)
+    spilled = spill_partitions(
+        [generate_packed_data(10, 0, stream, br)],
+        br=br,
+    )
+    br.start_reservation_event_recording()
+
+    unspilled = unspill_partitions(
+        spilled,
+        br=br,
+        allow_overbooking=False,
+        attributes={"rapidsmpf.site": "test.unspill", "operator": 7},
+    )
+    events = br.drain_reservation_events()
+
+    submitted = next(
+        cast("Any", event) for event in events if event["kind"] == "request_submitted"
+    )
+    assert submitted["attributes"] == {
+        "rapidsmpf.site": "test.unspill",
+        "operator": 7,
+    }
+    del unspilled
+    br.stop_reservation_event_recording()
