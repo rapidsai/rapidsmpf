@@ -10,6 +10,7 @@
 #include <future>
 #include <memory>
 #include <thread>
+#include <tuple>
 
 #include <gtest/gtest.h>
 
@@ -558,17 +559,22 @@ TEST_P(ConcurrentShuffleTest, round_trip) {
     ASSERT_NO_FATAL_FAILURE(RunTestTemplate());
 }
 
-// test different `num_shufflers` and `total_num_partitions`.
+// test different `num_shufflers` and `total_num_partitions`. The combination of 4
+// shufflers and 100 partitions is left out because it sends thousands of small
+// messages per rank and can exceed the wait timeout on slow CI runners.
+// See <https://github.com/rapidsai/rapidsmpf/pull/1291>
 INSTANTIATE_TEST_SUITE_P(
     ConcurrentShuffle,
     ConcurrentShuffleTest,
-    testing::Combine(
-        testing::Values(std::size_t{1}, std::size_t{2}, std::size_t{4}),  // num_shufflers
-        testing::Values(  // total_num_partitions
-            rapidsmpf::shuffler::PartID{1},
-            rapidsmpf::shuffler::PartID{10},
-            rapidsmpf::shuffler::PartID{100}
-        )
+    testing::Values(
+        std::make_tuple(std::size_t{1}, rapidsmpf::shuffler::PartID{1}),
+        std::make_tuple(std::size_t{1}, rapidsmpf::shuffler::PartID{10}),
+        std::make_tuple(std::size_t{1}, rapidsmpf::shuffler::PartID{100}),
+        std::make_tuple(std::size_t{2}, rapidsmpf::shuffler::PartID{1}),
+        std::make_tuple(std::size_t{2}, rapidsmpf::shuffler::PartID{10}),
+        std::make_tuple(std::size_t{2}, rapidsmpf::shuffler::PartID{100}),
+        std::make_tuple(std::size_t{4}, rapidsmpf::shuffler::PartID{1}),
+        std::make_tuple(std::size_t{4}, rapidsmpf::shuffler::PartID{10})
     ),
     [](const testing::TestParamInfo<ConcurrentShuffleTest::ParamType>& info) {
         return "num_shufflers_" + std::to_string(std::get<0>(info.param))
