@@ -210,10 +210,13 @@ TEST(PausableThreadLoop, ResumePausedLoopRunsOnce) {
     ASSERT_EQ(counter.get(), 1);
 
     // Resuming a paused loop runs one iteration, after which the loop sleeps as usual.
-    loop.resume();
+    EXPECT_TRUE(loop.resume());
     EXPECT_TRUE(loop.is_running());
     ASSERT_TRUE(counter.wait_for(2, prompt));
     EXPECT_FALSE(counter.wait_for(3, std::chrono::milliseconds{100}));
+
+    // Resuming a sleeping loop is not a resume from paused.
+    EXPECT_FALSE(loop.resume());
     loop.stop();
 }
 
