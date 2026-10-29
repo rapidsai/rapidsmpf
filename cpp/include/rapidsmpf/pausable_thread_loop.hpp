@@ -139,8 +139,9 @@ class PausableThreadLoop {
     //  STOPPING -> STOPPED
     //  SKIP_SLEEP -> RUNNING (at the start of an iteration)
 
-    // `state_` is guarded by `mutex_`. Every change is followed
-    // by `cv_.notify_all()`. The loop function never runs while `mutex_` is held, so
+    // `state_` is guarded by `mutex_`. Every change except the event loop's
+    // SKIP_SLEEP -> RUNNING is followed by `cv_.notify_all()`, since no thread waits on
+    // it. The loop function never runs while `mutex_` is held, so
     // callers may hold their own locks (also taken by the loop function) while calling
     // into this class.
     mutable std::mutex mutex_;
