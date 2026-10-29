@@ -576,7 +576,13 @@ MemoryReservation BufferResource::reserve_device_memory_and_spill(
     std::size_t size, AllowOverbooking allow_overbooking, ReservationAttributes attributes
 ) {
     if (size == 0) {
-        return MemoryReservation(MemoryType::DEVICE, this, 0);
+        // A zero-size request adds no overbooking of its own, but still spills to
+        // clear any overbooking left by other reservations.
+        auto result = reserve_impl(MemoryType::DEVICE, 0, AllowOverbooking::YES, nullptr);
+        if (result.total_overbooked_bytes > 0) {
+            spill_manager_.spill_to_make_headroom();
+        }
+        return std::move(result.reservation);
     }
     std::array const types{MemoryType::DEVICE};
     detail::RequestScope scope{
