@@ -27,17 +27,4 @@ using ReservationAttributeMap =
  */
 using ReservationAttributes = std::shared_ptr<ReservationAttributeMap const>;
 
-/**
- * @brief Attributes used by autonomous spill work.
- *
- * @return Shared immutable attributes containing the stable spill site.
- */
-inline ReservationAttributes spill_reservation_attributes() {
-    static ReservationAttributes const attributes =
-        std::make_shared<ReservationAttributeMap const>(
-            ReservationAttributeMap{{"rapidsmpf.site", std::string{"spill"}}}
-        );
-    return attributes;
-}
-
 }  // namespace rapidsmpf

@@ -89,6 +89,18 @@ struct RecordingSession {
     std::uint64_t next_sequence{0};
 };
 
+/**
+ * @brief Scoped handle for recording one reservation request.
+ *
+ * On construction, assigns the request id and records the submitted event. While the
+ * request is pending, `waiting()` records a waiting event at most once. Every request
+ * must be resolved exactly once, through one of the `resolve_*()` methods, before the
+ * scope is destroyed. `reserve_impl()` reads the id and attributes from the scope so
+ * that the reservation it creates links back to the request.
+ *
+ * When recording is disabled at construction, the scope is inactive: its id is zero,
+ * its attributes are empty, and it records nothing.
+ */
 class RequestScope {
   public:
     RequestScope(
@@ -557,7 +569,9 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @param mem_type The target memory type.
      * @param size The number of bytes to reserve.
      * @param allow_overbooking Whether overbooking is allowed.
-     * @param attributes Immutable telemetry attributes for the request.
+     * @param attributes Immutable telemetry attributes, recorded on the request and
+     * reservation events and shared with reservations split off the result. Empty
+     * (no attributes) by default.
      * @return The reservation and this request's overbooked byte count.
      */
     std::pair<MemoryReservation, std::size_t> reserve(
@@ -597,7 +611,9 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * @param size The size of the buffer to allocate.
      * @param mem_types Range of memory types to try to reserve memory from.
-     * @param attributes Immutable telemetry attributes for the request.
+     * @param attributes Immutable telemetry attributes, recorded on the request and
+     * reservation events and shared with reservations split off the result. Empty
+     * (no attributes) by default.
      * @return A memory reservation, or `std::nullopt` if no memory type can satisfy the
      * request.
      */
@@ -606,46 +622,9 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     [[nodiscard]] std::optional<MemoryReservation> try_reserve(
         std::size_t size, Range mem_types, ReservationAttributes const& attributes = {}
     ) {
-        std::vector<MemoryType> type_storage;
-        std::span<MemoryType const> types;
-        if constexpr (std::ranges::contiguous_range<Range>
-                      && std::ranges::sized_range<Range>)
-        {
-            types = {std::ranges::data(mem_types), std::ranges::size(mem_types)};
-        } else {
-            type_storage.assign(
-                std::ranges::begin(mem_types), std::ranges::end(mem_types)
-            );
-            types = type_storage;
-        }
-        detail::RequestScope scope{
-            *this,
-            size,
-            types,
-            ReservationRequestPolicy::IMMEDIATE,
-            std::nullopt,
-            attributes
-        };
-        try {
-            for (auto const mem_type : types) {
-                if (!has_memory_resource(mem_type)) {
-                    continue;
-                }
-                auto result = reserve_impl(mem_type, size, AllowOverbooking::NO, &scope);
-                if (result.reservation.size() == size) {
-                    scope.resolve_granted(result);
-                    return std::move(result.reservation);
-                }
-            }
-            scope.resolve_empty(false);
-            return std::nullopt;
-        } catch (std::exception const& e) {
-            scope.resolve_failed(e.what());
-            throw;
-        } catch (...) {
-            scope.resolve_failed("unknown exception");
-            throw;
-        }
+        return reserve_first_fit(
+            size, std::move(mem_types), attributes, /* fail_if_unsatisfied = */ false
+        );
     }
 
     /**
@@ -653,7 +632,9 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * @param size The size of the buffer to allocate.
      * @param mem_type The memory type to try to reserve memory from.
-     * @param attributes Immutable telemetry attributes for the request.
+     * @param attributes Immutable telemetry attributes, recorded on the request and
+     * reservation events and shared with reservations split off the result. Empty
+     * (no attributes) by default.
      * @return A memory reservation, or `std::nullopt` if the request cannot be
      * satisfied.
      */
@@ -670,7 +651,9 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * @param size The size of memory to reserve.
      * @param allow_overbooking Whether overbooking is allowed.
-     * @param attributes Immutable telemetry attributes for the request.
+     * @param attributes Immutable telemetry attributes, recorded on the request and
+     * reservation events and shared with reservations split off the result. Empty
+     * (no attributes) by default.
      * @return The memory reservation.
      */
     MemoryReservation reserve_device_memory_and_spill(
@@ -688,7 +671,9 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * @param size The size of the buffer to allocate.
      * @param mem_types Range of memory types to try to reserve memory from.
-     * @param attributes Immutable telemetry attributes for the request.
+     * @param attributes Immutable telemetry attributes, recorded on the request and
+     * reservation events and shared with reservations split off the result. Empty
+     * (no attributes) by default.
      * @return A memory reservation.
      *
      * @throws std::runtime_error if no memory reservation was made.
@@ -698,45 +683,10 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     [[nodiscard]] MemoryReservation reserve_or_fail(
         std::size_t size, Range mem_types, ReservationAttributes const& attributes = {}
     ) {
-        std::vector<MemoryType> type_storage;
-        std::span<MemoryType const> types;
-        if constexpr (std::ranges::contiguous_range<Range>
-                      && std::ranges::sized_range<Range>)
-        {
-            types = {std::ranges::data(mem_types), std::ranges::size(mem_types)};
-        } else {
-            type_storage.assign(
-                std::ranges::begin(mem_types), std::ranges::end(mem_types)
-            );
-            types = type_storage;
-        }
-        detail::RequestScope scope{
-            *this,
-            size,
-            types,
-            ReservationRequestPolicy::IMMEDIATE,
-            std::nullopt,
-            attributes
-        };
-        try {
-            for (auto const mem_type : types) {
-                if (!has_memory_resource(mem_type)) {
-                    continue;
-                }
-                auto result = reserve_impl(mem_type, size, AllowOverbooking::NO, &scope);
-                if (result.reservation.size() == size) {
-                    scope.resolve_granted(result);
-                    return std::move(result.reservation);
-                }
-            }
-            throw std::runtime_error("failed to reserve memory");
-        } catch (std::exception const& e) {
-            scope.resolve_failed(e.what());
-            throw;
-        } catch (...) {
-            scope.resolve_failed("unknown exception");
-            throw;
-        }
+        auto res = reserve_first_fit(
+            size, std::move(mem_types), attributes, /* fail_if_unsatisfied = */ true
+        );
+        return std::move(*res);
     }
 
     /**
@@ -744,7 +694,9 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * @param size The size of the buffer to allocate.
      * @param mem_type The memory type to try to reserve memory from.
-     * @param attributes Immutable telemetry attributes for the request.
+     * @param attributes Immutable telemetry attributes, recorded on the request and
+     * reservation events and shared with reservations split off the result. Empty
+     * (no attributes) by default.
      * @return A memory reservation.
      *
      * @throws std::runtime_error if no memory reservation was made.
@@ -982,6 +934,41 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         std::size_t size,
         AllowOverbooking allow_overbooking,
         detail::RequestScope* request
+    );
+
+    // Shared by `try_reserve()` and `reserve_or_fail()`. Reserves from the first memory
+    // type in @p mem_types that fits without overbooking. When none fits, returns
+    // `std::nullopt`, or throws `std::runtime_error` if @p fail_if_unsatisfied.
+    template <std::ranges::input_range Range>
+        requires std::convertible_to<std::ranges::range_value_t<Range>, MemoryType>
+    std::optional<MemoryReservation> reserve_first_fit(
+        std::size_t size,
+        Range mem_types,
+        ReservationAttributes const& attributes,
+        bool fail_if_unsatisfied
+    ) {
+        if constexpr (std::ranges::contiguous_range<Range>
+                      && std::ranges::sized_range<Range>)
+        {
+            return reserve_first_fit_impl(
+                size,
+                {std::ranges::data(mem_types), std::ranges::size(mem_types)},
+                attributes,
+                fail_if_unsatisfied
+            );
+        } else {
+            std::vector<MemoryType> const types(
+                std::ranges::begin(mem_types), std::ranges::end(mem_types)
+            );
+            return reserve_first_fit_impl(size, types, attributes, fail_if_unsatisfied);
+        }
+    }
+
+    std::optional<MemoryReservation> reserve_first_fit_impl(
+        std::size_t size,
+        std::span<MemoryType const> mem_types,
+        ReservationAttributes const& attributes,
+        bool fail_if_unsatisfied
     );
     std::uint64_t next_reservation_id() noexcept;
     std::uint64_t next_request_id() noexcept;

@@ -27,8 +27,9 @@ MemoryReservation MemoryReservation::split(std::size_t size) {
             + format_nbytes(size) + ")",
         rapidsmpf::reservation_error
     );
+    // A zero-byte split changes nothing, so it records nothing.
     if (size == 0) {
-        return {mem_type_, br_, 0, 0, attrs_};
+        return {mem_type_, br_, 0, 0, {}};
     }
     size_ -= size;
     auto const child_id = id_ != 0 && br_->reservation_event_recording_enabled()

@@ -240,10 +240,19 @@ TEST(ReservationEventBuffer, ZeroByteRequestsAreGrantedWithoutAReservation) {
     );
 
     // A zero-byte split changes nothing, so it records nothing.
-    auto parent = br->reserve_or_fail(10, MemoryType::DEVICE);
+    auto parent = br->reserve_or_fail(
+        10,
+        MemoryType::DEVICE,
+        std::make_shared<ReservationAttributeMap const>(ReservationAttributeMap{
+            {"rapidsmpf.site", std::string{"test"}},
+        })
+    );
+    ASSERT_TRUE(parent.attributes());
     static_cast<void>(br->drain_reservation_events());
     auto child = parent.split(0);
     EXPECT_EQ(child.size(), 0);
+    EXPECT_EQ(child.id(), 0);
+    EXPECT_FALSE(child.attributes());
     EXPECT_TRUE(br->drain_reservation_events().empty());
     parent.clear();
     EXPECT_EQ(br->stop_reservation_event_recording().size(), 1);

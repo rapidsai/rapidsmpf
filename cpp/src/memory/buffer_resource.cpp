@@ -580,6 +580,45 @@ detail::ReserveResult BufferResource::reserve_impl(
     };
 }
 
+std::optional<MemoryReservation> BufferResource::reserve_first_fit_impl(
+    std::size_t size,
+    std::span<MemoryType const> mem_types,
+    ReservationAttributes const& attributes,
+    bool fail_if_unsatisfied
+) {
+    detail::RequestScope scope{
+        *this,
+        size,
+        mem_types,
+        ReservationRequestPolicy::IMMEDIATE,
+        std::nullopt,
+        attributes
+    };
+    try {
+        for (auto const mem_type : mem_types) {
+            if (!has_memory_resource(mem_type)) {
+                continue;
+            }
+            auto result = reserve_impl(mem_type, size, AllowOverbooking::NO, &scope);
+            if (result.reservation.size() == size) {
+                scope.resolve_granted(result);
+                return std::move(result.reservation);
+            }
+        }
+        RAPIDSMPF_EXPECTS(
+            !fail_if_unsatisfied, "failed to reserve memory", std::runtime_error
+        );
+        scope.resolve_empty(false);
+        return std::nullopt;
+    } catch (std::exception const& e) {
+        scope.resolve_failed(e.what());
+        throw;
+    } catch (...) {
+        scope.resolve_failed("unknown exception");
+        throw;
+    }
+}
+
 MemoryReservation BufferResource::reserve_device_memory_and_spill(
     std::size_t size, AllowOverbooking allow_overbooking
 ) {

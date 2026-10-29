@@ -138,7 +138,9 @@ class MemoryReserveOrWait {
      *
      * @param size Number of bytes to reserve.
      * @param net_memory_delta Estimated net memory change used for priority.
-     * @param attributes Immutable telemetry attributes for the request.
+     * @param attributes Immutable telemetry attributes, recorded on the request and
+     * reservation events and shared with reservations split off the result. Empty
+     * (no attributes) by default.
      * @return A reservation, or an empty reservation after forced progress.
      */
     coro::task<MemoryReservation> reserve_or_wait(
@@ -177,7 +179,9 @@ class MemoryReserveOrWait {
      *
      * @param size Number of bytes to reserve.
      * @param net_memory_delta Estimated net memory change used for priority.
-     * @param attributes Immutable telemetry attributes for the request.
+     * @param attributes Immutable telemetry attributes, recorded on the request and
+     * reservation events and shared with reservations split off the result. Empty
+     * (no attributes) by default.
      * @return The reservation and this request's overbooked byte count.
      */
     coro::task<std::pair<MemoryReservation, std::size_t>> reserve_or_wait_or_overbook(
@@ -214,7 +218,9 @@ class MemoryReserveOrWait {
      *
      * @param size Number of bytes to reserve.
      * @param net_memory_delta Estimated net memory change used for priority.
-     * @param attributes Immutable telemetry attributes for the request.
+     * @param attributes Immutable telemetry attributes, recorded on the request and
+     * reservation events and shared with reservations split off the result. Empty
+     * (no attributes) by default.
      * @return The memory reservation.
      */
     coro::task<MemoryReservation> reserve_or_wait_or_fail(
@@ -390,7 +396,9 @@ class MemoryReserveOrWait {
  * - If set to `AllowOverbooking::NO`, the call fails if no progress is possible.
  * - If not provided, the default behavior is determined by the configuration option
  *   `"allow_overbooking_by_default"`.
- * @param attributes Immutable telemetry attributes for the request.
+ * @param attributes Immutable telemetry attributes, recorded on the request and
+ * reservation events and shared with reservations split off the result. Empty
+ * (no attributes) by default.
  * @return The allocated memory reservation.
  *
  * @throws std::runtime_error If shutdown occurs before the request can be processed.
