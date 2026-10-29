@@ -71,12 +71,12 @@ void BufferResource::emit_request_submitted(
     }
     record_reservation_event(
         RequestSubmittedEvent{
-            id,
-            size,
-            {memory_types.begin(), memory_types.end()},
-            policy,
-            delta,
-            attributes
+            .id = id,
+            .size = size,
+            .memory_types = {memory_types.begin(), memory_types.end()},
+            .policy = policy,
+            .net_memory_delta = delta,
+            .attributes = attributes
         }
     );
 }
@@ -100,15 +100,16 @@ void BufferResource::emit_request_resolved(
     }
     record_reservation_event(
         RequestResolvedEvent{
-            id,
-            outcome,
-            result == nullptr ? 0 : result->reservation.id(),
-            result == nullptr ? std::nullopt
-                              : std::optional{result->reservation.mem_type()},
-            result == nullptr ? 0 : result->reservation.size(),
-            result == nullptr ? 0 : result->overbooked_bytes,
-            timed_out,
-            error
+            .id = id,
+            .outcome = outcome,
+            .reservation_id = result == nullptr ? 0 : result->reservation.id(),
+            .memory_type = result == nullptr
+                               ? std::nullopt
+                               : std::optional{result->reservation.mem_type()},
+            .size = result == nullptr ? 0 : result->reservation.size(),
+            .overbooked_bytes = result == nullptr ? 0 : result->overbooked_bytes,
+            .timed_out = timed_out,
+            .error = error
         }
     );
 }
@@ -123,12 +124,12 @@ void BufferResource::emit_reservation_created(
     }
     record_reservation_event(
         ReservationCreatedEvent{
-            reservation.id(),
-            reservation.mem_type(),
-            reservation.size(),
-            reservation.attributes(),
-            request_id,
-            parent_id
+            .id = reservation.id(),
+            .memory_type = reservation.mem_type(),
+            .size = reservation.size(),
+            .attributes = reservation.attributes(),
+            .request_id = request_id,
+            .parent_id = parent_id
         }
     );
 }
@@ -139,7 +140,9 @@ void BufferResource::emit_reservation_resized(
     if (id == 0) {
         return;
     }
-    record_reservation_event(ReservationResizedEvent{id, size, reason});
+    record_reservation_event(
+        ReservationResizedEvent{.id = id, .size = size, .reason = reason}
+    );
 }
 
 void BufferResource::emit_reservation_released(
@@ -148,7 +151,7 @@ void BufferResource::emit_reservation_released(
     if (id == 0) {
         return;
     }
-    record_reservation_event(ReservationReleasedEvent{id, reason});
+    record_reservation_event(ReservationReleasedEvent{.id = id, .reason = reason});
 }
 
 namespace detail {
@@ -381,7 +384,9 @@ void BufferResource::set_memory_limit(MemoryType mem_type, std::int64_t limit) n
     memory_limits_[static_cast<std::size_t>(mem_type)].store(
         limit, std::memory_order_release
     );
-    record_reservation_event(MemoryLimitChangedEvent{mem_type, limit});
+    record_reservation_event(
+        MemoryLimitChangedEvent{.memory_type = mem_type, .configured_limit = limit}
+    );
 }
 
 void BufferResource::start_reservation_event_recording() {

@@ -81,6 +81,14 @@ struct ReserveResult {
     bool timed_out;
 };
 
+// Defined outside `BufferResource` because clang rejects default-constructing a
+// nested class with default member initializers through the enclosing class's
+// `std::optional` member.
+struct RecordingSession {
+    ReservationEventBatch events;
+    std::uint64_t next_sequence{0};
+};
+
 class RequestScope {
   public:
     RequestScope(
@@ -1027,12 +1035,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     Duration memory_reserve_timeout_;
     AllowOverbooking allow_overbooking_by_default_;
 
-    struct RecordingSession {
-        ReservationEventBatch events;
-        std::uint64_t next_sequence{0};
-    };
-
-    std::optional<RecordingSession> recording_;
+    std::optional<detail::RecordingSession> recording_;
     std::mutex recording_mutex_;
     std::atomic<bool> recording_enabled_{false};
     std::atomic<std::uint64_t> reservation_id_counter_{1};
