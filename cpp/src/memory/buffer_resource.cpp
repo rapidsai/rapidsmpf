@@ -271,12 +271,13 @@ MemoryReservation BufferResource::reserve_device_memory_and_spill(
 
 std::size_t BufferResource::release(MemoryReservation& reservation, std::size_t size) {
     std::lock_guard const lock(mutex_);
-    RAPIDSMPF_EXPECTS(
-        size <= reservation.size_,
-        "MemoryReservation(" + format_nbytes(reservation.size_) + ") isn't big enough ("
-            + format_nbytes(size) + ")",
-        rapidsmpf::reservation_error
-    );
+    if (size > reservation.size_) {
+        RAPIDSMPF_FAIL(
+            "MemoryReservation(" + format_nbytes(reservation.size_)
+                + ") isn't big enough (" + format_nbytes(size) + ")",
+            rapidsmpf::reservation_error
+        );
+    }
     std::size_t& reserved =
         memory_reserved_[static_cast<std::size_t>(reservation.mem_type_)];
     RAPIDSMPF_EXPECTS(reserved >= size, "corrupted reservation stat");
