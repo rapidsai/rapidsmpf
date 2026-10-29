@@ -606,14 +606,6 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     [[nodiscard]] std::optional<MemoryReservation> try_reserve(
         std::size_t size, Range mem_types, ReservationAttributes const& attributes = {}
     ) {
-        if (size == 0) {
-            for (auto const mem_type : mem_types) {
-                if (has_memory_resource(mem_type)) {
-                    return MemoryReservation(mem_type, this, 0);
-                }
-            }
-            return std::nullopt;
-        }
         std::vector<MemoryType> type_storage;
         std::span<MemoryType const> types;
         if constexpr (std::ranges::contiguous_range<Range>
@@ -706,14 +698,6 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     [[nodiscard]] MemoryReservation reserve_or_fail(
         std::size_t size, Range mem_types, ReservationAttributes const& attributes = {}
     ) {
-        if (size == 0) {
-            for (auto const mem_type : mem_types) {
-                if (has_memory_resource(mem_type)) {
-                    return MemoryReservation(mem_type, this, 0);
-                }
-            }
-            RAPIDSMPF_FAIL("failed to reserve memory", std::runtime_error);
-        }
         std::vector<MemoryType> type_storage;
         std::span<MemoryType const> types;
         if constexpr (std::ranges::contiguous_range<Range>

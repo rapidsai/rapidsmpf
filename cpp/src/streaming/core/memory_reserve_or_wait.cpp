@@ -127,12 +127,6 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
     std::size_t size, std::int64_t net_memory_delta, ReservationAttributes attributes
 ) {
     record_stat("request-bytes", static_cast<double>(size));
-    if (size == 0) {
-        record_stat("wait-avoided", 1);
-        co_return std::move(
-            br_->reserve_impl(mem_type_, 0, AllowOverbooking::NO, nullptr).reservation
-        );
-    }
     std::array const types{mem_type_};
     detail::RequestScope scope{
         *br_,
@@ -148,7 +142,7 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
             scope.resolve_cancelled();
             throw ReservationCancelled{};
         }
-        if (result->reservation.size() == 0) {
+        if (result->reservation.size() < size) {
             scope.resolve_empty(result->timed_out);
         } else {
             scope.resolve_granted(*result);
@@ -244,11 +238,6 @@ MemoryReserveOrWait::reserve_or_wait_or_overbook(
     std::size_t size, std::int64_t net_memory_delta, ReservationAttributes attributes
 ) {
     record_stat("request-bytes", static_cast<double>(size));
-    if (size == 0) {
-        record_stat("wait-avoided", 1);
-        auto result = br_->reserve_impl(mem_type_, 0, AllowOverbooking::NO, nullptr);
-        co_return std::pair{std::move(result.reservation), std::size_t{0}};
-    }
     std::array const types{mem_type_};
     detail::RequestScope scope{
         *br_,
@@ -264,9 +253,14 @@ MemoryReserveOrWait::reserve_or_wait_or_overbook(
             scope.resolve_cancelled();
             throw ReservationCancelled{};
         }
+        // Report overbooking only when this request overbooked. A request admitted
+        // without overbooking, including a zero-size one, reports none even if
+        // other reservations leave memory overbooked.
+        std::size_t total_overbooked_bytes{0};
         if (result->reservation.size() < size) {
             result = br_->reserve_impl(mem_type_, size, AllowOverbooking::YES, &scope);
             result->timed_out = true;
+            total_overbooked_bytes = result->total_overbooked_bytes;
             if (result->overbooked_bytes > 0) {
                 record_stat(
                     "overbook-bytes", static_cast<double>(result->overbooked_bytes)
@@ -274,7 +268,7 @@ MemoryReserveOrWait::reserve_or_wait_or_overbook(
             }
         }
         scope.resolve_granted(*result);
-        co_return {std::move(result->reservation), result->total_overbooked_bytes};
+        co_return {std::move(result->reservation), total_overbooked_bytes};
     } catch (ReservationCancelled const&) {
         throw;
     } catch (std::exception const& e) {
@@ -296,12 +290,6 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait_or_fail(
     std::size_t size, std::int64_t net_memory_delta, ReservationAttributes attributes
 ) {
     record_stat("request-bytes", static_cast<double>(size));
-    if (size == 0) {
-        record_stat("wait-avoided", 1);
-        co_return std::move(
-            br_->reserve_impl(mem_type_, 0, AllowOverbooking::NO, nullptr).reservation
-        );
-    }
     std::array const types{mem_type_};
     detail::RequestScope scope{
         *br_,

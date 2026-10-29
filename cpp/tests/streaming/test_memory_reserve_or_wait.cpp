@@ -626,6 +626,7 @@ TEST_P(StreamingMemoryReserveOrWait, StatisticsRecordZeroSizeFastPaths) {
         br_stats
     };
 
+    br_stats->start_reservation_event_recording();
     coro::sync_wait([](MemoryReserveOrWait& mrow) -> Actor {
         auto waited = co_await mrow.reserve_or_wait(0, 0);
         auto [overbooked, overbooked_bytes] =
@@ -643,6 +644,17 @@ TEST_P(StreamingMemoryReserveOrWait, StatisticsRecordZeroSizeFastPaths) {
     auto const avoided = stats->get_stat("reserve-device-wait-avoided");
     EXPECT_EQ(avoided.count(), 3u);
     EXPECT_EQ(avoided.value(), 3.0);
+
+    // Each request is recorded as submitted and granted, with no reservation.
+    auto const events = br_stats->stop_reservation_event_recording();
+    ASSERT_EQ(events.size(), 6);
+    for (std::size_t i = 0; i < events.size(); i += 2) {
+        auto const& submitted = std::get<RequestSubmittedEvent>(events[i].data);
+        auto const& granted = std::get<RequestGrantedEvent>(events[i + 1].data);
+        EXPECT_EQ(granted.id, submitted.id);
+        EXPECT_FALSE(granted.reservation_id.has_value());
+        EXPECT_FALSE(granted.timed_out);
+    }
 }
 
 TEST_P(StreamingMemoryReserveOrWait, StatisticsRecordWaitSatisfied) {

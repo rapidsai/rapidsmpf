@@ -211,16 +211,42 @@ TEST(ReservationEventBuffer, EmptyFailedAndLimitEventsPreserveValues) {
     EXPECT_NE(failed.error.find("failed to reserve memory"), std::string::npos);
 }
 
-TEST(ReservationEventBuffer, ZeroByteOperationsEmitNothing) {
+TEST(ReservationEventBuffer, ZeroByteRequestsAreGrantedWithoutAReservation) {
     auto br = make_resource();
     br->start_reservation_event_recording();
     auto [reservation, overbooked] =
         br->reserve(MemoryType::DEVICE, 0, AllowOverbooking::YES);
     EXPECT_EQ(reservation.size(), 0);
     EXPECT_EQ(overbooked, 0);
+    auto const tried = br->try_reserve(0, MemoryType::HOST);
+    ASSERT_TRUE(tried.has_value());
+    EXPECT_EQ(tried->mem_type(), MemoryType::HOST);
+    auto const spilled = br->reserve_device_memory_and_spill(0, AllowOverbooking::NO);
+    EXPECT_EQ(spilled.size(), 0);
+
+    auto events = br->drain_reservation_events();
+    ASSERT_EQ(events.size(), 6);
+    for (std::size_t i = 0; i < events.size(); i += 2) {
+        auto const& submitted = std::get<RequestSubmittedEvent>(events[i].data);
+        EXPECT_EQ(submitted.size, 0);
+        auto const& granted = std::get<RequestGrantedEvent>(events[i + 1].data);
+        EXPECT_EQ(granted.id, submitted.id);
+        EXPECT_FALSE(granted.reservation_id.has_value());
+        EXPECT_EQ(granted.size, 0);
+    }
+    EXPECT_EQ(
+        std::get<RequestSubmittedEvent>(events[4].data).policy,
+        ReservationRequestPolicy::SPILL
+    );
+
+    // A zero-byte split changes nothing, so it records nothing.
+    auto parent = br->reserve_or_fail(10, MemoryType::DEVICE);
+    static_cast<void>(br->drain_reservation_events());
+    auto child = parent.split(0);
+    EXPECT_EQ(child.size(), 0);
     EXPECT_TRUE(br->drain_reservation_events().empty());
-    EXPECT_TRUE(br->drain_reservation_events().empty());
-    EXPECT_TRUE(br->stop_reservation_event_recording().empty());
+    parent.clear();
+    EXPECT_EQ(br->stop_reservation_event_recording().size(), 1);
 }
 
 TEST(ReservationEventBuffer, LimitDropsEventsAsSequenceGaps) {

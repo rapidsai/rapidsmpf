@@ -497,10 +497,6 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     AllowOverbooking allow_overbooking,
     ReservationAttributes attributes
 ) {
-    if (size == 0) {
-        auto result = reserve_impl(mem_type, 0, allow_overbooking, nullptr);
-        return {std::move(result.reservation), result.total_overbooked_bytes};
-    }
     std::array const types{mem_type};
     detail::RequestScope scope{
         *this,
@@ -513,7 +509,7 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     };
     try {
         auto result = reserve_impl(mem_type, size, allow_overbooking, &scope);
-        if (result.reservation.size() == 0) {
+        if (result.reservation.size() < size) {
             scope.resolve_empty(false);
         } else {
             scope.resolve_granted(result);
@@ -593,15 +589,6 @@ MemoryReservation BufferResource::reserve_device_memory_and_spill(
 MemoryReservation BufferResource::reserve_device_memory_and_spill(
     std::size_t size, AllowOverbooking allow_overbooking, ReservationAttributes attributes
 ) {
-    if (size == 0) {
-        // A zero-size request adds no overbooking of its own, but still spills to
-        // clear any overbooking left by other reservations.
-        auto result = reserve_impl(MemoryType::DEVICE, 0, AllowOverbooking::YES, nullptr);
-        if (result.total_overbooked_bytes > 0) {
-            spill_manager_.spill_to_make_headroom();
-        }
-        return std::move(result.reservation);
-    }
     std::array const types{MemoryType::DEVICE};
     detail::RequestScope scope{
         *this,
@@ -615,10 +602,11 @@ MemoryReservation BufferResource::reserve_device_memory_and_spill(
         auto result =
             reserve_impl(MemoryType::DEVICE, size, AllowOverbooking::YES, &scope);
         auto& reservation = result.reservation;
-        auto const total_overbooking = result.overbooked_bytes;
 
-        if (total_overbooking > 0) {
-            auto const own_overbooking = total_overbooking;
+        // Spill on any outstanding overbooking, other callers' included, so even a
+        // zero-size request clears overbooking left by other reservations.
+        if (result.total_overbooked_bytes > 0) {
+            auto const own_overbooking = result.overbooked_bytes;
             // With a headroom of zero, `deficit` is the overbooking still outstanding
             // once the spill lock is held. All of it is spilled, but this call is judged
             // only on its own share.
