@@ -32,7 +32,11 @@ class StreamingMemoryReserveOrWait
         // Drive device memory availability by mutating the DEVICE limit. No real
         // device allocations occur in these tests, so `memory_available(DEVICE)`
         // equals whatever limit we set.
-        SetUpWithThreads(GetParam().num_threads, {{rapidsmpf::MemoryType::DEVICE, 0}});
+        SetUpWithThreads(
+            GetParam().num_threads,
+            rapidsmpf::PinnedMemoryDisabled,
+            {{rapidsmpf::MemoryType::DEVICE, 0}}
+        );
     }
 
   protected:

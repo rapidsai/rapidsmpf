@@ -12,10 +12,13 @@
 #include <limits>
 #include <memory>
 #include <numeric>
+#include <optional>
 #include <random>
 #include <span>
 #include <string>
 #include <thread>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -77,25 +80,34 @@ class TempDir {
 };
 
 /**
- * @brief Create a buffer resource that can spill to disk under @p temp_dir.
+ * @brief Create a buffer resource for tests, optionally with a disk resource.
  *
- * @param temp_dir The directory for disk files.
+ * Pinned memory is always disabled.
+ *
+ * @param spill_directory Directory for disk files, `std::nullopt` disables disk.
+ * @param host_mem_limit Limit in bytes of host memory, `std::nullopt` for unlimited. A
+ * limit of zero leaves no room, so the only spill target for device data is disk.
  * @param allow_overbooking_by_default The default overbooking policy.
  * @return The buffer resource.
  */
-[[nodiscard]] inline std::shared_ptr<rapidsmpf::BufferResource> create_disk_br(
-    TempDir const& temp_dir,
+[[nodiscard]] inline std::shared_ptr<rapidsmpf::BufferResource> create_br(
+    std::optional<std::filesystem::path> spill_directory = std::nullopt,
+    std::optional<std::int64_t> host_mem_limit = std::nullopt,
     rapidsmpf::AllowOverbooking allow_overbooking_by_default =
         rapidsmpf::AllowOverbooking::YES
 ) {
+    std::unordered_map<rapidsmpf::MemoryType, std::int64_t> memory_limits;
+    if (host_mem_limit.has_value()) {
+        memory_limits[rapidsmpf::MemoryType::HOST] = *host_mem_limit;
+    }
     return rapidsmpf::BufferResource::create(
         rmm::mr::get_current_device_resource_ref(),
         rapidsmpf::PinnedMemoryDisabled,
-        {},
+        std::move(memory_limits),
         std::nullopt,
         std::make_shared<rapidsmpf::StreamPool>(1),
         rapidsmpf::Statistics::disabled(),
-        temp_dir.path(),
+        std::move(spill_directory),
         std::chrono::milliseconds{100},
         allow_overbooking_by_default
     );
