@@ -33,12 +33,6 @@ class ReservationRequestPolicy(IntEnum):
     WAIT_OR_OVERBOOK = ...
     WAIT_OR_FAIL = ...
 
-class ReservationRequestOutcome(IntEnum):
-    GRANTED = ...
-    EMPTY = ...
-    FAILED = ...
-    CANCELLED = ...
-
 class ReservationResizeReason(IntEnum):
     CONSUMED = ...
     SPLIT_OFF = ...
@@ -65,16 +59,28 @@ class _RequestWaitingEvent(_ReservationEventBase):
     kind: Literal["request_waiting"]
     id: int
 
-class _RequestResolvedEvent(_ReservationEventBase):
-    kind: Literal["request_resolved"]
+class _RequestGrantedEvent(_ReservationEventBase):
+    kind: Literal["request_granted"]
     id: int
-    outcome: ReservationRequestOutcome
-    reservation_id: int
-    memory_type: MemoryType | None
+    reservation_id: int | None
+    memory_type: MemoryType
     size: int
     overbooked_bytes: int
     timed_out: bool
+
+class _RequestEmptyEvent(_ReservationEventBase):
+    kind: Literal["request_empty"]
+    id: int
+    timed_out: bool
+
+class _RequestFailedEvent(_ReservationEventBase):
+    kind: Literal["request_failed"]
+    id: int
     error: str
+
+class _RequestCancelledEvent(_ReservationEventBase):
+    kind: Literal["request_cancelled"]
+    id: int
 
 class _ReservationCreatedEvent(_ReservationEventBase):
     kind: Literal["reservation_created"]
@@ -82,8 +88,8 @@ class _ReservationCreatedEvent(_ReservationEventBase):
     memory_type: MemoryType
     size: int
     attributes: dict[str, _ReservationAttributeValue]
-    request_id: int
-    parent_id: int
+    request_id: int | None
+    parent_id: int | None
 
 class _ReservationResizedEvent(_ReservationEventBase):
     kind: Literal["reservation_resized"]
@@ -104,7 +110,10 @@ class _MemoryLimitChangedEvent(_ReservationEventBase):
 _ReservationEvent = (
     _RequestSubmittedEvent
     | _RequestWaitingEvent
-    | _RequestResolvedEvent
+    | _RequestGrantedEvent
+    | _RequestEmptyEvent
+    | _RequestFailedEvent
+    | _RequestCancelledEvent
     | _ReservationCreatedEvent
     | _ReservationResizedEvent
     | _ReservationReleasedEvent

@@ -88,10 +88,11 @@ TEST(ReservationEventBuffer, TryReserveRecordsOneLogicalRequest) {
     );
     auto const& created = std::get<ReservationCreatedEvent>(events[1].data);
     EXPECT_EQ(created.request_id, submitted.id);
-    auto const& resolved = std::get<RequestResolvedEvent>(events[2].data);
-    EXPECT_EQ(resolved.id, submitted.id);
-    EXPECT_EQ(resolved.outcome, ReservationRequestOutcome::GRANTED);
-    EXPECT_EQ(resolved.memory_type, MemoryType::HOST);
+    EXPECT_FALSE(created.parent_id.has_value());
+    auto const& granted = std::get<RequestGrantedEvent>(events[2].data);
+    EXPECT_EQ(granted.id, submitted.id);
+    EXPECT_EQ(granted.reservation_id, created.id);
+    EXPECT_EQ(granted.memory_type, MemoryType::HOST);
 }
 
 TEST(ReservationEventBuffer, RequestAndReservationLifecycleOwnsPayloads) {
@@ -142,17 +143,16 @@ TEST(ReservationEventBuffer, RequestAndReservationLifecycleOwnsPayloads) {
     EXPECT_EQ(created.memory_type, MemoryType::DEVICE);
     EXPECT_EQ(created.size, 100);
     EXPECT_EQ(created.request_id, submitted.id);
-    EXPECT_EQ(created.parent_id, 0);
+    EXPECT_FALSE(created.parent_id.has_value());
     EXPECT_EQ(created.attributes.get(), submitted.attributes.get());
 
-    auto const& resolved = std::get<RequestResolvedEvent>(events[2].data);
-    EXPECT_EQ(resolved.outcome, ReservationRequestOutcome::GRANTED);
-    EXPECT_EQ(resolved.reservation_id, created.id);
-    EXPECT_EQ(resolved.memory_type, MemoryType::DEVICE);
-    EXPECT_EQ(resolved.size, 100);
-    EXPECT_EQ(resolved.overbooked_bytes, 0);
-    EXPECT_FALSE(resolved.timed_out);
-    EXPECT_TRUE(resolved.error.empty());
+    auto const& granted = std::get<RequestGrantedEvent>(events[2].data);
+    EXPECT_EQ(granted.id, submitted.id);
+    EXPECT_EQ(granted.reservation_id, created.id);
+    EXPECT_EQ(granted.memory_type, MemoryType::DEVICE);
+    EXPECT_EQ(granted.size, 100);
+    EXPECT_EQ(granted.overbooked_bytes, 0);
+    EXPECT_FALSE(granted.timed_out);
 
     auto const& parent_resize = std::get<ReservationResizedEvent>(events[3].data);
     EXPECT_EQ(parent_resize.id, created.id);
@@ -162,7 +162,7 @@ TEST(ReservationEventBuffer, RequestAndReservationLifecycleOwnsPayloads) {
     auto const& child_created = std::get<ReservationCreatedEvent>(events[4].data);
     EXPECT_NE(child_created.id, created.id);
     EXPECT_EQ(child_created.parent_id, created.id);
-    EXPECT_EQ(child_created.request_id, 0);
+    EXPECT_FALSE(child_created.request_id.has_value());
     EXPECT_EQ(child_created.attributes.get(), submitted.attributes.get());
 
     auto const& child_resize = std::get<ReservationResizedEvent>(events[5].data);
@@ -194,15 +194,16 @@ TEST(ReservationEventBuffer, EmptyFailedAndLimitEventsPreserveValues) {
 
     auto events = br->stop_reservation_event_recording();
     ASSERT_EQ(events.size(), 5);
-    auto const& empty_resolved = std::get<RequestResolvedEvent>(events[1].data);
-    EXPECT_EQ(empty_resolved.outcome, ReservationRequestOutcome::EMPTY);
-    EXPECT_FALSE(empty_resolved.memory_type.has_value());
+    auto const& submitted_empty = std::get<RequestSubmittedEvent>(events[0].data);
+    auto const& empty_resolved = std::get<RequestEmptyEvent>(events[1].data);
+    EXPECT_EQ(empty_resolved.id, submitted_empty.id);
+    EXPECT_FALSE(empty_resolved.timed_out);
     auto const& limit = std::get<MemoryLimitChangedEvent>(events[2].data);
     EXPECT_EQ(limit.memory_type, MemoryType::DEVICE);
     EXPECT_EQ(limit.configured_limit, -7);
-    auto const& failed = std::get<RequestResolvedEvent>(events[4].data);
-    EXPECT_EQ(failed.outcome, ReservationRequestOutcome::FAILED);
-    EXPECT_FALSE(failed.memory_type.has_value());
+    auto const& submitted_failed = std::get<RequestSubmittedEvent>(events[3].data);
+    auto const& failed = std::get<RequestFailedEvent>(events[4].data);
+    EXPECT_EQ(failed.id, submitted_failed.id);
     EXPECT_NE(failed.error.find("failed to reserve memory"), std::string::npos);
 }
 

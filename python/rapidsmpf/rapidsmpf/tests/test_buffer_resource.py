@@ -20,7 +20,6 @@ from rapidsmpf.memory.buffer_resource import (
     BufferResource,
     OwningDeviceMemoryResource,
     ReservationReleaseReason,
-    ReservationRequestOutcome,
     ReservationRequestPolicy,
     allow_overbooking_by_default_from_options,
     memory_reserve_timeout_from_options,
@@ -153,14 +152,14 @@ def test_reservation_event_recording_lifecycle() -> None:
     assert [event["kind"] for event in first] == [
         "request_submitted",
         "reservation_created",
-        "request_resolved",
+        "request_granted",
     ]
     assert [event["sequence"] for event in first] == [0, 1, 2]
     times = [event["steady_time_ns"] for event in first]
     assert start_ns <= times[0] <= times[1] <= times[2] <= end_ns
     submitted = cast("Any", first[0])
     created = cast("Any", first[1])
-    resolved = cast("Any", first[2])
+    granted = cast("Any", first[2])
     assert submitted["memory_types"] == [MemoryType.DEVICE]
     assert submitted["policy"] is ReservationRequestPolicy.IMMEDIATE
     assert submitted["net_memory_delta"] is None
@@ -171,7 +170,11 @@ def test_reservation_event_recording_lifecycle() -> None:
         "ratio": 1.5,
     }
     assert created["attributes"] == submitted["attributes"]
-    assert resolved["outcome"] is ReservationRequestOutcome.GRANTED
+    assert created["request_id"] == submitted["id"]
+    assert created["parent_id"] is None
+    assert granted["id"] == submitted["id"]
+    assert granted["reservation_id"] == created["id"]
+    assert granted["memory_type"] is MemoryType.DEVICE
     assert br.drain_reservation_events() == []
 
     reservation.clear()
@@ -187,13 +190,13 @@ def test_reservation_event_recording_lifecycle() -> None:
         "reservation_released",
         "memory_limit_changed",
         "request_submitted",
-        "request_resolved",
+        "request_empty",
     ]
     assert [event["sequence"] for event in final] == [3, 4, 5, 6]
     assert cast("Any", final[0])["reason"] is ReservationReleaseReason.CLEARED
     assert cast("Any", final[1])["memory_type"] is MemoryType.DEVICE
     assert cast("Any", final[1])["configured_limit"] == -7
-    assert cast("Any", final[3])["memory_type"] is None
+    assert cast("Any", final[3])["timed_out"] is False
     assert br.stop_reservation_event_recording() == []
 
 

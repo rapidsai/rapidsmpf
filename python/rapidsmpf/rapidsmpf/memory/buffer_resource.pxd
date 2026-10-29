@@ -51,11 +51,6 @@ cdef extern from "<rapidsmpf/memory/reservation_events.hpp>" namespace "rapidsmp
         WAIT
         WAIT_OR_OVERBOOK
         WAIT_OR_FAIL
-    cpdef enum class ReservationRequestOutcome(unsigned int):
-        GRANTED
-        EMPTY
-        FAILED
-        CANCELLED
     cpdef enum class ReservationResizeReason(unsigned int):
         CONSUMED
         SPLIT_OFF
@@ -75,23 +70,32 @@ cdef extern from "<rapidsmpf/memory/reservation_events.hpp>" namespace "rapidsmp
     cdef cppclass cpp_RequestWaitingEvent "rapidsmpf::RequestWaitingEvent":
         uint64_t id
 
-    cdef cppclass cpp_RequestResolvedEvent "rapidsmpf::RequestResolvedEvent":
+    cdef cppclass cpp_RequestGrantedEvent "rapidsmpf::RequestGrantedEvent":
         uint64_t id
-        ReservationRequestOutcome outcome
-        uint64_t reservation_id
-        optional[MemoryType] memory_type
+        optional[uint64_t] reservation_id
+        MemoryType memory_type
         size_t size
         size_t overbooked_bytes
         bool_t timed_out
+
+    cdef cppclass cpp_RequestEmptyEvent "rapidsmpf::RequestEmptyEvent":
+        uint64_t id
+        bool_t timed_out
+
+    cdef cppclass cpp_RequestFailedEvent "rapidsmpf::RequestFailedEvent":
+        uint64_t id
         string error
+
+    cdef cppclass cpp_RequestCancelledEvent "rapidsmpf::RequestCancelledEvent":
+        uint64_t id
 
     cdef cppclass cpp_ReservationCreatedEvent "rapidsmpf::ReservationCreatedEvent":
         uint64_t id
         MemoryType memory_type
         size_t size
         cpp_ReservationAttributes attributes
-        uint64_t request_id
-        uint64_t parent_id
+        optional[uint64_t] request_id
+        optional[uint64_t] parent_id
 
     cdef cppclass cpp_ReservationResizedEvent "rapidsmpf::ReservationResizedEvent":
         uint64_t id

@@ -145,9 +145,7 @@ TEST_P(StreamingMemoryReserveOrWait, ShutdownEarly) {
     EXPECT_EQ(submitted.policy, ReservationRequestPolicy::WAIT);
     EXPECT_EQ(submitted.net_memory_delta, 0);
     EXPECT_EQ(std::get<RequestWaitingEvent>(events[1].data).id, submitted.id);
-    auto const& resolved = std::get<RequestResolvedEvent>(events[2].data);
-    EXPECT_EQ(resolved.id, submitted.id);
-    EXPECT_EQ(resolved.outcome, ReservationRequestOutcome::CANCELLED);
+    EXPECT_EQ(std::get<RequestCancelledEvent>(events[2].data).id, submitted.id);
 }
 
 struct ReserveLog {

@@ -127,10 +127,25 @@ cdef extern from * nogil:
         );
     }
 
+    // `_reservation_event_to_dict` dispatches on these variant indices.
+    template <std::size_t I, typename T>
+    constexpr bool event_kind_is = std::is_same_v<
+        std::variant_alternative_t<I, rapidsmpf::ReservationEventData>, T
+    >;
     static_assert(
-        std::variant_size_v<rapidsmpf::ReservationEventData> == 7,
+        std::variant_size_v<rapidsmpf::ReservationEventData> == 10,
         "Update the Python reservation-event bridge for the new event type"
     );
+    static_assert(event_kind_is<0, rapidsmpf::RequestSubmittedEvent>);
+    static_assert(event_kind_is<1, rapidsmpf::RequestWaitingEvent>);
+    static_assert(event_kind_is<2, rapidsmpf::RequestGrantedEvent>);
+    static_assert(event_kind_is<3, rapidsmpf::RequestEmptyEvent>);
+    static_assert(event_kind_is<4, rapidsmpf::RequestFailedEvent>);
+    static_assert(event_kind_is<5, rapidsmpf::RequestCancelledEvent>);
+    static_assert(event_kind_is<6, rapidsmpf::ReservationCreatedEvent>);
+    static_assert(event_kind_is<7, rapidsmpf::ReservationResizedEvent>);
+    static_assert(event_kind_is<8, rapidsmpf::ReservationReleasedEvent>);
+    static_assert(event_kind_is<9, rapidsmpf::MemoryLimitChangedEvent>);
 
     struct CythonReservationEventView {
         std::size_t kind;
@@ -141,38 +156,8 @@ cdef extern from * nogil:
         rapidsmpf::ReservationEvent const& event
     ) noexcept {
         return std::visit(
-            [](auto const& payload) {
-                using T = std::decay_t<decltype(payload)>;
-                std::size_t kind;
-                if constexpr (std::is_same_v<T, rapidsmpf::RequestSubmittedEvent>) {
-                    kind = 0;
-                } else if constexpr (
-                    std::is_same_v<T, rapidsmpf::RequestWaitingEvent>
-                ) {
-                    kind = 1;
-                } else if constexpr (
-                    std::is_same_v<T, rapidsmpf::RequestResolvedEvent>
-                ) {
-                    kind = 2;
-                } else if constexpr (
-                    std::is_same_v<T, rapidsmpf::ReservationCreatedEvent>
-                ) {
-                    kind = 3;
-                } else if constexpr (
-                    std::is_same_v<T, rapidsmpf::ReservationResizedEvent>
-                ) {
-                    kind = 4;
-                } else if constexpr (
-                    std::is_same_v<T, rapidsmpf::ReservationReleasedEvent>
-                ) {
-                    kind = 5;
-                } else {
-                    static_assert(
-                        std::is_same_v<T, rapidsmpf::MemoryLimitChangedEvent>
-                    );
-                    kind = 6;
-                }
-                return CythonReservationEventView{kind, &payload};
+            [&event](auto const& payload) {
+                return CythonReservationEventView{event.data.index(), &payload};
             },
             event.data
         );
@@ -248,7 +233,10 @@ cdef dict _reservation_event_to_dict(const cpp_ReservationEvent* event):
     }
     cdef const cpp_RequestSubmittedEvent* submitted
     cdef const cpp_RequestWaitingEvent* waiting
-    cdef const cpp_RequestResolvedEvent* resolved
+    cdef const cpp_RequestGrantedEvent* granted
+    cdef const cpp_RequestEmptyEvent* empty
+    cdef const cpp_RequestFailedEvent* failed
+    cdef const cpp_RequestCancelledEvent* cancelled
     cdef const cpp_ReservationCreatedEvent* created
     cdef const cpp_ReservationResizedEvent* resized
     cdef const cpp_ReservationReleasedEvent* released
@@ -284,23 +272,38 @@ cdef dict _reservation_event_to_dict(const cpp_ReservationEvent* event):
         waiting = <const cpp_RequestWaitingEvent*>view.payload
         result.update({"kind": "request_waiting", "id": waiting[0].id})
     elif view.kind == 2:
-        resolved = <const cpp_RequestResolvedEvent*>view.payload
+        granted = <const cpp_RequestGrantedEvent*>view.payload
         result.update({
-            "kind": "request_resolved",
-            "id": resolved[0].id,
-            "outcome": <ReservationRequestOutcome>resolved[0].outcome,
-            "reservation_id": resolved[0].reservation_id,
-            "memory_type": (
-                <MemoryType>resolved[0].memory_type.value()
-                if resolved[0].memory_type.has_value()
+            "kind": "request_granted",
+            "id": granted[0].id,
+            "reservation_id": (
+                granted[0].reservation_id.value()
+                if granted[0].reservation_id.has_value()
                 else None
             ),
-            "size": resolved[0].size,
-            "overbooked_bytes": resolved[0].overbooked_bytes,
-            "timed_out": bool(resolved[0].timed_out),
-            "error": resolved[0].error.decode(),
+            "memory_type": <MemoryType>granted[0].memory_type,
+            "size": granted[0].size,
+            "overbooked_bytes": granted[0].overbooked_bytes,
+            "timed_out": bool(granted[0].timed_out),
         })
     elif view.kind == 3:
+        empty = <const cpp_RequestEmptyEvent*>view.payload
+        result.update({
+            "kind": "request_empty",
+            "id": empty[0].id,
+            "timed_out": bool(empty[0].timed_out),
+        })
+    elif view.kind == 4:
+        failed = <const cpp_RequestFailedEvent*>view.payload
+        result.update({
+            "kind": "request_failed",
+            "id": failed[0].id,
+            "error": failed[0].error.decode(),
+        })
+    elif view.kind == 5:
+        cancelled = <const cpp_RequestCancelledEvent*>view.payload
+        result.update({"kind": "request_cancelled", "id": cancelled[0].id})
+    elif view.kind == 6:
         created = <const cpp_ReservationCreatedEvent*>view.payload
         result.update({
             "kind": "reservation_created",
@@ -310,10 +313,18 @@ cdef dict _reservation_event_to_dict(const cpp_ReservationEvent* event):
             "attributes": _reservation_attributes_to_dict(
                 created[0].attributes
             ),
-            "request_id": created[0].request_id,
-            "parent_id": created[0].parent_id,
+            "request_id": (
+                created[0].request_id.value()
+                if created[0].request_id.has_value()
+                else None
+            ),
+            "parent_id": (
+                created[0].parent_id.value()
+                if created[0].parent_id.has_value()
+                else None
+            ),
         })
-    elif view.kind == 4:
+    elif view.kind == 7:
         resized = <const cpp_ReservationResizedEvent*>view.payload
         result.update({
             "kind": "reservation_resized",
@@ -321,7 +332,7 @@ cdef dict _reservation_event_to_dict(const cpp_ReservationEvent* event):
             "size": resized[0].size,
             "reason": <ReservationResizeReason>resized[0].reason,
         })
-    elif view.kind == 5:
+    elif view.kind == 8:
         released = <const cpp_ReservationReleasedEvent*>view.payload
         result.update({
             "kind": "reservation_released",

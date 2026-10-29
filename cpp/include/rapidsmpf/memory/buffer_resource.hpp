@@ -122,12 +122,7 @@ class RequestScope {
     void resolve_cancelled();
 
   private:
-    void resolve(
-        ReservationRequestOutcome outcome,
-        ReserveResult const* result,
-        bool timed_out,
-        std::string const& error
-    );
+    [[nodiscard]] bool mark_resolved() noexcept;
 
     BufferResource* br_;
     bool active_;
@@ -994,13 +989,10 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         ReservationAttributes const&
     );
     void emit_request_waiting(std::uint64_t);
-    void emit_request_resolved(
-        std::uint64_t,
-        ReservationRequestOutcome,
-        detail::ReserveResult const*,
-        bool,
-        std::string const&
-    );
+    void emit_request_granted(std::uint64_t, detail::ReserveResult const&);
+    void emit_request_empty(std::uint64_t, bool timed_out);
+    void emit_request_failed(std::uint64_t, std::string const&);
+    void emit_request_cancelled(std::uint64_t);
     void emit_reservation_created(
         MemoryReservation const&, std::uint64_t request_id, std::uint64_t parent_id
     );

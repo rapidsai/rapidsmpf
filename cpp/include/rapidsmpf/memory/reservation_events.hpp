@@ -28,14 +28,6 @@ enum class ReservationRequestPolicy : std::uint32_t {
     WAIT_OR_FAIL = 5
 };
 
-/** @brief Terminal outcome of a reservation request. */
-enum class ReservationRequestOutcome : std::uint32_t {
-    GRANTED = 0,
-    EMPTY = 1,
-    FAILED = 2,
-    CANCELLED = 3
-};
-
 /** @brief Reason an active reservation changed size. */
 enum class ReservationResizeReason : std::uint32_t {
     CONSUMED = 0,
@@ -64,26 +56,49 @@ struct RequestWaitingEvent {
     std::uint64_t id;  ///< Request identifier.
 };
 
-/** @brief Payload emitted when a reservation request terminates. */
-struct RequestResolvedEvent {
+/** @brief Payload emitted when a reservation request is granted. */
+struct RequestGrantedEvent {
     std::uint64_t id;  ///< Request identifier.
-    ReservationRequestOutcome outcome;  ///< Terminal outcome.
-    std::uint64_t reservation_id;  ///< Granted reservation identifier, or zero.
-    std::optional<MemoryType> memory_type;  ///< Granted memory type.
+    /// Granted reservation identifier, absent when the reservation is not recorded,
+    /// e.g. a zero-size reservation.
+    std::optional<std::uint64_t> reservation_id;
+    MemoryType memory_type;  ///< Granted memory type.
     std::size_t size;  ///< Granted bytes.
     std::size_t overbooked_bytes;  ///< Bytes granted beyond availability.
-    bool timed_out;  ///< Whether forced progress resolved the request.
+    bool timed_out;  ///< Whether the grant was forced after the reserve timeout.
+};
+
+/** @brief Payload emitted when a reservation request ends with nothing reserved. */
+struct RequestEmptyEvent {
+    std::uint64_t id;  ///< Request identifier.
+    bool timed_out;  ///< Whether forced progress after the reserve timeout ended it.
+};
+
+/** @brief Payload emitted when a reservation request fails with an error. */
+struct RequestFailedEvent {
+    std::uint64_t id;  ///< Request identifier.
     std::string error;  ///< Failure description.
 };
 
-/** @brief Payload emitted when a reservation is created. */
+/** @brief Payload emitted when a waiting reservation request is cancelled. */
+struct RequestCancelledEvent {
+    std::uint64_t id;  ///< Request identifier.
+};
+
+/**
+ * @brief Payload emitted when a reservation is created.
+ *
+ * Exactly one of `request_id` and `parent_id` is set: a reservation created by a
+ * request has a `request_id`, and a reservation split off another one has a
+ * `parent_id`.
+ */
 struct ReservationCreatedEvent {
     std::uint64_t id;  ///< Reservation identifier.
     MemoryType memory_type;  ///< Reserved memory type.
     std::size_t size;  ///< Initial reserved bytes.
     ReservationAttributes attributes;  ///< Shared immutable reservation attributes.
-    std::uint64_t request_id;  ///< Originating request identifier, or zero.
-    std::uint64_t parent_id;  ///< Parent reservation identifier, or zero.
+    std::optional<std::uint64_t> request_id;  ///< Originating request identifier.
+    std::optional<std::uint64_t> parent_id;  ///< Parent reservation identifier.
 };
 
 /** @brief Payload emitted when an active reservation changes size. */
@@ -109,7 +124,10 @@ struct MemoryLimitChangedEvent {
 using ReservationEventData = std::variant<
     RequestSubmittedEvent,
     RequestWaitingEvent,
-    RequestResolvedEvent,
+    RequestGrantedEvent,
+    RequestEmptyEvent,
+    RequestFailedEvent,
+    RequestCancelledEvent,
     ReservationCreatedEvent,
     ReservationResizedEvent,
     ReservationReleasedEvent,

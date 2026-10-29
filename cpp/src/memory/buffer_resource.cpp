@@ -88,30 +88,46 @@ void BufferResource::emit_request_waiting(std::uint64_t id) {
     record_reservation_event(RequestWaitingEvent{id});
 }
 
-void BufferResource::emit_request_resolved(
-    std::uint64_t id,
-    ReservationRequestOutcome outcome,
-    detail::ReserveResult const* result,
-    bool timed_out,
-    std::string const& error
+namespace {
+
+// `MemoryReservation` and `RequestScope` use the id 0 for "not recorded".
+std::optional<std::uint64_t> recorded_id(std::uint64_t id) noexcept {
+    return id == 0 ? std::nullopt : std::optional{id};
+}
+
+}  // namespace
+
+void BufferResource::emit_request_granted(
+    std::uint64_t id, detail::ReserveResult const& result
 ) {
     if (!recording_enabled_.load(std::memory_order_acquire)) {
         return;
     }
     record_reservation_event(
-        RequestResolvedEvent{
+        RequestGrantedEvent{
             .id = id,
-            .outcome = outcome,
-            .reservation_id = result == nullptr ? 0 : result->reservation.id(),
-            .memory_type = result == nullptr
-                               ? std::nullopt
-                               : std::optional{result->reservation.mem_type()},
-            .size = result == nullptr ? 0 : result->reservation.size(),
-            .overbooked_bytes = result == nullptr ? 0 : result->overbooked_bytes,
-            .timed_out = timed_out,
-            .error = error
+            .reservation_id = recorded_id(result.reservation.id()),
+            .memory_type = result.reservation.mem_type(),
+            .size = result.reservation.size(),
+            .overbooked_bytes = result.overbooked_bytes,
+            .timed_out = result.timed_out
         }
     );
+}
+
+void BufferResource::emit_request_empty(std::uint64_t id, bool timed_out) {
+    record_reservation_event(RequestEmptyEvent{.id = id, .timed_out = timed_out});
+}
+
+void BufferResource::emit_request_failed(std::uint64_t id, std::string const& error) {
+    if (!recording_enabled_.load(std::memory_order_acquire)) {
+        return;
+    }
+    record_reservation_event(RequestFailedEvent{.id = id, .error = error});
+}
+
+void BufferResource::emit_request_cancelled(std::uint64_t id) {
+    record_reservation_event(RequestCancelledEvent{.id = id});
 }
 
 void BufferResource::emit_reservation_created(
@@ -128,8 +144,8 @@ void BufferResource::emit_reservation_created(
             .memory_type = reservation.mem_type(),
             .size = reservation.size(),
             .attributes = reservation.attributes(),
-            .request_id = request_id,
-            .parent_id = parent_id
+            .request_id = recorded_id(request_id),
+            .parent_id = recorded_id(parent_id)
         }
     );
 }
@@ -186,36 +202,37 @@ void RequestScope::waiting() {
     }
 }
 
-void RequestScope::resolve(
-    ReservationRequestOutcome outcome,
-    ReserveResult const* result,
-    bool timed_out,
-    std::string const& error
-) {
+bool RequestScope::mark_resolved() noexcept {
     assert(!resolved_ && "reservation request resolved more than once");
     if (resolved_) {
-        return;
+        return false;
     }
     resolved_ = true;
-    if (active_) {
-        br_->emit_request_resolved(id_, outcome, result, timed_out, error);
-    }
+    return active_;
 }
 
 void RequestScope::resolve_granted(ReserveResult const& result) {
-    resolve(ReservationRequestOutcome::GRANTED, &result, result.timed_out, {});
+    if (mark_resolved()) {
+        br_->emit_request_granted(id_, result);
+    }
 }
 
 void RequestScope::resolve_empty(bool timed_out) {
-    resolve(ReservationRequestOutcome::EMPTY, nullptr, timed_out, {});
+    if (mark_resolved()) {
+        br_->emit_request_empty(id_, timed_out);
+    }
 }
 
 void RequestScope::resolve_failed(std::string const& error) {
-    resolve(ReservationRequestOutcome::FAILED, nullptr, false, error);
+    if (mark_resolved()) {
+        br_->emit_request_failed(id_, error);
+    }
 }
 
 void RequestScope::resolve_cancelled() {
-    resolve(ReservationRequestOutcome::CANCELLED, nullptr, false, {});
+    if (mark_resolved()) {
+        br_->emit_request_cancelled(id_);
+    }
 }
 
 }  // namespace detail
