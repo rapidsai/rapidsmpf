@@ -63,7 +63,7 @@ void ReceivedChunks::insert(Chunk&& chunk) {
     auto key = chunk.part_id();
     std::lock_guard const lock(mutex_);
     if (has_data(chunk)) {
-        data_size_unsafe(chunk.data_memory_type()) += chunk.data_size();
+        data_sizes_[chunk.data_memory_type()] += chunk.data_size();
     }
     pigeonhole_[key].emplace_back(std::move(chunk));
 }
@@ -78,7 +78,7 @@ std::vector<Chunk> ReceivedChunks::extract(PartID pid) {
     auto chunks = extract_value(pigeonhole_, pid);
     for (auto const& chunk : chunks) {
         if (has_data(chunk)) {
-            data_size_unsafe(chunk.data_memory_type()) -= chunk.data_size();
+            data_sizes_[chunk.data_memory_type()] -= chunk.data_size();
         }
     }
     return chunks;
@@ -91,14 +91,14 @@ bool ReceivedChunks::empty() const {
 
 std::size_t ReceivedChunks::data_size(MemoryType mem_type) const {
     std::lock_guard const lock(mutex_);
-    return data_size_unsafe(mem_type);
+    return data_sizes_[mem_type];
 }
 
 std::size_t ReceivedChunks::spill(BufferResource* br, std::size_t amount) {
     RAPIDSMPF_NVTX_FUNC_RANGE(amount);
     std::lock_guard lock(mutex_);
     // Return early if there is no device data to spill
-    if (data_size_unsafe(MemoryType::DEVICE) == 0) {
+    if (data_sizes_[MemoryType::DEVICE] == 0) {
         return 0;
     }
     // TODO: use a clever strategy to decided which chunks to spill.
@@ -109,10 +109,14 @@ std::size_t ReceivedChunks::spill(BufferResource* br, std::size_t amount) {
                 continue;
             }
             auto const size = chunk.data_size();
-            auto reservation = br->reserve_or_fail(size, SPILL_TARGET_MEMORY_TYPES);
-            chunk.set_data_buffer(br->move(chunk.release_data_buffer(), reservation));
-            data_size_unsafe(MemoryType::DEVICE) -= size;
-            data_size_unsafe(chunk.data_memory_type()) += size;
+            auto reservation =
+                br->try_reserve(size, preference_lt(MemoryType::DEVICE, MEMORY_TYPES));
+            if (!reservation) {
+                continue;  // No target has room, leave the chunk where it is.
+            }
+            chunk.set_data_buffer(br->move(chunk.release_data_buffer(), *reservation));
+            data_sizes_[MemoryType::DEVICE] -= size;
+            data_sizes_[chunk.data_memory_type()] += size;
             if ((total_spilled += size) >= amount) {
                 break;
             }
@@ -141,7 +145,7 @@ std::string ReceivedChunks::str() const {
     }
     ss << "data_sizes={";
     for (auto mem_type : MEMORY_TYPES) {
-        ss << mem_type << "=" << format_nbytes(data_size_unsafe(mem_type)) << ", ";
+        ss << mem_type << "=" << format_nbytes(data_sizes_[mem_type]) << ", ";
     }
     ss << "\b\b})";
     return ss.str();

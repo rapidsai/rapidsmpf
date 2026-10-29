@@ -358,13 +358,20 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
         if (headroom < 0 && packed_data.data
             && packed_data.data->mem_type() == MemoryType::DEVICE)
         {
-            // NB: the chunk may be for another rank. If the spill targets ever include
-            // `MemoryType::DISK`, this must still spill to sendable memory types only.
-            auto reservation =
-                br_->reserve_or_fail(packed_data.data->size, SPILL_TARGET_MEMORY_TYPES);
+            // NB: the chunk may be for another rank, so it must only spill to sendable
+            // (addressable) memory types.
+            auto reservation = br_->try_reserve(
+                packed_data.data->size,
+                preference_lt(MemoryType::DEVICE, ADDRESSABLE_MEMORY_TYPES)
+            );
             auto chunk = create_chunk(pid, std::move(packed_data));
-            // Spill the new chunk before inserting.
-            chunk.set_data_buffer(br_->move(chunk.release_data_buffer(), reservation));
+            // Spill the new chunk before inserting. If no target has room, the chunk
+            // is left on the device.
+            if (reservation) {
+                chunk.set_data_buffer(
+                    br_->move(chunk.release_data_buffer(), *reservation)
+                );
+            }
             insert(std::move(chunk));
         } else {
             insert(create_chunk(pid, std::move(packed_data)));

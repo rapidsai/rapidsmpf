@@ -597,12 +597,39 @@ TEST(Shuffler, RejectsNullBufferResource) {
     );
 }
 
+// Chunks inserted by a spilling shuffler wait to be sent, so they can't be spilled to
+// disk. When host memory has no room, insert() must leave them on the device instead of
+// throwing. Where the chunks end up afterwards is not observable: once received they are
+// at rest and may legitimately spill to disk.
+TEST(Shuffler, InsertSpillWillNotSpillToDisk) {
+    auto const& comm = GlobalEnvironment->comm_;
+    // With a single rank every chunk is local, so every chunk is spillable.
+    if (comm->nranks() != 1) {
+        GTEST_SKIP() << "Test requires a single rank";
+    }
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+    constexpr std::size_t n_elements = 100;
+    TempDir temp_dir;
+    auto br = create_br(temp_dir.path(), 0);
+    // A negative device limit makes insert() want to spill every chunk.
+    br->set_memory_limit(rapidsmpf::MemoryType::DEVICE, -(1LL << 40));
+    constexpr rapidsmpf::shuffler::PartID total_num_partitions = 2;
+    rapidsmpf::shuffler::Shuffler shuffler(comm, 0, total_num_partitions, br.get());
+
+    std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> chunks;
+    for (rapidsmpf::shuffler::PartID pid = 0; pid < total_num_partitions; ++pid) {
+        chunks.emplace(pid, generate_packed_data(n_elements, 0, stream, *br));
+    }
+    EXPECT_NO_THROW(shuffler.insert(std::move(chunks)));
+    shuffler.insert_finished();
+}
+
 TEST(Shuffler, InsertsDiskBackedData) {
     auto const& comm = GlobalEnvironment->comm_;
     auto stream = cuda::stream_ref{cudaStreamLegacy};
     constexpr std::size_t n_elements = 100;
     TempDir temp_dir;
-    auto br = create_disk_br(temp_dir);
+    auto br = create_br(temp_dir.path());
     auto const total_num_partitions =
         rapidsmpf::safe_cast<rapidsmpf::shuffler::PartID>(2 * comm->nranks());
     rapidsmpf::shuffler::Shuffler shuffler(comm, 0, total_num_partitions, br.get());
