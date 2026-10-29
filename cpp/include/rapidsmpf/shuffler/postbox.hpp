@@ -154,19 +154,11 @@ class ReceivedChunks {
     [[nodiscard]] std::size_t spill(BufferResource* br, std::size_t amount);
 
   private:
-    constexpr std::size_t& data_size_unsafe(MemoryType mem_type) {
-        return data_sizes_[static_cast<std::size_t>(mem_type)];
-    }
-
-    constexpr std::size_t data_size_unsafe(MemoryType mem_type) const {
-        return data_sizes_[static_cast<std::size_t>(mem_type)];
-    }
-
     // TODO: more fine-grained locking e.g. by locking each partition individually.
     mutable std::mutex mutex_;
     std::unordered_map<PartID, std::vector<Chunk>>
         pigeonhole_;  ///< Storage for chunks, stratified by partition ID.
-    std::array<std::size_t, MEMORY_TYPES.size()>
+    PerMemoryType<std::size_t>
         data_sizes_{};  ///< Total data size of the stored chunks, per memory type.
 };
 

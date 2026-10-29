@@ -181,7 +181,10 @@ std::size_t SparseAlltoall::spill(std::optional<std::size_t> amount) {
         if (spilled >= spill_need) {
             break;
         }
-        spilled += chunks.spill(br_, spill_need - spilled);
+        // Ready chunks are at rest, so they may spill all the way to disk.
+        spilled += chunks.spill(
+            br_, spill_need - spilled, preference_lt(MemoryType::DEVICE, MEMORY_TYPES)
+        );
     }
     return spilled;
 }

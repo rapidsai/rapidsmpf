@@ -7,11 +7,13 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <span>
 #include <vector>
 
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 
 namespace rapidsmpf::coll::detail {
@@ -348,12 +350,18 @@ class PostBox {
      *
      * @param br The buffer resource for host and device allocations.
      * @param amount Requested amount of data to spill in bytes.
+     * @param spill_target_types Memory types to spill to, in decreasing order of
+     * preference. Types without a backing resource are skipped.
      * @return Actual amount of data spilled in bytes.
      *
      * @note We attempt to minimise the number of individual buffers
      * spilled, as well as the amount of "overspill".
      */
-    [[nodiscard]] std::size_t spill(BufferResource* br, std::size_t amount);
+    [[nodiscard]] std::size_t spill(
+        BufferResource* br,
+        std::size_t amount,
+        std::span<MemoryType const> spill_target_types
+    );
 
   private:
     mutable std::mutex mutex_{};  ///< Mutex for thread-safe access

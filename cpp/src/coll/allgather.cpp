@@ -114,12 +114,17 @@ std::size_t AllGather::spill(std::optional<std::size_t> amount) {
     std::size_t spilled{0};
     if (spill_need > 0) {
         // Spill from ready post box then inserted postbox.
-        // NB: the inserted postbox holds chunks waiting to be sent. If the spill
-        // targets ever include `MemoryType::DISK`, it must still spill to sendable
-        // memory types only.
-        spilled = for_extraction_.spill(br_, spill_need);
+        // NB: the inserted postbox holds chunks waiting to be sent, so it must only
+        // spill to sendable (addressable) memory types.
+        spilled = for_extraction_.spill(
+            br_, spill_need, preference_lt(MemoryType::DEVICE, MEMORY_TYPES)
+        );
         if (spilled < spill_need) {
-            spilled += inserted_.spill(br_, spill_need - spilled);
+            spilled += inserted_.spill(
+                br_,
+                spill_need - spilled,
+                preference_lt(MemoryType::DEVICE, ADDRESSABLE_MEMORY_TYPES)
+            );
         }
     }
     return spilled;
