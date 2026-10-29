@@ -5,7 +5,6 @@
 
 #include <algorithm>
 #include <cassert>
-#include <chrono>
 #include <limits>
 #include <optional>
 #include <ranges>
@@ -33,18 +32,6 @@
 
 namespace rapidsmpf {
 
-namespace {
-
-template <typename Clock>
-std::int64_t clock_now_ns() {
-    return std::chrono::duration_cast<std::chrono::nanoseconds>(
-               Clock::now().time_since_epoch()
-    )
-        .count();
-}
-
-}  // namespace
-
 void BufferResource::record_reservation_event(ReservationEventData data) noexcept {
     if (!recording_enabled_.load(std::memory_order_acquire)) {
         return;
@@ -54,18 +41,10 @@ void BufferResource::record_reservation_event(ReservationEventData data) noexcep
         return;
     }
     try {
-        auto const elapsed =
-            clock_now_ns<std::chrono::steady_clock>() - recording_->steady_time_anchor_ns;
-        auto const anchored_timestamp = recording_->unix_time_anchor_ns + elapsed;
-        // The steady-clock offset is immune to wall-clock adjustments. Preserve strict
-        // ordering as well when multiple events land in the same clock tick.
-        auto const timestamp =
-            std::max(anchored_timestamp, recording_->last_timestamp_ns + 1);
         recording_->events.push_back(
-            {recording_->next_sequence, timestamp, std::move(data)}
+            {recording_->next_sequence, reservation_event_clock_ns(), std::move(data)}
         );
         ++recording_->next_sequence;
-        recording_->last_timestamp_ns = timestamp;
     } catch (...) {
         // Telemetry must never change reservation behavior, including noexcept paths.
     }
@@ -412,8 +391,6 @@ void BufferResource::start_reservation_event_recording() {
         std::logic_error
     );
     recording_.emplace();
-    recording_->unix_time_anchor_ns = clock_now_ns<std::chrono::system_clock>();
-    recording_->steady_time_anchor_ns = clock_now_ns<std::chrono::steady_clock>();
     recording_enabled_.store(true, std::memory_order_release);
 }
 

@@ -24,6 +24,7 @@ from rapidsmpf.memory.buffer_resource import (
     ReservationRequestPolicy,
     allow_overbooking_by_default_from_options,
     memory_reserve_timeout_from_options,
+    reservation_event_clock_ns,
     spill_dir_from_options,
 )
 from rapidsmpf.memory.memory_reservation import opaque_memory_usage
@@ -137,6 +138,7 @@ def test_reservation_event_recording_lifecycle() -> None:
     assert br.drain_reservation_events() == []
     assert br.stop_reservation_event_recording() == []
 
+    start_ns = reservation_event_clock_ns()
     br.start_reservation_event_recording()
     with pytest.raises(RuntimeError, match="already active"):
         br.start_reservation_event_recording()
@@ -147,16 +149,15 @@ def test_reservation_event_recording_lifecycle() -> None:
         attributes={"site": "python", "count": 2, "enabled": True, "ratio": 1.5},
     )
     first = br.drain_reservation_events()
+    end_ns = reservation_event_clock_ns()
     assert [event["kind"] for event in first] == [
         "request_submitted",
         "reservation_created",
         "request_resolved",
     ]
     assert [event["sequence"] for event in first] == [0, 1, 2]
-    assert all(event["timestamp_ns"] > 0 for event in first)
-    assert (
-        first[0]["timestamp_ns"] < first[1]["timestamp_ns"] < first[2]["timestamp_ns"]
-    )
+    times = [event["steady_time_ns"] for event in first]
+    assert start_ns <= times[0] <= times[1] <= times[2] <= end_ns
     submitted = cast("Any", first[0])
     created = cast("Any", first[1])
     resolved = cast("Any", first[2])

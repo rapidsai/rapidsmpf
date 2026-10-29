@@ -96,6 +96,7 @@ TEST(ReservationEventBuffer, TryReserveRecordsOneLogicalRequest) {
 
 TEST(ReservationEventBuffer, RequestAndReservationLifecycleOwnsPayloads) {
     auto br = make_resource();
+    auto const start_ns = reservation_event_clock_ns();
     br->start_reservation_event_recording();
     auto attributes =
         std::make_shared<ReservationAttributeMap const>(ReservationAttributeMap{
@@ -113,12 +114,14 @@ TEST(ReservationEventBuffer, RequestAndReservationLifecycleOwnsPayloads) {
     attributes.reset();
 
     auto events = br->stop_reservation_event_recording();
+    auto const end_ns = reservation_event_clock_ns();
     ASSERT_EQ(events.size(), 8);
     for (std::size_t i = 0; i < events.size(); ++i) {
         EXPECT_EQ(events[i].sequence, i);
-        EXPECT_GT(events[i].timestamp_ns, 0);
+        EXPECT_GE(events[i].steady_time_ns, start_ns);
+        EXPECT_LE(events[i].steady_time_ns, end_ns);
         if (i > 0) {
-            EXPECT_GT(events[i].timestamp_ns, events[i - 1].timestamp_ns);
+            EXPECT_GE(events[i].steady_time_ns, events[i - 1].steady_time_ns);
         }
     }
 
@@ -258,7 +261,7 @@ TEST(ReservationEventBuffer, ConcurrentProducersAndDrainsLoseNoEvents) {
     for (std::size_t i = 0; i < events.size(); ++i) {
         EXPECT_EQ(events[i].sequence, i);
         if (i > 0) {
-            EXPECT_GT(events[i].timestamp_ns, events[i - 1].timestamp_ns);
+            EXPECT_GE(events[i].steady_time_ns, events[i - 1].steady_time_ns);
         }
         EXPECT_TRUE(std::holds_alternative<MemoryLimitChangedEvent>(events[i].data));
     }

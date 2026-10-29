@@ -111,11 +111,14 @@ cdef extern from "<rapidsmpf/memory/reservation_events.hpp>" namespace "rapidsmp
 
     cdef cppclass cpp_ReservationEvent "rapidsmpf::ReservationEvent":
         uint64_t sequence
-        int64_t timestamp_ns
+        int64_t steady_time_ns
         cpp_ReservationEventData data
 
     ctypedef vector[cpp_ReservationEvent] cpp_ReservationEventBatch \
         "rapidsmpf::ReservationEventBatch"
+
+    int64_t cpp_reservation_event_clock_ns \
+        "rapidsmpf::reservation_event_clock_ns"() noexcept nogil
 
 cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
     cdef enum class AllowOverbooking"rapidsmpf::AllowOverbooking"(bool_t):

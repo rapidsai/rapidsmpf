@@ -50,7 +50,7 @@ class ReservationReleaseReason(IntEnum):
 
 class _ReservationEventBase(TypedDict):
     sequence: int
-    timestamp_ns: int
+    steady_time_ns: int
 
 class _RequestSubmittedEvent(_ReservationEventBase):
     kind: Literal["request_submitted"]
@@ -188,6 +188,7 @@ class BufferResource:
 
 class OwningDeviceMemoryResource(DeviceMemoryResource): ...
 
+def reservation_event_clock_ns() -> int: ...
 def device_limit_from_options(options: Options) -> int: ...
 def host_limit_from_options(options: Options) -> int | None: ...
 def periodic_spill_check_from_options(options: Options) -> float | None: ...
