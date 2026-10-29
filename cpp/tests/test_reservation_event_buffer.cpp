@@ -96,7 +96,7 @@ TEST(ReservationEventBuffer, TryReserveRecordsOneLogicalRequest) {
 
 TEST(ReservationEventBuffer, RequestAndReservationLifecycleOwnsPayloads) {
     auto br = make_resource();
-    auto const start_ns = reservation_event_clock_ns();
+    auto const start_ns = event_time_ns();
     br->start_reservation_event_recording();
     auto attributes =
         std::make_shared<ReservationAttributeMap const>(ReservationAttributeMap{
@@ -114,7 +114,7 @@ TEST(ReservationEventBuffer, RequestAndReservationLifecycleOwnsPayloads) {
     attributes.reset();
 
     auto events = br->stop_reservation_event_recording();
-    auto const end_ns = reservation_event_clock_ns();
+    auto const end_ns = event_time_ns();
     ASSERT_EQ(events.size(), 8);
     for (std::size_t i = 0; i < events.size(); ++i) {
         EXPECT_EQ(events[i].sequence, i);

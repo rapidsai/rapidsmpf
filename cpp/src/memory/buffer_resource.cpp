@@ -42,7 +42,7 @@ void BufferResource::record_reservation_event(ReservationEventData data) noexcep
     }
     try {
         recording_->events.push_back(
-            {recording_->next_sequence, reservation_event_clock_ns(), std::move(data)}
+            {recording_->next_sequence, event_time_ns(), std::move(data)}
         );
         ++recording_->next_sequence;
     } catch (...) {

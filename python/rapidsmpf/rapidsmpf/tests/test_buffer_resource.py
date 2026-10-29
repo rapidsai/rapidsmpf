@@ -24,12 +24,12 @@ from rapidsmpf.memory.buffer_resource import (
     ReservationRequestPolicy,
     allow_overbooking_by_default_from_options,
     memory_reserve_timeout_from_options,
-    reservation_event_clock_ns,
     spill_dir_from_options,
 )
 from rapidsmpf.memory.memory_reservation import opaque_memory_usage
 from rapidsmpf.statistics import Statistics
 from rapidsmpf.utils.memory import _MAX_RESERVATION_BYTES
+from rapidsmpf.utils.time import event_time_ns
 
 
 def KiB(x: int) -> int:
@@ -138,7 +138,7 @@ def test_reservation_event_recording_lifecycle() -> None:
     assert br.drain_reservation_events() == []
     assert br.stop_reservation_event_recording() == []
 
-    start_ns = reservation_event_clock_ns()
+    start_ns = event_time_ns()
     br.start_reservation_event_recording()
     with pytest.raises(RuntimeError, match="already active"):
         br.start_reservation_event_recording()
@@ -149,7 +149,7 @@ def test_reservation_event_recording_lifecycle() -> None:
         attributes={"site": "python", "count": 2, "enabled": True, "ratio": 1.5},
     )
     first = br.drain_reservation_events()
-    end_ns = reservation_event_clock_ns()
+    end_ns = event_time_ns()
     assert [event["kind"] for event in first] == [
         "request_submitted",
         "reservation_created",

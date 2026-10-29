@@ -5,7 +5,6 @@
 
 #pragma once
 
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -15,6 +14,7 @@
 
 #include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/memory/reservation_attributes.hpp>
+#include <rapidsmpf/utils/time.hpp>
 
 namespace rapidsmpf {
 
@@ -116,27 +116,10 @@ using ReservationEventData = std::variant<
     MemoryLimitChangedEvent>;
 
 /**
- * @brief Current time on the clock used for `ReservationEvent::steady_time_ns`.
- *
- * Reads `std::chrono::steady_clock`, which has an unspecified epoch. To convert
- * event times to another time domain, such as Unix time, sample this function
- * and the target clock at about the same time and add the difference to each
- * event time.
- *
- * @return Nanoseconds since the steady clock's epoch.
- */
-[[nodiscard]] inline std::int64_t reservation_event_clock_ns() noexcept {
-    return std::chrono::duration_cast<std::chrono::nanoseconds>(
-               std::chrono::steady_clock::now().time_since_epoch()
-    )
-        .count();
-}
-
-/**
  * @brief One reservation event.
  *
  * `sequence` starts at zero for each recording session. `steady_time_ns` is the
- * event occurrence time read from `reservation_event_clock_ns()`. Event times are
+ * event occurrence time read from `event_time_ns()`. Event times are
  * nondecreasing in `sequence` order; consecutive events may share a time.
  */
 struct ReservationEvent {

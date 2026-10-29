@@ -784,7 +784,7 @@ cdef class BufferResource:
 
         Each event is a dictionary containing ``sequence``, ``steady_time_ns``,
         ``kind``, and the fields for that event kind. ``steady_time_ns`` is read
-        from :func:`reservation_event_clock_ns`.
+        from :func:`rapidsmpf.utils.time.event_time_ns`.
         """
         cdef cpp_ReservationEventBatch batch
         with nogil:
@@ -1041,22 +1041,6 @@ cdef extern from "<rapidsmpf/memory/host_memory_resource.hpp>" nogil:
         "rapidsmpf::host_limit_from_options"(
             cpp_Options options
         ) except +ex_handler
-
-
-def reservation_event_clock_ns():
-    """
-    Current time on the clock used for reservation event ``steady_time_ns``.
-
-    The clock is monotonic with an unspecified epoch. To convert event times to
-    another time domain, such as Unix time, sample this function and the target
-    clock at about the same time and add the difference to each event time.
-
-    Returns
-    -------
-    int
-        Nanoseconds since the steady clock's epoch.
-    """
-    return cpp_reservation_event_clock_ns()
 
 
 def device_limit_from_options(Options options not None):
