@@ -196,6 +196,7 @@ jobs:
       package-type: cpp
       # build for every combination of arch and CUDA version, but only for the latest Python version
       matrix_filter: group_by([.ARCH, (.CUDA_VER|split(".")|map(tonumber)|.[0])]) | map(max_by(.PY_VER|split(".")|map(tonumber)))
+      matrix_type: cuda-13-4-pr
   wheel-build-rapidsmpf:
     needs: [build-details, checks, wheel-build-librapidsmpf]
     permissions:
@@ -215,6 +216,7 @@ jobs:
       package-type: python
       # Build a wheel for each CUDA x ARCH x minimum supported Python version
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
+      matrix_type: cuda-13-4-pr
   wheel-build-rapidsmpf-singlecomm:
     needs: [build-details, checks, wheel-build-librapidsmpf]
     permissions:
@@ -234,6 +236,7 @@ jobs:
       package-type: python
       # Build a wheel for each CUDA x ARCH x minimum supported Python version
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
+      matrix_type: cuda-13-4-pr
   wheel-test:
     if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_python_wheels
     needs: [changed-files, wheel-build-rapidsmpf]
@@ -249,6 +252,7 @@ jobs:
       build_type: pull-request
       container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
       script: ci/test_wheel.sh
+      matrix_type: cuda-13-4-pr,pull-request
   conda-cpp-build:
     needs: [build-details, checks]
     permissions:
@@ -264,6 +268,7 @@ jobs:
       build-datetime: ${{ needs.build-details.outputs.build-datetime }}
       node_type: cpu8
       script: ci/build_cpp.sh
+      matrix_type: cuda-13-4-pr
   conda-cpp-linters:
     needs: checks
     permissions:
@@ -293,6 +298,7 @@ jobs:
       build_type: pull-request
       container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
       script: ci/test_cpp.sh
+      matrix_type: cuda-13-4-pr,pull-request
   conda-cpp-memcheck:
     needs: conda-cpp-build
     permissions:
@@ -323,6 +329,7 @@ jobs:
       script: ci/build_python.sh
       # Build a conda package for each CUDA x ARCH x minimum supported Python version
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
+      matrix_type: cuda-13-4-pr
   conda-python-tests:
     if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_python_conda
     needs: [changed-files, conda-python-build]
@@ -339,6 +346,7 @@ jobs:
       container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
       run_codecov: false
       script: ci/test_python.sh
+      matrix_type: cuda-13-4-pr,pull-request
   docs-build:
     needs: [conda-python-build, changed-files]
     permissions:
@@ -387,7 +395,7 @@ jobs:
     uses: rapidsai/shared-workflows/.github/workflows/build-in-devcontainer.yaml@main
     with:
       arch: '["amd64", "arm64"]'
-      cuda: '["13.3"]'
+      cuda: '["13.4"]'
       python_package_manager: '["conda", "pip"]'
       node_type: "cpu8"
       env: |
