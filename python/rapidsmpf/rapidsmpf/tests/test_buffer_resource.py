@@ -23,6 +23,7 @@ from rapidsmpf.memory.buffer_resource import (
     ReservationRequestPolicy,
     allow_overbooking_by_default_from_options,
     memory_reserve_timeout_from_options,
+    reservation_event_limit_from_options,
     spill_dir_from_options,
 )
 from rapidsmpf.memory.memory_reservation import opaque_memory_usage
@@ -511,6 +512,37 @@ def test_reservation_policy_from_options() -> None:
     )
     assert br.memory_reserve_timeout == pytest.approx(2.0)
     assert br.allow_overbooking_by_default is False
+
+
+def test_reservation_event_limit_from_options() -> None:
+    assert reservation_event_limit_from_options(Options()) is None
+    assert (
+        reservation_event_limit_from_options(
+            Options({"reservation_event_limit": "disabled"})
+        )
+        is None
+    )
+    options = Options({"reservation_event_limit": "1000"})
+    assert reservation_event_limit_from_options(options) == 1000
+    br = BufferResource.from_options(rmm.mr.CudaMemoryResource(), options)
+    assert br.reservation_event_limit == 1000
+    with pytest.raises(ValueError, match="greater than zero"):
+        reservation_event_limit_from_options(Options({"reservation_event_limit": "0"}))
+    assert BufferResource(rmm.mr.CudaMemoryResource()).reservation_event_limit is None
+
+
+def test_reservation_event_limit_drops_events_as_sequence_gaps() -> None:
+    br = BufferResource(rmm.mr.CudaMemoryResource(), reservation_event_limit=2)
+    assert br.reservation_event_limit == 2
+    br.start_reservation_event_recording()
+    for limit in range(3):
+        br.set_memory_limit(MemoryType.DEVICE, limit)
+    events = br.drain_reservation_events()
+    assert [event["sequence"] for event in events] == [0, 1]
+    br.set_memory_limit(MemoryType.DEVICE, 3)
+    events = br.stop_reservation_event_recording()
+    assert [event["sequence"] for event in events] == [3]
+    assert cast("Any", events[0])["configured_limit"] == 3
 
 
 def test_spill_directory_from_options(tmp_path: pathlib.Path) -> None:

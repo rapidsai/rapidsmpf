@@ -413,6 +413,11 @@ cdef class BufferResource:
     allow_overbooking_by_default
         Whether reservation requests that don't specify an overbooking policy may
         overbook memory. See the ``allow_overbooking_by_default`` configuration option.
+    reservation_event_limit
+        Maximum number of undrained reservation events, or None for no limit. When
+        the limit is reached, new events are dropped until the next drain and
+        show up as gaps in the event ``sequence``. See the
+        ``reservation_event_limit`` configuration option.
 
     Notes
     -----
@@ -439,6 +444,7 @@ cdef class BufferResource:
         spill_directory = None,
         memory_reserve_timeout = 0.1,
         allow_overbooking_by_default = True,
+        reservation_event_limit = None,
     ):
         cdef unordered_map[MemoryType, int64_t] _mem_limits
         if memory_limits is not None:
@@ -497,6 +503,9 @@ cdef class BufferResource:
         cdef optional[cpp_path] cpp_spill_directory
         if spill_directory is not None:
             cpp_spill_directory = cpp_path(<string>os.fsencode(spill_directory))
+        cdef optional[size_t] cpp_reservation_event_limit
+        if reservation_event_limit is not None:
+            cpp_reservation_event_limit = <size_t>reservation_event_limit
         with nogil:
             # TODO: Replace this RMM pool with a cuda-python stream pool once a suitable
             # one is available with all the necessary CCCL interop.
@@ -510,6 +519,7 @@ cdef class BufferResource:
                 cpp_spill_directory,
                 cpp_memory_reserve_timeout,
                 cpp_allow_overbooking,
+                cpp_reservation_event_limit,
             )
         self.spill_manager = SpillManager._create(self)
 
@@ -569,6 +579,7 @@ cdef class BufferResource:
             allow_overbooking_by_default=allow_overbooking_by_default_from_options(
                 options
             ),
+            reservation_event_limit=reservation_event_limit_from_options(options),
         )
 
     def __dealloc__(self):
@@ -716,6 +727,18 @@ cdef class BufferResource:
             deref(self._handle).allow_overbooking_by_default()
             == AllowOverbooking.YES
         )
+
+    @property
+    def reservation_event_limit(self):
+        """
+        Maximum number of undrained reservation events.
+
+        Returns
+        -------
+        The limit, or None if the event buffer is unbounded.
+        """
+        cdef optional[size_t] ret = deref(self._handle).reservation_event_limit()
+        return ret.value() if ret.has_value() else None
 
     def memory_available_for_reservation(self, MemoryType mem_type):
         """
@@ -1039,6 +1062,11 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
             cpp_Options options
         ) except +ex_handler
 
+    cdef optional[size_t] cpp_reservation_event_limit_from_options \
+        "rapidsmpf::reservation_event_limit_from_options"(
+            cpp_Options options
+        ) except +ex_handler
+
 
 cdef extern from "<rapidsmpf/disk/disk_resource.hpp>" nogil:
     cdef optional[cpp_path] cpp_spill_dir_from_options \
@@ -1159,6 +1187,31 @@ def allow_overbooking_by_default_from_options(Options options not None):
     with nogil:
         ret = cpp_allow_overbooking_by_default_from_options(options._handle)
     return ret == AllowOverbooking.YES
+
+
+def reservation_event_limit_from_options(Options options not None):
+    """
+    Get the ``reservation_event_limit`` parameter from configuration options.
+
+    Parameters
+    ----------
+    options
+        Configuration options.
+
+    Returns
+    -------
+    The maximum number of undrained reservation events, or None if the option
+    is disabled (unbounded).
+
+    Raises
+    ------
+    ValueError
+        If the limit is not greater than zero.
+    """
+    cdef optional[size_t] ret
+    with nogil:
+        ret = cpp_reservation_event_limit_from_options(options._handle)
+    return ret.value() if ret.has_value() else None
 
 
 def spill_dir_from_options(Options options not None):

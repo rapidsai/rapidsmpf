@@ -263,6 +263,8 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * See `memory_reserve_timeout_from_options()`.
      * @param allow_overbooking_by_default Overbooking policy for reservation requests
      * that don't specify one. See `allow_overbooking_by_default_from_options()`.
+     * @param reservation_event_limit Maximum number of undrained reservation events,
+     * or `std::nullopt` for no limit. See `reservation_event_limit_from_options()`.
      * @return A newly constructed `BufferResource` owned by `std::shared_ptr`.
      * @throws std::runtime_error if `pinned_pool_properties` has a value but pinned
      * host memory is not supported on this system.
@@ -276,7 +278,8 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         std::shared_ptr<Statistics> statistics = Statistics::disabled(),
         std::optional<std::filesystem::path> spill_directory = std::nullopt,
         Duration memory_reserve_timeout = std::chrono::milliseconds{100},
-        AllowOverbooking allow_overbooking_by_default = AllowOverbooking::YES
+        AllowOverbooking allow_overbooking_by_default = AllowOverbooking::YES,
+        std::optional<std::size_t> reservation_event_limit = std::nullopt
     );
 
     /**
@@ -475,6 +478,9 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * Recording remains active. Returns an empty batch if recording is disabled
      * or no events have occurred since the previous drain.
      *
+     * Draining frees space under `reservation_event_limit()`. Events dropped while
+     * the buffer was full show up as gaps in `ReservationEvent::sequence`.
+     *
      * @returns The events recorded since the previous drain.
      */
     [[nodiscard]] ReservationEventBatch drain_reservation_events();
@@ -485,9 +491,24 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * Once this method returns, no producer can append to the stopped session.
      * Calling it while recording is disabled returns an empty batch.
      *
+     * Events dropped under `reservation_event_limit()` show up as gaps in
+     * `ReservationEvent::sequence`.
+     *
      * @returns The final events recorded by the stopped session.
      */
     [[nodiscard]] ReservationEventBatch stop_reservation_event_recording();
+
+    /**
+     * @brief Maximum number of undrained reservation events.
+     *
+     * When this many events are waiting to be drained, new events are dropped
+     * until the next drain. See the `reservation_event_limit` option.
+     *
+     * @return The limit, or `std::nullopt` if the buffer is unbounded.
+     */
+    [[nodiscard]] std::optional<std::size_t> reservation_event_limit() const noexcept {
+        return reservation_event_limit_;
+    }
 
     /**
      * @brief Returns the memory available to a new reservation, in bytes.
@@ -1010,7 +1031,8 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         std::shared_ptr<Statistics> statistics,
         std::shared_ptr<DiskResource> disk_resource,
         Duration memory_reserve_timeout,
-        AllowOverbooking allow_overbooking_by_default
+        AllowOverbooking allow_overbooking_by_default,
+        std::optional<std::size_t> reservation_event_limit
     );
 
     mutable std::mutex mutex_;
@@ -1026,6 +1048,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     std::shared_ptr<Statistics> statistics_;
     Duration memory_reserve_timeout_;
     AllowOverbooking allow_overbooking_by_default_;
+    std::optional<std::size_t> reservation_event_limit_;
 
     std::optional<detail::RecordingSession> recording_;
     std::mutex recording_mutex_;
@@ -1096,6 +1119,17 @@ Duration memory_reserve_timeout_from_options(config::Options options);
  * @return The overbooking policy for reservation requests that don't specify one.
  */
 AllowOverbooking allow_overbooking_by_default_from_options(config::Options options);
+
+/**
+ * @brief Get the `reservation_event_limit` parameter from configuration options.
+ *
+ * @param options Configuration options.
+ * @return The maximum number of undrained reservation events, or `std::nullopt` if
+ * the option is disabled (unbounded).
+ *
+ * @throws std::invalid_argument if the limit is zero.
+ */
+std::optional<std::size_t> reservation_event_limit_from_options(config::Options options);
 
 
 }  // namespace rapidsmpf

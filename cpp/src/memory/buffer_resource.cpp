@@ -40,11 +40,14 @@ void BufferResource::record_reservation_event(ReservationEventData data) noexcep
     if (!recording_) {
         return;
     }
+    auto const sequence = recording_->next_sequence++;
+    if (reservation_event_limit_.has_value()
+        && recording_->events.size() >= *reservation_event_limit_)
+    {
+        return;
+    }
     try {
-        recording_->events.push_back(
-            {recording_->next_sequence, event_time_ns(), std::move(data)}
-        );
-        ++recording_->next_sequence;
+        recording_->events.push_back({sequence, event_time_ns(), std::move(data)});
     } catch (...) {
         // Telemetry must never change reservation behavior, including noexcept paths.
     }
@@ -246,7 +249,8 @@ BufferResource::BufferResource(
     std::shared_ptr<Statistics> statistics,
     std::shared_ptr<DiskResource> disk_resource,
     Duration memory_reserve_timeout,
-    AllowOverbooking allow_overbooking_by_default
+    AllowOverbooking allow_overbooking_by_default,
+    std::optional<std::size_t> reservation_event_limit
 )
     : owning_mr_{std::move(device_mr)},
       pinned_mr_{std::move(pinned_mr)},
@@ -256,7 +260,8 @@ BufferResource::BufferResource(
       spill_manager_{this, periodic_spill_check},
       statistics_{std::move(statistics)},
       memory_reserve_timeout_{memory_reserve_timeout},
-      allow_overbooking_by_default_{allow_overbooking_by_default} {
+      allow_overbooking_by_default_{allow_overbooking_by_default},
+      reservation_event_limit_{reservation_event_limit} {
     // Default every limit to unlimited, then apply caller overrides.
     for (auto& limit : memory_limits_) {
         limit.store(std::numeric_limits<std::int64_t>::max(), std::memory_order_relaxed);
@@ -268,6 +273,11 @@ BufferResource::BufferResource(
     }
     RAPIDSMPF_EXPECTS(stream_pool_ != nullptr, "the stream pool pointer cannot be NULL");
     RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
+    RAPIDSMPF_EXPECTS(
+        reservation_event_limit_.value_or(1) > 0,
+        "the reservation event limit must be greater than zero",
+        std::invalid_argument
+    );
 }
 
 BufferResource::~BufferResource() noexcept {
@@ -283,7 +293,8 @@ std::shared_ptr<BufferResource> BufferResource::create(
     std::shared_ptr<Statistics> statistics,
     std::optional<std::filesystem::path> spill_directory,
     Duration memory_reserve_timeout,
-    AllowOverbooking allow_overbooking_by_default
+    AllowOverbooking allow_overbooking_by_default,
+    std::optional<std::size_t> reservation_event_limit
 ) {
     std::optional<PinnedMemoryResource> pinned_mr;
     if (pinned_pool_properties.has_value()) {
@@ -318,7 +329,8 @@ std::shared_ptr<BufferResource> BufferResource::create(
         std::move(statistics),
         std::move(disk_res),
         memory_reserve_timeout,
-        allow_overbooking_by_default
+        allow_overbooking_by_default,
+        reservation_event_limit
     }};
 
     // Install the back-reference on the owned resources *after* construction so
@@ -355,7 +367,8 @@ std::shared_ptr<BufferResource> BufferResource::from_options(
         std::move(statistics),
         spill_dir_from_options(options),
         memory_reserve_timeout_from_options(options),
-        allow_overbooking_by_default_from_options(options)
+        allow_overbooking_by_default_from_options(options),
+        reservation_event_limit_from_options(options)
     );
 }
 
@@ -923,6 +936,24 @@ AllowOverbooking allow_overbooking_by_default_from_options(config::Options optio
     return options.get<bool>("allow_overbooking_by_default", parse_string<bool>)
                ? AllowOverbooking::YES
                : AllowOverbooking::NO;
+}
+
+std::optional<std::size_t> reservation_event_limit_from_options(config::Options options) {
+    return options.get<std::optional<std::size_t>>(
+        "reservation_event_limit", [](auto const& s) -> std::optional<std::size_t> {
+            auto const value = parse_optional(s);
+            if (!value.has_value()) {
+                return std::nullopt;
+            }
+            auto const limit = parse_string<std::int64_t>(*value);
+            RAPIDSMPF_EXPECTS(
+                limit > 0,
+                "reservation_event_limit must be greater than zero",
+                std::invalid_argument
+            );
+            return safe_cast<std::size_t>(limit);
+        }
+    );
 }
 
 }  // namespace rapidsmpf

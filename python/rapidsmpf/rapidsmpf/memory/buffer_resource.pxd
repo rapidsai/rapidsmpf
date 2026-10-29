@@ -142,6 +142,7 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
             optional[cpp_path],
             cpp_Duration,
             AllowOverbooking,
+            optional[size_t],
         ) except +ex_handler
         int64_t memory_available_for_reservation(
             MemoryType mem_type
@@ -162,6 +163,7 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
         const shared_ptr[cpp_DiskResource]& disk_resource() noexcept
         cpp_Duration memory_reserve_timeout() noexcept
         AllowOverbooking allow_overbooking_by_default() noexcept
+        optional[size_t] reservation_event_limit() noexcept
         unique_ptr[cpp_Buffer] make_buffer(
             size_t size,
             stream_ref stream,

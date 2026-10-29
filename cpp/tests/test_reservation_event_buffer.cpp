@@ -8,7 +8,10 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <stdexcept>
+#include <string>
 #include <thread>
+#include <tuple>
 #include <variant>
 #include <vector>
 
@@ -16,6 +19,7 @@
 
 #include <rmm/mr/per_device_resource.hpp>
 
+#include <rapidsmpf/config.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 
 using namespace rapidsmpf;
@@ -217,6 +221,56 @@ TEST(ReservationEventBuffer, ZeroByteOperationsEmitNothing) {
     EXPECT_TRUE(br->drain_reservation_events().empty());
     EXPECT_TRUE(br->drain_reservation_events().empty());
     EXPECT_TRUE(br->stop_reservation_event_recording().empty());
+}
+
+TEST(ReservationEventBuffer, LimitDropsEventsAsSequenceGaps) {
+    auto br = BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        PinnedMemoryDisabled,
+        {},
+        std::nullopt,
+        std::make_shared<StreamPool>(1),
+        Statistics::disabled(),
+        std::nullopt,
+        std::chrono::milliseconds{100},
+        AllowOverbooking::YES,
+        /* reservation_event_limit = */ 2
+    );
+    EXPECT_EQ(br->reservation_event_limit(), 2);
+    br->start_reservation_event_recording();
+    for (std::int64_t limit = 0; limit < 3; ++limit) {
+        br->set_memory_limit(MemoryType::DEVICE, limit);
+    }
+    auto events = br->drain_reservation_events();
+    ASSERT_EQ(events.size(), 2);
+    EXPECT_EQ(events[0].sequence, 0);
+    EXPECT_EQ(events[1].sequence, 1);
+    EXPECT_EQ(std::get<MemoryLimitChangedEvent>(events[1].data).configured_limit, 1);
+
+    br->set_memory_limit(MemoryType::DEVICE, 3);
+    events = br->stop_reservation_event_recording();
+    ASSERT_EQ(events.size(), 1);
+    EXPECT_EQ(events[0].sequence, 3);
+    EXPECT_EQ(std::get<MemoryLimitChangedEvent>(events[0].data).configured_limit, 3);
+}
+
+TEST(ReservationEventBuffer, LimitFromOptions) {
+    auto parse = [](std::string value) {
+        return reservation_event_limit_from_options(
+            config::Options({{"reservation_event_limit", config::OptionValue(value)}})
+        );
+    };
+    EXPECT_FALSE(reservation_event_limit_from_options(config::Options{}).has_value());
+    EXPECT_FALSE(parse("disabled").has_value());
+    EXPECT_EQ(parse("1000"), 1000);
+    EXPECT_THROW(std::ignore = parse("0"), std::invalid_argument);
+    EXPECT_THROW(std::ignore = parse("-1"), std::invalid_argument);
+
+    auto br = BufferResource::from_options(
+        rmm::mr::get_current_device_resource_ref(),
+        config::Options({{"reservation_event_limit", config::OptionValue("5")}})
+    );
+    EXPECT_EQ(br->reservation_event_limit(), 5);
 }
 
 TEST(ReservationEventBuffer, ConcurrentProducersAndDrainsLoseNoEvents) {

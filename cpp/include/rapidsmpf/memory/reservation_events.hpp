@@ -139,6 +139,10 @@ using ReservationEventData = std::variant<
  * `sequence` starts at zero for each recording session. `steady_time_ns` is the
  * event occurrence time read from `event_time_ns()`. Event times are
  * nondecreasing in `sequence` order; consecutive events may share a time.
+ *
+ * Every event occurrence takes the next `sequence`, including events dropped
+ * because the buffer reached `BufferResource::reservation_event_limit()`. A gap in
+ * `sequence` therefore marks dropped events.
  */
 struct ReservationEvent {
     std::uint64_t sequence;  ///< Global sequence within the recording session.
