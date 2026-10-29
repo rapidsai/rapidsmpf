@@ -109,6 +109,15 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
     memory reservation primitives or imply that overbooking is enabled or
     disabled globally across the system.
 
+- **`reservation_event_limit`**
+  - **Environment Variable**: `RAPIDSMPF_RESERVATION_EVENT_LIMIT`
+  - **Default**: `disabled`
+  - **Description**: Maximum number of reservation events a `BufferResource`
+    buffers between drains while reservation event recording is active. When
+    the buffer is full, new events are dropped until the next drain, and each
+    dropped event leaves a gap in the event `sequence` numbers. Must be greater
+    than zero. Set to `disabled` for no limit.
+
 - **`pinned_memory`**
   - **Environment Variable**: `RAPIDSMPF_PINNED_MEMORY`
   - **Default**: `false`

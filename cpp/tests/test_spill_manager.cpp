@@ -285,6 +285,29 @@ TEST(SpillManager, ReserveAndSpillIgnoresAnEarlierCallersOverbooking) {
     br->spill_manager().remove_spill_function(fid);
 }
 
+TEST(SpillManager, ZeroSizeReserveAndSpillClearsExistingOverbooking) {
+    auto [br, limit] = br_at_device_limit();
+
+    std::vector<std::size_t> asks;
+    auto const fid = br->spill_manager().add_spill_function(
+        [&](std::size_t amount) -> std::size_t {
+            asks.push_back(amount);
+            limit += safe_cast<std::int64_t>(amount);
+            br->set_memory_limit(MemoryType::DEVICE, limit);
+            return amount;
+        },
+        /* priority = */ 0
+    );
+
+    auto earlier = br->reserve(MemoryType::DEVICE, 4_KiB, AllowOverbooking::YES).first;
+    auto reservation = br->reserve_device_memory_and_spill(0, AllowOverbooking::NO);
+    EXPECT_EQ(reservation.size(), 0u);
+    ASSERT_EQ(asks.size(), 1u);
+    EXPECT_EQ(asks.front(), 4_KiB);
+
+    br->spill_manager().remove_spill_function(fid);
+}
+
 TEST(SpillManager, ProgressCountersTrackSpillExecution) {
     auto br = br_at_device_limit().first;
     auto& manager = br->spill_manager();

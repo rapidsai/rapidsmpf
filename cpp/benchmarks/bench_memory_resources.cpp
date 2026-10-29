@@ -113,6 +113,75 @@ std::shared_ptr<rapidsmpf::BufferResource> make_pinned_buffer_resource(
     );
 }
 
+rapidsmpf::ReservationAttributes benchmark_reservation_attributes() {
+    return std::make_shared<rapidsmpf::ReservationAttributeMap const>(
+        rapidsmpf::ReservationAttributeMap{
+            {"rapidsmpf.site", std::string{"benchmark"}},
+            {"quent.actor_id", std::string{"00000000-0000-0000-0000-000000000000"}},
+        }
+    );
+}
+
+void BM_ReserveOrFailLifecycle(benchmark::State& state) {
+    auto br = make_pinned_buffer_resource(rapidsmpf::PinnedMemoryDisabled);
+    auto attributes = benchmark_reservation_attributes();
+    auto const recording = static_cast<bool>(state.range(0));
+    if (recording) {
+        br->start_reservation_event_recording();
+    }
+
+    for (auto _ : state) {
+        auto reservation =
+            br->reserve_or_fail(1, rapidsmpf::MemoryType::DEVICE, attributes);
+        benchmark::DoNotOptimize(reservation.id());
+        reservation.clear();
+    }
+
+    if (recording) {
+        auto events = br->stop_reservation_event_recording();
+        state.counters["events_per_iteration"] =
+            static_cast<double>(events.size()) / static_cast<double>(state.iterations());
+    }
+}
+
+void BM_TryReserveLifecycle(benchmark::State& state) {
+    auto br = make_pinned_buffer_resource(rapidsmpf::PinnedMemoryDisabled);
+    auto attributes = benchmark_reservation_attributes();
+    auto const recording = static_cast<bool>(state.range(0));
+    constexpr std::array memory_types{
+        rapidsmpf::MemoryType::PINNED_HOST, rapidsmpf::MemoryType::DEVICE
+    };
+    if (recording) {
+        br->start_reservation_event_recording();
+    }
+
+    for (auto _ : state) {
+        auto reservation = br->try_reserve(1, memory_types, attributes);
+        benchmark::DoNotOptimize(reservation->id());
+        reservation->clear();
+    }
+
+    if (recording) {
+        auto events = br->stop_reservation_event_recording();
+        state.counters["events_per_iteration"] =
+            static_cast<double>(events.size()) / static_cast<double>(state.iterations());
+    }
+}
+
+void ReservationLifecycleArgs(benchmark::Benchmark* benchmark) {
+    benchmark->ArgName("recording");
+    benchmark->Arg(0);
+    benchmark->Arg(1);
+    benchmark->Iterations(smoke_test_mode() ? 100 : 100'000);
+}
+
+BENCHMARK(BM_ReserveOrFailLifecycle)
+    ->Apply(ReservationLifecycleArgs)
+    ->Unit(benchmark::kNanosecond);
+BENCHMARK(BM_TryReserveLifecycle)
+    ->Apply(ReservationLifecycleArgs)
+    ->Unit(benchmark::kNanosecond);
+
 // Helper function to create a type-erased host memory resource.
 cuda::mr::any_resource<cuda::mr::host_accessible> create_host_memory_resource(
     ResourceType const& resource_type

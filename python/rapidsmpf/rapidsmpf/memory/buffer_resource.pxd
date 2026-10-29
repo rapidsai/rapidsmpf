@@ -2,12 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from libc.stddef cimport size_t
-from libc.stdint cimport int64_t
+from libc.stdint cimport int64_t, uint64_t
 from libcpp cimport bool as bool_t
 from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.optional cimport optional
 from libcpp.string cimport string
 from libcpp.unordered_map cimport unordered_map
+from libcpp.vector cimport vector
 from rmm.librmm.cuda_stream_pool cimport cuda_stream_pool
 from rmm.librmm.cuda_stream_ref cimport stream_ref
 from rmm.librmm.memory_resource cimport (any_resource, device_accessible,
@@ -24,6 +25,7 @@ from rapidsmpf.memory.memory_reservation cimport cpp_MemoryReservation
 from rapidsmpf.memory.pinned_memory_resource cimport (PinnedMemoryResource,
                                                       cpp_PinnedMemoryResource,
                                                       cpp_PinnedPoolProperties)
+from rapidsmpf.memory.reservation_attributes cimport cpp_ReservationAttributes
 from rapidsmpf.memory.spill_manager cimport SpillManager, cpp_SpillManager
 from rapidsmpf.rmm_resource_adaptor cimport (RmmResourceAdaptor,
                                              cpp_RmmResourceAdaptor)
@@ -40,6 +42,84 @@ cdef extern from "<filesystem>" nogil:
 cdef extern from "<rapidsmpf/disk/disk_resource.hpp>" nogil:
     cdef cppclass cpp_DiskResource "rapidsmpf::DiskResource":
         const cpp_path& directory() noexcept
+
+cdef extern from "<rapidsmpf/memory/reservation_events.hpp>" namespace "rapidsmpf":
+    cpdef enum class ReservationRequestPolicy(unsigned int):
+        IMMEDIATE
+        OVERBOOK
+        SPILL
+        WAIT
+        WAIT_OR_OVERBOOK
+        WAIT_OR_FAIL
+    cpdef enum class ReservationResizeReason(unsigned int):
+        CONSUMED
+        SPLIT_OFF
+    cpdef enum class ReservationReleaseReason(unsigned int):
+        CLEARED
+        RELEASED_CONSUMED
+        RELEASED_SPLIT
+
+    cdef cppclass cpp_RequestSubmittedEvent "rapidsmpf::RequestSubmittedEvent":
+        uint64_t id
+        size_t size
+        vector[MemoryType] memory_types
+        ReservationRequestPolicy policy
+        optional[int64_t] net_memory_delta
+        cpp_ReservationAttributes attributes
+
+    cdef cppclass cpp_RequestWaitingEvent "rapidsmpf::RequestWaitingEvent":
+        uint64_t id
+
+    cdef cppclass cpp_RequestGrantedEvent "rapidsmpf::RequestGrantedEvent":
+        uint64_t id
+        optional[uint64_t] reservation_id
+        MemoryType memory_type
+        size_t size
+        size_t overbooked_bytes
+        bool_t timed_out
+
+    cdef cppclass cpp_RequestEmptyEvent "rapidsmpf::RequestEmptyEvent":
+        uint64_t id
+        bool_t timed_out
+
+    cdef cppclass cpp_RequestFailedEvent "rapidsmpf::RequestFailedEvent":
+        uint64_t id
+        string error
+
+    cdef cppclass cpp_RequestCancelledEvent "rapidsmpf::RequestCancelledEvent":
+        uint64_t id
+
+    cdef cppclass cpp_ReservationCreatedEvent "rapidsmpf::ReservationCreatedEvent":
+        uint64_t id
+        MemoryType memory_type
+        size_t size
+        cpp_ReservationAttributes attributes
+        optional[uint64_t] request_id
+        optional[uint64_t] parent_id
+
+    cdef cppclass cpp_ReservationResizedEvent "rapidsmpf::ReservationResizedEvent":
+        uint64_t id
+        size_t size
+        ReservationResizeReason reason
+
+    cdef cppclass cpp_ReservationReleasedEvent "rapidsmpf::ReservationReleasedEvent":
+        uint64_t id
+        ReservationReleaseReason reason
+
+    cdef cppclass cpp_MemoryLimitChangedEvent "rapidsmpf::MemoryLimitChangedEvent":
+        MemoryType memory_type
+        int64_t configured_limit
+
+    cdef cppclass cpp_ReservationEventData "rapidsmpf::ReservationEventData":
+        size_t index() noexcept
+
+    cdef cppclass cpp_ReservationEvent "rapidsmpf::ReservationEvent":
+        uint64_t sequence
+        int64_t steady_time_ns
+        cpp_ReservationEventData data
+
+    ctypedef vector[cpp_ReservationEvent] cpp_ReservationEventBatch \
+        "rapidsmpf::ReservationEventBatch"
 
 cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
     cdef enum class AllowOverbooking"rapidsmpf::AllowOverbooking"(bool_t):
@@ -62,12 +142,18 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
             optional[cpp_path],
             cpp_Duration,
             AllowOverbooking,
+            optional[size_t],
         ) except +ex_handler
         int64_t memory_available_for_reservation(
             MemoryType mem_type
         ) except +ex_handler
         int64_t memory_available(MemoryType mem_type) except +ex_handler
+        int64_t memory_limit(MemoryType mem_type) noexcept
+        bool_t has_memory_resource(MemoryType mem_type) noexcept
         void set_memory_limit(MemoryType mem_type, int64_t limit) except +ex_handler
+        void start_reservation_event_recording() except +ex_handler
+        cpp_ReservationEventBatch drain_reservation_events() except +ex_handler
+        cpp_ReservationEventBatch stop_reservation_event_recording() except +ex_handler
         cpp_SpillManager &spill_manager() except +ex_handler
         size_t release(cpp_MemoryReservation&, size_t) except +ex_handler
         shared_ptr[cpp_Statistics] statistics() except +ex_handler
@@ -77,6 +163,7 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
         const shared_ptr[cpp_DiskResource]& disk_resource() noexcept
         cpp_Duration memory_reserve_timeout() noexcept
         AllowOverbooking allow_overbooking_by_default() noexcept
+        optional[size_t] reservation_event_limit() noexcept
         unique_ptr[cpp_Buffer] make_buffer(
             size_t size,
             stream_ref stream,
