@@ -226,6 +226,25 @@ class Chunk {
     );
 
     /**
+     * @brief Deserialize a chunk from its metadata and its received data.
+     *
+     * @param metadata The serialized chunk metadata.
+     * @param data The received data buffer, or `nullptr` for a finish chunk or a data
+     * chunk without data.
+     * @param br Buffer resource used to allocate an empty data buffer for a data chunk
+     * without data.
+     * @return A unique pointer to the deserialized chunk.
+     *
+     * @throws std::invalid_argument If the size of @p data does not match the
+     * serialized data size, or if @p data is given for a finish chunk.
+     */
+    [[nodiscard]] static std::unique_ptr<Chunk> deserialize(
+        std::vector<std::uint8_t> const& metadata,
+        std::unique_ptr<Buffer> data,
+        BufferResource* br
+    );
+
+    /**
      * @brief Release and return the data buffer.
      *
      * @return The data buffer, leaving the chunk without data.
