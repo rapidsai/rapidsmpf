@@ -4,6 +4,9 @@
  */
 
 #pragma once
+#include <filesystem>
+#include <optional>
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -35,7 +38,12 @@ class BaseStreamingFixture : public ::testing::Test {
 
     void SetUpWithThreads(
         int num_streaming_threads,
-        std::unordered_map<rapidsmpf::MemoryType, std::int64_t> memory_limits = {}
+        std::optional<rapidsmpf::PinnedPoolProperties> pinned_pool_properties =
+            rapidsmpf::PinnedMemoryDisabled,
+        std::unordered_map<rapidsmpf::MemoryType, std::int64_t> memory_limits = {},
+        std::optional<rapidsmpf::Duration> periodic_spill_check =
+            std::chrono::milliseconds{1},
+        std::optional<std::filesystem::path> spill_directory = std::nullopt
     ) {
         // create a new options object, since we can not modify values in the global
         // options object
@@ -45,7 +53,13 @@ class BaseStreamingFixture : public ::testing::Test {
 
         stream = cuda::stream_ref{cudaStreamLegacy};
         br = rapidsmpf::BufferResource::create(
-            mr_cuda, rapidsmpf::PinnedMemoryDisabled, std::move(memory_limits)
+            mr_cuda,
+            pinned_pool_properties,
+            std::move(memory_limits),
+            periodic_spill_check,
+            std::make_shared<rapidsmpf::StreamPool>(16),
+            rapidsmpf::Statistics::disabled(),
+            std::move(spill_directory)
         );
         ctx = std::make_shared<rapidsmpf::streaming::Context>(
             std::move(options), GlobalEnvironment->comm_->logger(), br

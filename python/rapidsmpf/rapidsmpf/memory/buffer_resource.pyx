@@ -513,6 +513,28 @@ cdef class BufferResource:
             ret = deref(self._handle).memory_available_for_reservation(mem_type)
         return ret
 
+    def is_reservable(self, MemoryType mem_type):
+        """
+        Whether this buffer resource can reserve memory of the given type.
+
+        ``DEVICE`` and ``HOST`` are always reservable, ``PINNED_HOST`` only when
+        a pinned memory resource is available, and ``DISK`` only when a disk
+        resource is available.
+
+        Parameters
+        ----------
+        mem_type
+            The memory type to query.
+
+        Returns
+        -------
+        True if the memory type has a backing resource.
+        """
+        cdef bool_t ret
+        with nogil:
+            ret = deref(self._handle).is_reservable(mem_type)
+        return ret
+
     def memory_available(self, MemoryType mem_type):
         """
         Get the current available memory of the specified memory type.

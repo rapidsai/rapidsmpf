@@ -40,11 +40,31 @@ namespace rapidsmpf::communicator {
  * DerivedMetadataPayloadExchange(
  *     std::shared_ptr<Communicator> comm,
  *     OpID op_id,
+ *     std::vector<Rank> peers,
  *     MetadataPayloadExchange::AllocateBufferFn allocate_buffer_fn,
  *     Duration allocation_timeout,
  *     BufferResource* br
  * );
  * @endcode
+ *
+ * The exchange only communicates with its `peers`: messages can only be sent to a
+ * peer, are only received from peers, and `finish()` and `is_idle()` only involve
+ * peers. The peers must not include the calling rank or duplicates, and the peer
+ * relation must be symmetric: if rank A has rank B as a peer, rank B has rank A as a
+ * peer. This is not checked: if rank B does not have rank A as a peer, rank A waits
+ * forever for the termination marker of rank B and never becomes idle, and messages
+ * from rank A stay unreceived on rank B, where a later exchange reusing the operation
+ * ID may receive them. Use `all_remote_ranks()` to communicate with every
+ * other rank.
+ *
+ * An exchange is used in three steps:
+ * 1. Send messages with `send()`, and call `progress()`, `recv()` and `release_sent()`
+ *    regularly.
+ * 2. Call `finish()` once no more messages will be sent.
+ * 3. Keep calling `progress()`, `recv()` and `release_sent()` until `is_idle()` returns
+ *    `true`.
+ *
+ * Only then can the exchange be destroyed and its operation ID be reused.
  *
  * Receive buffers are allocated with `allocate_buffer_fn`, which is called on the
  * thread calling `progress()` and must not block or spill. Implementations follow
@@ -63,11 +83,11 @@ namespace rapidsmpf::communicator {
  * - The order in which pending allocations are retried is implementation defined.
  *
  * Payloads at rest may live on disk:
- * - When `br` has a disk resource, the payload of a message whose receive buffer was
- *   forced by the timeout is moved to disk before the message is delivered, so
- *   received messages may be disk-backed. The move blocks `progress()` while the
- *   payload is written. Without a disk resource, the payload is delivered in the
- *   forced buffer.
+ * - When `br` has a disk resource, implementations may move the payload of a message
+ *   whose receive buffer was forced by the timeout to disk before the message is
+ *   delivered, so received messages may be disk-backed. The move blocks `progress()`
+ *   while the payload is written. Without a disk resource, the payload is delivered in
+ *   the forced buffer.
  * - Only payloads in `sendable_memory_types()` of their destination can be sent.
  */
 class MetadataPayloadExchange {
@@ -85,14 +105,24 @@ class MetadataPayloadExchange {
     /**
      * @brief Function allocating a receive buffer of the given size.
      *
-     * With `AllocationMode::MAY_FAIL`, it may return `nullptr` when memory is not
-     * available right now. With `AllocationMode::MUST_SUCCEED`, it must return a
-     * buffer, for example by overbooking memory, or throw if its policy does not allow
-     * forcing an allocation. Throwing is a fatal, unrecoverable error, so only throw as
-     * the very last resort.
+     * The exchange calls it with its own buffer resource.
+     *
+     * With `AllocationMode::MAY_FAIL`, it may return `nullptr` if memory is not available
+     * right now. With `AllocationMode::MUST_SUCCEED`, it must return a buffer, for
+     * example by overbooking memory, or throw if its policy does not allow forcing an
+     * allocation. Throwing is a fatal, unrecoverable error, so only throw as the very
+     * last resort.
      */
-    using AllocateBufferFn =
-        std::function<std::unique_ptr<Buffer>(std::size_t, AllocationMode)>;
+    using AllocateBufferFn = std::function<
+        std::unique_ptr<Buffer>(BufferResource*, std::size_t, AllocationMode)>;
+
+    /**
+     * @brief What happens to an outgoing message once it has been sent.
+     */
+    enum class AfterSend : bool {
+        DISCARD,  ///< The message is discarded.
+        RETAIN,  ///< The message is retained and returned by `release_sent()`.
+    };
 
     /**
      * @brief Message class for communication.
@@ -108,11 +138,13 @@ class MetadataPayloadExchange {
          * @param peer_rank Destination (outgoing) or source (incoming) rank.
          * @param metadata Serialized metadata.
          * @param data Data buffer (can be nullptr for metadata-only messages).
+         * @param after_send What happens to an outgoing message once it has been sent.
          */
         Message(
             Rank peer_rank,
             std::vector<std::uint8_t>&& metadata,
-            std::unique_ptr<Buffer> data = nullptr
+            std::unique_ptr<Buffer> data = nullptr,
+            AfterSend after_send = AfterSend::DISCARD
         );
 
         /**
@@ -123,6 +155,15 @@ class MetadataPayloadExchange {
          */
         [[nodiscard]] constexpr Rank peer_rank() const noexcept {
             return peer_rank_;
+        }
+
+        /**
+         * @brief Get what happens to an outgoing message once it has been sent.
+         *
+         * @return Whether the message is discarded or retained for `release_sent()`.
+         */
+        [[nodiscard]] constexpr AfterSend after_send() const noexcept {
+            return after_send_;
         }
 
         /**
@@ -175,6 +216,7 @@ class MetadataPayloadExchange {
         Rank peer_rank_;
         std::vector<std::uint8_t> metadata_;
         std::unique_ptr<Buffer> data_;
+        AfterSend after_send_;
     };
 
     virtual ~MetadataPayloadExchange() = default;
@@ -245,6 +287,19 @@ class MetadataPayloadExchange {
     [[nodiscard]] virtual std::vector<std::unique_ptr<Message>> recv() = 0;
 
     /**
+     * @brief Release retained messages whose send has completed.
+     *
+     * Returns the messages sent with `AfterSend::RETAIN` whose send has completed, as
+     * detected by `progress()`. A released message is unchanged: it has its peer rank,
+     * metadata and payload, which can be reused. Messages to the same destination rank
+     * are returned in the order they were sent. No ordering is guaranteed between
+     * messages sent to different ranks.
+     *
+     * @return Vector of sent messages.
+     */
+    [[nodiscard]] virtual std::vector<std::unique_ptr<Message>> release_sent() = 0;
+
+    /**
      * @brief Signal that no more messages will be sent.
      *
      * After calling this method, no further calls to send() are permitted.
@@ -263,7 +318,8 @@ class MetadataPayloadExchange {
      *
      * Indicates whether there are any active or pending communication operations.
      * Before finish() is called, a return value of `true` means no I/O operations
-     * are in progress. After finish() is called, `true` additionally requires that
+     * are in progress, and no messages wait to be returned by `recv()` or
+     * `release_sent()`. After finish() is called, `true` additionally requires that
      * all peers have sent their termination markers and all expected messages have
      * been received, meaning the op_id can safely be reused.
      *
@@ -272,5 +328,27 @@ class MetadataPayloadExchange {
     [[nodiscard]] virtual bool is_idle() const = 0;
 };
 
+/**
+ * @brief The default receive buffer allocator of a `MetadataPayloadExchange`.
+ *
+ * See `MetadataPayloadExchange::AllocateBufferFn`. Reserves memory in
+ * `ADDRESSABLE_MEMORY_TYPES`, in order of preference, without overbooking. If nothing
+ * fits:
+ * - With `AllocationMode::MAY_FAIL`, it returns `nullptr`.
+ * - With `AllocationMode::MUST_SUCCEED`, it overbooks host memory if
+ *   `allow_overbooking_by_default()` of @p br allows it, and otherwise throws
+ *   `std::runtime_error`, which is a fatal, unrecoverable error for the exchange.
+ *
+ * @param br The buffer resource to allocate from.
+ * @param size The size of the buffer in bytes.
+ * @param mode Whether the allocation may fail.
+ * @return The buffer, or `nullptr` if @p mode allows failing and nothing fits.
+ *
+ * @throws std::runtime_error If the allocation must succeed, nothing fits, and
+ * overbooking is not allowed.
+ */
+[[nodiscard]] std::unique_ptr<Buffer> default_allocate_buffer(
+    BufferResource* br, std::size_t size, MetadataPayloadExchange::AllocationMode mode
+);
 
 }  // namespace rapidsmpf::communicator

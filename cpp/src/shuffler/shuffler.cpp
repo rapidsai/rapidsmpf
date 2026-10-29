@@ -66,45 +66,6 @@ convert_chunks_to_messages(
     return messages;
 }
 
-using AllocationMode = communicator::MetadataPayloadExchange::AllocationMode;
-
-/**
- * @brief Allocate a shuffler receive buffer.
- *
- * See `communicator::MetadataPayloadExchange::AllocateBufferFn`. The shuffler's policy
- * is to overbook host memory as a last resort: a forced allocation that doesn't fit in
- * any memory type is made in host memory, beyond the host memory limit. If
- * `allow_overbooking_by_default` is disabled, it throws instead, which is a fatal,
- * unrecoverable error.
- *
- * @param br The buffer resource to allocate from.
- * @param size The size of the buffer in bytes.
- * @param mode Whether the allocation may fail.
- * @return The buffer, or `nullptr` if @p mode allows failing and nothing fits.
- *
- * @throw std::runtime_error if the allocation must succeed, nothing fits, and
- * overbooking is not allowed.
- */
-std::unique_ptr<Buffer> allocate_receive_buffer(
-    BufferResource* br, std::size_t size, AllocationMode mode
-) {
-    auto res = br->try_reserve(size, ADDRESSABLE_MEMORY_TYPES);
-    if (!res.has_value()) {
-        if (mode == AllocationMode::MAY_FAIL) {
-            return nullptr;
-        }
-        RAPIDSMPF_EXPECTS(
-            br->allow_overbooking_by_default() == AllowOverbooking::YES,
-            "receive buffer allocation made no progress within the allocation timeout "
-            "and overbooking is not allowed",
-            std::runtime_error
-        );
-        // Fall back to overbooking host memory as a last resort.
-        res = br->reserve(MemoryType::HOST, size, AllowOverbooking::YES).first;
-    }
-    return br->make_buffer(br->stream_pool()->get_stream(), std::move(*res));
-}
-
 }  // namespace
 
 class Shuffler::Progress {
@@ -277,9 +238,8 @@ Shuffler::Shuffler(
               : std::make_unique<communicator::TagMetadataPayloadExchange>(
                     comm_,
                     op_id,
-                    [br](std::size_t size, AllocationMode mode) {
-                        return allocate_receive_buffer(br, size, mode);
-                    },
+                    all_remote_ranks(*comm_),
+                    communicator::default_allocate_buffer,
                     br->memory_reserve_timeout(),
                     br
                 )
@@ -398,13 +358,20 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
         if (headroom < 0 && packed_data.data
             && packed_data.data->mem_type() == MemoryType::DEVICE)
         {
-            // NB: the chunk may be for another rank. If the spill targets ever include
-            // `MemoryType::DISK`, this must still spill to sendable memory types only.
-            auto reservation =
-                br_->reserve_or_fail(packed_data.data->size, SPILL_TARGET_MEMORY_TYPES);
+            // NB: the chunk may be for another rank, so it must only spill to sendable
+            // (addressable) memory types.
+            auto reservation = br_->try_reserve(
+                packed_data.data->size,
+                preference_lt(MemoryType::DEVICE, ADDRESSABLE_MEMORY_TYPES)
+            );
             auto chunk = create_chunk(pid, std::move(packed_data));
-            // Spill the new chunk before inserting.
-            chunk.set_data_buffer(br_->move(chunk.release_data_buffer(), reservation));
+            // Spill the new chunk before inserting. If no target has room, the chunk
+            // is left on the device.
+            if (reservation) {
+                chunk.set_data_buffer(
+                    br_->move(chunk.release_data_buffer(), *reservation)
+                );
+            }
             insert(std::move(chunk));
         } else {
             insert(create_chunk(pid, std::move(packed_data)));

@@ -20,6 +20,7 @@
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/statistics.hpp>
 
@@ -258,7 +259,7 @@ TEST_P(AllGatherOrderedTest, allgatherv) {
 TEST_F(BaseAllGatherTest, inserts_disk_backed_data) {
     auto const& comm = GlobalEnvironment->comm_;
     TempDir temp_dir;
-    auto disk_br = create_disk_br(temp_dir);
+    auto disk_br = create_br(temp_dir.path());
     AllGather allgather{comm, 0, disk_br.get()};
     auto this_rank = comm->rank();
     constexpr int n_inserts = 3;
@@ -455,5 +456,79 @@ TEST(PostBox, spill_uses_remaining_amount) {
     postbox.insert(make_chunk(80));
     postbox.insert(make_chunk(90));
 
-    EXPECT_EQ(postbox.spill(br.get(), 100), 110UL);
+    EXPECT_EQ(
+        postbox.spill(
+            br.get(),
+            100,
+            rapidsmpf::preference_lt(
+                rapidsmpf::MemoryType::DEVICE, rapidsmpf::MEMORY_TYPES
+            )
+        ),
+        110UL
+    );
+}
+
+namespace {
+
+// Insert a device chunk of @p size bytes into @p postbox.
+void insert_device_chunk(
+    rapidsmpf::coll::detail::PostBox& postbox,
+    rapidsmpf::BufferResource& br,
+    std::size_t size
+) {
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+    auto metadata =
+        std::make_unique<std::vector<std::uint8_t>>(std::size_t{1}, std::uint8_t{0});
+    auto res = br.reserve_or_fail(size, rapidsmpf::MemoryType::DEVICE);
+    auto data = br.make_buffer(size, stream, res);
+    postbox.insert(
+        rapidsmpf::coll::detail::Chunk::from_packed_data(
+            0,
+            0,
+            rapidsmpf::coll::detail::Chunk::INVALID_RANK,
+            rapidsmpf::PackedData{std::move(metadata), std::move(data)}
+        )
+    );
+}
+
+}  // namespace
+
+// Chunks waiting to be sent must never be spilled to disk, only data at rest may.
+TEST(PostBox, spill_to_addressable_targets_never_uses_disk) {
+    TempDir temp_dir;
+    auto br = create_br(temp_dir.path(), 0);
+    rapidsmpf::coll::detail::PostBox postbox;
+    insert_device_chunk(postbox, *br, 100);
+
+    // No addressable target has room: spill() must leave the chunk in place, not throw.
+    std::size_t spilled{0};
+    EXPECT_NO_THROW(
+        spilled = postbox.spill(
+            br.get(),
+            100,
+            rapidsmpf::preference_lt(
+                rapidsmpf::MemoryType::DEVICE, rapidsmpf::ADDRESSABLE_MEMORY_TYPES
+            )
+        )
+    );
+    EXPECT_EQ(spilled, 0UL);
+    auto chunks = postbox.extract();
+    ASSERT_EQ(chunks.size(), 1);
+    EXPECT_EQ(chunks[0]->memory_type(), rapidsmpf::MemoryType::DEVICE);
+    postbox.insert(std::move(chunks[0]));
+
+    // Allowing all memory types, the chunk now spills to disk.
+    EXPECT_EQ(
+        postbox.spill(
+            br.get(),
+            100,
+            rapidsmpf::preference_lt(
+                rapidsmpf::MemoryType::DEVICE, rapidsmpf::MEMORY_TYPES
+            )
+        ),
+        100UL
+    );
+    chunks = postbox.extract();
+    ASSERT_EQ(chunks.size(), 1);
+    EXPECT_EQ(chunks[0]->memory_type(), rapidsmpf::MemoryType::DISK);
 }

@@ -199,13 +199,29 @@ void buffer_copy(
     auto const src_is_disk = src.mem_type() == MemoryType::DISK;
     auto const dst_is_disk = dst.mem_type() == MemoryType::DISK;
 
-    if (src_is_disk && dst_is_disk) {
-        RAPIDSMPF_FAIL("disk-to-disk copy is not supported", std::invalid_argument);
-    }
-
     src.latest_write_event().stream_wait(dst.stream());
     StreamOrderedTiming timing{dst.stream(), statistics};
-    if (dst_is_disk) {
+    if (src_is_disk && dst_is_disk) {
+        auto const& disk_src = *src.get_storage<Buffer::DiskBufferT>();
+        auto const& disk_dst = *dst.get_storage<Buffer::DiskBufferT>();
+        auto const file_size = disk_src.file_size();
+        auto const offset = static_cast<std::size_t>(src_offset);
+        RAPIDSMPF_EXPECTS(
+            offset <= file_size && size <= file_size - offset,
+            "src_offset + size can't be greater than the backing file size",
+            std::invalid_argument
+        );
+        auto const transferred = disk_dst.disk_resource()->copy(
+            disk_src.path(), disk_dst.path(), size, dst.stream(), src_offset, dst_offset
+        );
+        RAPIDSMPF_EXPECTS(
+            transferred == size,
+            "disk copy transferred " + format_nbytes(transferred) + " of "
+                + format_nbytes(size),
+            std::runtime_error
+        );
+        dst.record_write_event();
+    } else if (dst_is_disk) {
         auto const& disk_dst = *dst.get_storage<Buffer::DiskBufferT>();
         auto const transferred = disk_dst.disk_resource()->write(
             disk_dst.path(), src.data() + src_offset, size, dst.stream(), dst_offset

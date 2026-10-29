@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include <iostream>
+#include <sstream>
 #include <unordered_set>
 #include <vector>
 
@@ -21,6 +22,7 @@
 #include <rapidsmpf/streaming/core/fanout.hpp>
 #include <rapidsmpf/streaming/core/leaf_actor.hpp>
 
+#include "../utils.hpp"
 #include "base_streaming_fixture.hpp"
 
 using namespace rapidsmpf;
@@ -53,8 +55,14 @@ std::vector<Message> make_int_inputs(int n) {
 /**
  * @brief Helper to make a sequence of Message<Buffer>s where each buffer contains 1024
  * values of int [i, i + 1024).
+ *
+ * @param n Number of messages.
+ * @param br Buffer resource.
+ * @param mem_type Memory type of the input buffers.
  */
-std::vector<Message> make_buffer_inputs(int n, rapidsmpf::BufferResource& br) {
+std::vector<Message> make_buffer_inputs(
+    int n, rapidsmpf::BufferResource& br, MemoryType mem_type = MemoryType::DEVICE
+) {
     std::vector<Message> inputs;
     inputs.reserve(n);
 
@@ -87,8 +95,12 @@ std::vector<Message> make_buffer_inputs(int n, rapidsmpf::BufferResource& br) {
         // If the copy to the device buffer is actually stream ordered, the host values
         // might go out of scope before the copy completes.
         stream.sync();
+        if (mem_type != MemoryType::DEVICE) {
+            auto res = br.reserve_or_fail(buffer->size, mem_type);
+            buffer = br.move(std::move(buffer), res);
+        }
         ContentDescription cd{
-            std::ranges::single_view{std::pair{MemoryType::DEVICE, 1024 * sizeof(int)}},
+            std::ranges::single_view{std::pair{mem_type, 1024 * sizeof(int)}},
             ContentDescription::Spillable::YES
         };
         inputs.emplace_back(i, std::move(buffer), cd, callbacks);
@@ -543,26 +555,65 @@ TEST_P(ManyInputSinkStreamingFanout, MessageOrder) {
     EXPECT_NO_FATAL_FAILURE(run(ConsumePolicy::MESSAGE_ORDER));
 }
 
-class SpillingStreamingFanout : public BaseStreamingFixture {
+class StreamingFanoutWithMemType
+    : public BaseStreamingFixture,
+      public ::testing::WithParamInterface<std::tuple<MemoryType, MemoryType>> {
+  public:
     void SetUp() override {
-        SetUpWithThreads(4);
+        std::tie(src_mem_type, dest_mem_type) = GetParam();
+        auto pinned_pool_properties = PinnedMemoryDisabled;
+        if (src_mem_type == MemoryType::PINNED_HOST
+            || dest_mem_type == MemoryType::PINNED_HOST)
+        {
+            if (!is_pinned_memory_resources_supported()) {
+                GTEST_SKIP() << "Pinned host memory is not supported on this system";
+            }
+            pinned_pool_properties = PinnedPoolProperties{};
+        }
 
-        // override br and context with no device memory
-        std::unordered_map<MemoryType, std::int64_t> memory_limits = {
-            {MemoryType::DEVICE, 0},
-        };
-        br = rapidsmpf::BufferResource::create(
-            mr_cuda, rapidsmpf::PinnedMemoryDisabled, memory_limits
-        );
-        auto options = ctx->options();
-        ctx = std::make_shared<rapidsmpf::streaming::Context>(
-            options, GlobalEnvironment->comm_->logger(), br
+        // disable the periodic spill thread, so nothing spills in the background
+        SetUpWithThreads(
+            4, std::move(pinned_pool_properties), {}, std::nullopt, spill_dir.path()
         );
     }
+
+    TempDir spill_dir;
+    MemoryType src_mem_type;
+    MemoryType dest_mem_type;
 };
 
-TEST_F(SpillingStreamingFanout, Spilling) {
-    auto inputs = make_buffer_inputs(100, *ctx->br());
+INSTANTIATE_TEST_SUITE_P(
+    StreamingFanoutWithMemType,
+    StreamingFanoutWithMemType,
+    // All (src, dest) pairs where dest is not of higher priority than src: fanout
+    // allocates copies in the source memory type or a lower-priority one.
+    ::testing::ValuesIn([] {
+        std::vector<std::tuple<MemoryType, MemoryType>> pairs;
+        for (auto src : MEMORY_TYPES) {
+            for (auto dest : preference_leq(src, MEMORY_TYPES)) {
+                pairs.emplace_back(src, dest);
+            }
+        }
+        return pairs;
+    }()),
+    [](testing::TestParamInfo<StreamingFanoutWithMemType::ParamType> const& info) {
+        std::ostringstream ss;
+        ss << "src_" << std::get<0>(info.param) << "_dest_" << std::get<1>(info.param);
+        return ss.str();
+    }
+);
+
+TEST_P(StreamingFanoutWithMemType, OutputsInDestMemType) {
+    auto inputs = make_buffer_inputs(100, *ctx->br(), src_mem_type);
+
+    // Disallow every memory type except the destination, which forces the fanout outputs
+    // to be allocated in the destination memory type.
+    for (auto mem_type : MEMORY_TYPES) {
+        if (mem_type != dest_mem_type) {
+            ctx->br()->set_memory_limit(mem_type, 0);
+        }
+    }
+
     constexpr int num_out_chs = 4;
     constexpr FanoutPolicy policy = FanoutPolicy::UNBOUNDED;
 
@@ -588,10 +639,10 @@ TEST_F(SpillingStreamingFanout, Spilling) {
 
     for (int c = 0; c < num_out_chs; ++c) {
         SCOPED_TRACE("channel " + std::to_string(c));
-        // all messages should be in host memory
-        EXPECT_TRUE(std::ranges::all_of(outs[c], [](const Message& m) {
+        // all messages should be in the destination memory type
+        EXPECT_TRUE(std::ranges::all_of(outs[c], [&](const Message& m) {
             auto const cd = m.content_description();
-            return cd.principal_memory_type() == MemoryType::HOST
+            return cd.principal_memory_type() == dest_mem_type
                    && cd.content_size() == 1024 * sizeof(int);
         }));
     }

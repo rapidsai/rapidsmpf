@@ -4,6 +4,7 @@
  */
 
 
+#include <algorithm>
 #include <cstdint>
 #include <limits>
 #include <span>
@@ -29,6 +30,7 @@
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
+#include <rapidsmpf/memory/spill.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/statistics.hpp>
@@ -304,6 +306,69 @@ TEST(BufferResource, HostMemoryAvailabilityTracksLiveAllocations) {
     EXPECT_EQ(br->memory_available(MemoryType::HOST), 10_KiB);
 }
 
+TEST(BufferResource, MemoryAvailableForReservationOfAllTypes) {
+    auto br = BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        PinnedMemoryDisabled,
+        {{MemoryType::DEVICE, 10_KiB}, {MemoryType::HOST, 20_KiB}},
+        std::nullopt
+    );
+    auto device_res = br->reserve_or_fail(4_KiB, MemoryType::DEVICE);
+    auto [host_res, host_overbooking] =
+        br->reserve(MemoryType::HOST, 30_KiB, AllowOverbooking::YES);
+    ASSERT_EQ(host_overbooking, 10_KiB);
+
+    auto const available = br->memory_available_for_reservation();
+    EXPECT_EQ(available[MemoryType::DEVICE], 6_KiB);
+    EXPECT_EQ(available[MemoryType::HOST], -safe_cast<std::int64_t>(10_KiB));
+    // Types that are not reservable report zero.
+    EXPECT_TRUE(br->is_reservable(MemoryType::DEVICE));
+    EXPECT_TRUE(br->is_reservable(MemoryType::HOST));
+    EXPECT_FALSE(br->is_reservable(MemoryType::PINNED_HOST));
+    EXPECT_FALSE(br->is_reservable(MemoryType::DISK));
+    EXPECT_EQ(available[MemoryType::PINNED_HOST], 0);
+    EXPECT_EQ(available[MemoryType::DISK], 0);
+    for (auto mem_type : MEMORY_TYPES) {
+        EXPECT_EQ(available[mem_type], br->memory_available_for_reservation(mem_type));
+    }
+}
+
+TEST(BufferResource, SpillPartitionsToDiskWhenHostIsExhausted) {
+    TempDir temp_dir;
+    auto br = create_br(temp_dir.path(), 0);
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+    constexpr std::size_t size = 4_KiB;
+
+    std::vector<PackedData> partitions;
+    auto res = br->reserve_or_fail(size, MemoryType::DEVICE);
+    partitions.emplace_back(
+        std::make_unique<std::vector<std::uint8_t>>(std::size_t{1}, std::uint8_t{0}),
+        zeros(*br, size, stream, res)
+    );
+
+    // Pinned is disabled and host has no room, so the device data must go to disk.
+    partitions = spill_partitions(std::move(partitions), br.get());
+    ASSERT_EQ(partitions.size(), 1);
+    EXPECT_EQ(partitions[0].data->mem_type(), MemoryType::DISK);
+}
+
+TEST(BufferResource, SpillPartitionsFailsWithoutAnyTargetWithRoom) {
+    auto br = create_br(std::nullopt, 0);
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+    constexpr std::size_t size = 4_KiB;
+
+    std::vector<PackedData> partitions;
+    auto res = br->reserve_or_fail(size, MemoryType::DEVICE);
+    partitions.emplace_back(
+        std::make_unique<std::vector<std::uint8_t>>(std::size_t{1}, std::uint8_t{0}),
+        zeros(*br, size, stream, res)
+    );
+    EXPECT_THROW(
+        std::ignore = spill_partitions(std::move(partitions), br.get()),
+        std::runtime_error
+    );
+}
+
 TEST(BufferResource, RejectsZeroPinnedMaxPoolSize) {
     if (!is_pinned_memory_resources_supported()) {
         GTEST_SKIP() << "Pinned memory not supported on this system";
@@ -457,7 +522,7 @@ TEST(BufferResource, EnsureMemoryTypeRejectsInvalidArguments) {
 
 TEST(BufferResource, EnsureMemoryTypeTriesInReverseOrder) {
     TempDir temp_dir;
-    auto br = create_disk_br(temp_dir);
+    auto br = create_br(temp_dir.path());
     cuda::stream_ref stream{cudaStreamLegacy};
     std::vector<std::uint8_t> metadata{1};
     std::vector<std::uint8_t> payload{10, 20, 30};
@@ -489,7 +554,7 @@ TEST(BufferResource, EnsureMemoryTypeTriesInReverseOrder) {
 
 TEST(BufferResource, EnsureMemoryTypeThrowsWithoutOverbooking) {
     TempDir temp_dir;
-    auto br = create_disk_br(temp_dir, AllowOverbooking::NO);
+    auto br = create_br(temp_dir.path(), std::nullopt, AllowOverbooking::NO);
     cuda::stream_ref stream{cudaStreamLegacy};
     std::vector<std::uint8_t> metadata{1};
     std::vector<std::uint8_t> payload{10, 20, 30};
@@ -1044,6 +1109,7 @@ TEST(BufferResource, PinnedMrKeepsBufferResourceAlive) {
     auto br = BufferResource::create(
         rmm::mr::get_current_device_resource_ref(), PinnedPoolProperties{}
     );
+    EXPECT_TRUE(br->is_reservable(MemoryType::PINNED_HOST));
     std::weak_ptr<BufferResource> weak_br = br;
     auto stream = cuda::stream_ref{cudaStreamLegacy};
 
@@ -1161,17 +1227,6 @@ TEST(BufferResourceDisk, MoveThroughDiskReservation) {
     );
 }
 
-TEST(BufferResourceDisk, BufferCopyRejectsDiskToDisk) {
-    TempDir disk_dir;
-    auto br = make_br_with_disk(disk_dir);
-    auto stream = cuda::stream_ref{cudaStreamLegacy};
-    auto disk_a = br->make_buffer(stream, br->reserve_or_fail(64, MemoryType::DISK));
-    auto disk_b = br->make_buffer(stream, br->reserve_or_fail(64, MemoryType::DISK));
-    EXPECT_THROW(
-        buffer_copy(br->statistics(), *disk_a, *disk_b, 64), std::invalid_argument
-    );
-}
-
 TEST(BufferResource, DeviceMrIsAddressableByMemoryRecorder) {
     constexpr std::size_t kAllocBytes = 1_MiB;
 
@@ -1273,6 +1328,68 @@ TEST_P(BufferResourceDiskCopyTest, DiskBufferCopyRoundTripWithOffsets) {
     auto destination = make_buffer(source->size);
     buffer_copy(br_->statistics(), *destination, *disk_buffer, source->size, 0, offset);
     EXPECT_EQ(copy_to_uint8_vector(*destination), expected);
+}
+
+TEST_P(BufferResourceDiskCopyTest, DiskToDiskCopyWithOffsets) {
+    constexpr std::size_t src_offset = 17;
+    constexpr std::size_t dst_offset = 5;
+    constexpr std::size_t size = 1024;
+    auto source = make_buffer(size + src_offset);
+    auto const pattern = fill_pattern(*source, source->size);
+
+    auto disk_a = make_disk_backed_buffer(source->size);
+    buffer_copy(br_->statistics(), *disk_a, *source, source->size);
+    auto disk_b = make_disk_backed_buffer(size + dst_offset);
+    buffer_copy(br_->statistics(), *disk_b, *disk_a, size, dst_offset, src_offset);
+
+    auto destination = make_buffer(size);
+    buffer_copy(br_->statistics(), *destination, *disk_b, size, 0, dst_offset);
+    EXPECT_EQ(
+        copy_to_uint8_vector(*destination),
+        std::vector<std::uint8_t>(
+            pattern.begin() + src_offset, pattern.begin() + src_offset + size
+        )
+    );
+}
+
+TEST_P(BufferResourceDiskCopyTest, DiskToDiskCopyPreservesBytesOutsideRange) {
+    constexpr std::size_t size = 256;
+    constexpr std::size_t dst_offset = 100;
+    auto src_host = make_buffer(size);
+    auto const src_pattern = fill_pattern(*src_host, size);
+    auto dst_host = make_buffer(size * 2);
+    auto const dst_pattern = fill_pattern(*dst_host, size * 2);
+
+    auto disk_a = make_disk_backed_buffer(size);
+    buffer_copy(br_->statistics(), *disk_a, *src_host, size);
+    auto disk_b = make_disk_backed_buffer(size * 2);
+    buffer_copy(br_->statistics(), *disk_b, *dst_host, size * 2);
+
+    buffer_copy(br_->statistics(), *disk_b, *disk_a, size, dst_offset, 0);
+
+    auto readback = make_buffer(size * 2);
+    buffer_copy(br_->statistics(), *readback, *disk_b, size * 2);
+    auto expected = dst_pattern;
+    std::ranges::copy(src_pattern, expected.begin() + dst_offset);
+    EXPECT_EQ(copy_to_uint8_vector(*readback), expected);
+}
+
+TEST_P(BufferResourceDiskCopyTest, DiskToDiskCopyRejectsSourceRangePastFileSize) {
+    constexpr std::size_t size = 128;
+    auto source = make_buffer(size);
+    fill_pattern(*source, size);
+    auto disk_a = make_disk_backed_buffer(size);
+    buffer_copy(br_->statistics(), *disk_a, *source, size);
+    auto disk_b = make_disk_backed_buffer(size);
+
+    EXPECT_THROW(
+        buffer_copy(br_->statistics(), *disk_b, *disk_a, 2, 0, size - 1),
+        std::invalid_argument
+    );
+    EXPECT_THROW(
+        buffer_copy(br_->statistics(), *disk_b, *disk_a, size + 1, 0, 0),
+        std::invalid_argument
+    );
 }
 
 TEST_P(BufferResourceDiskCopyTest, DiskBufferCopyRejectsOutOfBoundsOffsets) {
