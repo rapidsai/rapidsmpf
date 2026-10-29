@@ -14,6 +14,7 @@
 
 #include <rapidsmpf/coll/utils.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf::coll::detail {
 
@@ -154,6 +155,42 @@ std::unique_ptr<Chunk> Chunk::deserialize(
             )
         )
     ));
+}
+
+std::unique_ptr<Chunk> Chunk::deserialize(
+    std::vector<std::uint8_t> const& metadata,
+    std::unique_ptr<Buffer> data,
+    BufferResource* br
+) {
+    ChunkID id;
+    std::memcpy(&id, metadata.data(), sizeof(ChunkID));
+    if (metadata.size() == sizeof(id)) {
+        RAPIDSMPF_EXPECTS(
+            data == nullptr, "finish chunk cannot have data", std::invalid_argument
+        );
+        return std::unique_ptr<Chunk>(new Chunk(id, Chunk::INVALID_RANK));
+    }
+    std::uint64_t data_size;
+    std::memcpy(&data_size, metadata.data() + sizeof(ChunkID), sizeof(data_size));
+    auto const offset = safe_cast<std::ptrdiff_t>(sizeof(ChunkID) + sizeof(data_size));
+    auto chunk_metadata = std::make_unique<std::vector<std::uint8_t>>(
+        metadata.begin() + offset, metadata.end()
+    );
+    if (data == nullptr) {
+        RAPIDSMPF_EXPECTS(
+            data_size == 0, "data chunk is missing its data", std::invalid_argument
+        );
+        data = br->make_buffer(
+            br->stream_pool()->get_stream(),
+            br->reserve_or_fail(data_size, ADDRESSABLE_MEMORY_TYPES)
+        );
+    }
+    RAPIDSMPF_EXPECTS(
+        data->size == data_size, "Mismatching data size", std::invalid_argument
+    );
+    return std::unique_ptr<Chunk>(
+        new Chunk(id, Chunk::INVALID_RANK, std::move(chunk_metadata), std::move(data))
+    );
 }
 
 PackedData Chunk::release() {

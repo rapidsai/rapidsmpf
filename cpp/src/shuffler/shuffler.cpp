@@ -103,7 +103,8 @@ std::unique_ptr<Buffer> allocate_receive_buffer(
             std::runtime_error
         );
         // Fall back to overbooking host memory as a last resort.
-        res = br->reserve(MemoryType::HOST, size, AllowOverbooking::YES, attributes).first;
+        res =
+            br->reserve(MemoryType::HOST, size, AllowOverbooking::YES, attributes).first;
     }
     return br->make_buffer(br->stream_pool()->get_stream(), std::move(*res));
 }
@@ -286,8 +287,9 @@ Shuffler::Shuffler(
               : std::make_unique<communicator::TagMetadataPayloadExchange>(
                     comm_,
                     op_id,
-                    [this](std::size_t size, AllocationMode mode) {
-                        return allocate_receive_buffer(br_, size, mode, attributes_);
+                    all_remote_ranks(*comm_),
+                    [this](BufferResource* br, std::size_t size, AllocationMode mode) {
+                        return allocate_receive_buffer(br, size, mode, attributes_);
                     },
                     br->memory_reserve_timeout(),
                     br

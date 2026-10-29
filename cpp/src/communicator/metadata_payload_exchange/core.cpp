@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -9,9 +9,15 @@
 namespace rapidsmpf::communicator {
 
 MetadataPayloadExchange::Message::Message(
-    Rank peer_rank, std::vector<std::uint8_t>&& metadata, std::unique_ptr<Buffer> data
+    Rank peer_rank,
+    std::vector<std::uint8_t>&& metadata,
+    std::unique_ptr<Buffer> data,
+    AfterSend after_send
 )
-    : peer_rank_(peer_rank), metadata_(std::move(metadata)), data_(std::move(data)) {}
+    : peer_rank_(peer_rank),
+      metadata_(std::move(metadata)),
+      data_(std::move(data)),
+      after_send_(after_send) {}
 
 Buffer const* MetadataPayloadExchange::Message::data() const {
     return data_.get();
@@ -30,5 +36,24 @@ void MetadataPayloadExchange::Message::set_data(std::unique_ptr<Buffer> buffer) 
     data_ = std::move(buffer);
 }
 
+std::unique_ptr<Buffer> default_allocate_buffer(
+    BufferResource* br, std::size_t size, MetadataPayloadExchange::AllocationMode mode
+) {
+    auto res = br->try_reserve(size, ADDRESSABLE_MEMORY_TYPES);
+    if (!res.has_value()) {
+        if (mode == MetadataPayloadExchange::AllocationMode::MAY_FAIL) {
+            return nullptr;
+        }
+        RAPIDSMPF_EXPECTS(
+            br->allow_overbooking_by_default() == AllowOverbooking::YES,
+            "receive buffer allocation made no progress within the allocation timeout "
+            "and overbooking is not allowed",
+            std::runtime_error
+        );
+        // Fall back to overbooking host memory as a last resort.
+        res = br->reserve(MemoryType::HOST, size, AllowOverbooking::YES).first;
+    }
+    return br->make_buffer(br->stream_pool()->get_stream(), std::move(*res));
+}
 
 }  // namespace rapidsmpf::communicator

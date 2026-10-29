@@ -449,6 +449,14 @@ constexpr bool COMM_HAVE_MPI = false;
 #endif
 
 /**
+ * @brief Get all ranks of a communicator except the calling rank.
+ *
+ * @param comm The communicator.
+ * @return The ranks in increasing order, excluding `comm.rank()`.
+ */
+[[nodiscard]] std::vector<Rank> all_remote_ranks(Communicator const& comm);
+
+/**
  * @brief Overloads the stream insertion operator for the Communicator class.
  *
  * This function allows a description of a Communicator to be written to an output
