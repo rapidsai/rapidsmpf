@@ -4,7 +4,8 @@
 import os
 import pathlib
 from collections.abc import Mapping
-from typing import Self
+from enum import IntEnum
+from typing import Literal, Self, TypedDict
 
 from rmm.pylibrmm.cuda_stream_pool import CudaStreamPool
 from rmm.pylibrmm.memory_resource import DeviceMemoryResource
@@ -21,6 +22,94 @@ from rapidsmpf.memory.pinned_memory_resource import (
 from rapidsmpf.memory.spill_manager import SpillManager
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.statistics import Statistics
+
+_ReservationAttributeValue = str | int | bool | float
+
+class ReservationRequestPolicy(IntEnum):
+    IMMEDIATE = ...
+    OVERBOOK = ...
+    SPILL = ...
+    WAIT = ...
+    WAIT_OR_OVERBOOK = ...
+    WAIT_OR_FAIL = ...
+
+class ReservationRequestOutcome(IntEnum):
+    GRANTED = ...
+    EMPTY = ...
+    FAILED = ...
+    CANCELLED = ...
+
+class ReservationResizeReason(IntEnum):
+    CONSUMED = ...
+    SPLIT_OFF = ...
+
+class ReservationReleaseReason(IntEnum):
+    CLEARED = ...
+    RELEASED_CONSUMED = ...
+    RELEASED_SPLIT = ...
+
+class _ReservationEventBase(TypedDict):
+    sequence: int
+    timestamp_ns: int
+
+class _RequestSubmittedEvent(_ReservationEventBase):
+    kind: Literal["request_submitted"]
+    id: int
+    size: int
+    memory_types: list[MemoryType]
+    policy: ReservationRequestPolicy
+    net_memory_delta: int | None
+    attributes: dict[str, _ReservationAttributeValue]
+
+class _RequestWaitingEvent(_ReservationEventBase):
+    kind: Literal["request_waiting"]
+    id: int
+
+class _RequestResolvedEvent(_ReservationEventBase):
+    kind: Literal["request_resolved"]
+    id: int
+    outcome: ReservationRequestOutcome
+    reservation_id: int
+    memory_type: MemoryType | None
+    size: int
+    overbooked_bytes: int
+    timed_out: bool
+    error: str
+
+class _ReservationCreatedEvent(_ReservationEventBase):
+    kind: Literal["reservation_created"]
+    id: int
+    memory_type: MemoryType
+    size: int
+    attributes: dict[str, _ReservationAttributeValue]
+    request_id: int
+    parent_id: int
+
+class _ReservationResizedEvent(_ReservationEventBase):
+    kind: Literal["reservation_resized"]
+    id: int
+    size: int
+    reason: ReservationResizeReason
+
+class _ReservationReleasedEvent(_ReservationEventBase):
+    kind: Literal["reservation_released"]
+    id: int
+    reason: ReservationReleaseReason
+
+class _MemoryLimitChangedEvent(_ReservationEventBase):
+    kind: Literal["memory_limit_changed"]
+    memory_type: MemoryType
+    configured_limit: int
+
+_ReservationEvent = (
+    _RequestSubmittedEvent
+    | _RequestWaitingEvent
+    | _RequestResolvedEvent
+    | _ReservationCreatedEvent
+    | _ReservationResizedEvent
+    | _ReservationReleasedEvent
+    | _MemoryLimitChangedEvent
+)
 
 class BufferResource:
     def __init__(
@@ -58,19 +147,37 @@ class BufferResource:
     def pinned_mr(self) -> PinnedMemoryResource | None: ...
     def memory_available(self, mem_type: MemoryType) -> int: ...
     def memory_available_for_reservation(self, mem_type: MemoryType) -> int: ...
+    def memory_limit(self, mem_type: MemoryType) -> int: ...
+    def has_memory_resource(self, mem_type: MemoryType) -> bool: ...
     def set_memory_limit(self, mem_type: MemoryType, limit: int) -> None: ...
+    def start_reservation_event_recording(self) -> None: ...
+    def drain_reservation_events(self) -> list[_ReservationEvent]: ...
+    def stop_reservation_event_recording(self) -> list[_ReservationEvent]: ...
     @property
     def spill_manager(self) -> SpillManager: ...
     @property
     def statistics(self) -> Statistics: ...
     def reserve(
-        self, mem_type: MemoryType, size: int, *, allow_overbooking: bool
+        self,
+        mem_type: MemoryType,
+        size: int,
+        *,
+        allow_overbooking: bool,
+        attributes: Mapping[str, str | int | bool | float] | None = None,
     ) -> tuple[MemoryReservation, int]: ...
     def reserve_device_memory_and_spill(
-        self, size: int, *, allow_overbooking: bool
+        self,
+        size: int,
+        *,
+        allow_overbooking: bool,
+        attributes: Mapping[str, str | int | bool | float] | None = None,
     ) -> MemoryReservation: ...
     def reserve_or_fail(
-        self, size: int, mem_types: list[MemoryType]
+        self,
+        size: int,
+        mem_types: list[MemoryType],
+        *,
+        attributes: Mapping[str, str | int | bool | float] | None = None,
     ) -> MemoryReservation: ...
     def release(self, reservation: MemoryReservation, size: int) -> int: ...
     def make_buffer(

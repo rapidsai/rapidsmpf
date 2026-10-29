@@ -16,7 +16,7 @@ MemoryReservation::~MemoryReservation() noexcept {
 
 void MemoryReservation::clear() noexcept {
     if (size_ > 0) {
-        br_->release(*this, size_);
+        br_->clear_reservation(*this);
     }
 }
 
@@ -27,13 +27,32 @@ MemoryReservation MemoryReservation::split(std::size_t size) {
             + format_nbytes(size) + ")",
         rapidsmpf::reservation_error
     );
+    if (size == 0) {
+        return {mem_type_, br_, 0, 0, attrs_};
+    }
     size_ -= size;
-    return {mem_type_, br_, size};
+    auto const child_id = id_ != 0 && br_->reservation_event_recording_enabled()
+                              ? br_->next_reservation_id()
+                              : 0;
+    MemoryReservation child{
+        mem_type_, br_, size, child_id, child_id == 0 ? ReservationAttributes{} : attrs_
+    };
+    if (size_ == 0) {
+        br_->emit_reservation_released(id_, ReservationReleaseReason::RELEASED_SPLIT);
+    } else {
+        br_->emit_reservation_resized(id_, size_, ReservationResizeReason::SPLIT_OFF);
+    }
+    br_->emit_reservation_created(child, 0, id_);
+    return child;
 }
 
 MemoryReservation::MemoryReservation(MemoryReservation&& o)
     : MemoryReservation{
-          o.mem_type_, std::exchange(o.br_, nullptr), std::exchange(o.size_, 0)
+          o.mem_type_,
+          std::exchange(o.br_, nullptr),
+          std::exchange(o.size_, 0),
+          std::exchange(o.id_, 0),
+          std::move(o.attrs_)
       } {}
 
 MemoryReservation& MemoryReservation::operator=(MemoryReservation&& o) noexcept {
@@ -41,6 +60,8 @@ MemoryReservation& MemoryReservation::operator=(MemoryReservation&& o) noexcept 
     mem_type_ = o.mem_type_;
     br_ = std::exchange(o.br_, nullptr);
     size_ = std::exchange(o.size_, 0);
+    id_ = std::exchange(o.id_, 0);
+    attrs_ = std::move(o.attrs_);
     return *this;
 }
 }  // namespace rapidsmpf

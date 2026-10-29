@@ -117,9 +117,9 @@ TEST_P(StreamingMemoryReserveOrWait, ShutdownEarly) {
         ctx->executor(),
         ctx->br()
     };
-
     // Create a reserve request while no memory is available.
     set_mem_avail(0);
+    br->start_reservation_event_recording();
     std::vector<Actor> actors;
     actors.push_back([](MemoryReserveOrWait& mrow) -> Actor {
         EXPECT_THROW(
@@ -138,6 +138,16 @@ TEST_P(StreamingMemoryReserveOrWait, ShutdownEarly) {
     // We expect shutdown to make `reserve_or_wait()` throw std::runtime_error.
     coro::sync_wait(mrow.shutdown());
     thd.join();
+
+    auto events = br->stop_reservation_event_recording();
+    ASSERT_EQ(events.size(), 3);
+    auto const& submitted = std::get<RequestSubmittedEvent>(events[0].data);
+    EXPECT_EQ(submitted.policy, ReservationRequestPolicy::WAIT);
+    EXPECT_EQ(submitted.net_memory_delta, 0);
+    EXPECT_EQ(std::get<RequestWaitingEvent>(events[1].data).id, submitted.id);
+    auto const& resolved = std::get<RequestResolvedEvent>(events[2].data);
+    EXPECT_EQ(resolved.id, submitted.id);
+    EXPECT_EQ(resolved.outcome, ReservationRequestOutcome::CANCELLED);
 }
 
 struct ReserveLog {
@@ -607,6 +617,34 @@ TEST_P(StreamingMemoryReserveOrWait, StatisticsRecordWaitAvoided) {
     EXPECT_THROW(
         std::ignore = stats->get_stat("reserve-device-wait-timeout"), std::out_of_range
     );
+}
+
+TEST_P(StreamingMemoryReserveOrWait, StatisticsRecordZeroSizeFastPaths) {
+    auto [br_stats, stats] = make_br_with_stats(/* device_limit = */ 0);
+    MemoryReserveOrWait mrow{
+        config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
+        MemoryType::DEVICE,
+        ctx->executor(),
+        br_stats
+    };
+
+    coro::sync_wait([](MemoryReserveOrWait& mrow) -> Actor {
+        auto waited = co_await mrow.reserve_or_wait(0, 0);
+        auto [overbooked, overbooked_bytes] =
+            co_await mrow.reserve_or_wait_or_overbook(0, 0);
+        auto failed = co_await mrow.reserve_or_wait_or_fail(0, 0);
+        EXPECT_EQ(waited.size(), 0);
+        EXPECT_EQ(overbooked.size(), 0);
+        EXPECT_EQ(overbooked_bytes, 0);
+        EXPECT_EQ(failed.size(), 0);
+    }(mrow));
+
+    auto const request_bytes = stats->get_stat("reserve-device-request-bytes");
+    EXPECT_EQ(request_bytes.count(), 3u);
+    EXPECT_EQ(request_bytes.value(), 0.0);
+    auto const avoided = stats->get_stat("reserve-device-wait-avoided");
+    EXPECT_EQ(avoided.count(), 3u);
+    EXPECT_EQ(avoided.value(), 3.0);
 }
 
 TEST_P(StreamingMemoryReserveOrWait, StatisticsRecordWaitSatisfied) {

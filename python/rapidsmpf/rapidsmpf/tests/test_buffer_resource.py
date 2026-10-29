@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -18,6 +19,9 @@ from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import (
     BufferResource,
     OwningDeviceMemoryResource,
+    ReservationReleaseReason,
+    ReservationRequestOutcome,
+    ReservationRequestPolicy,
     allow_overbooking_by_default_from_options,
     memory_reserve_timeout_from_options,
     spill_dir_from_options,
@@ -87,6 +91,122 @@ def test_memory_reservation(mem_type: MemoryType) -> None:
         match="isn't big enough",
     ):
         br.release(res1, KiB(10))
+
+
+def test_reservation_attributes_validation() -> None:
+    br = BufferResource(rmm.mr.CudaMemoryResource())
+    reservation, _ = br.reserve(
+        MemoryType.HOST,
+        1,
+        allow_overbooking=False,
+        attributes={
+            "string": "value",
+            "integer": 42,
+            "boolean": True,
+            "floating": 1.5,
+        },
+    )
+    assert reservation.size == 1
+
+    with pytest.raises(TypeError, match="mapping"):
+        br.reserve(
+            MemoryType.HOST,
+            1,
+            allow_overbooking=False,
+            attributes=["not", "a", "mapping"],  # type: ignore[arg-type]
+        )
+    with pytest.raises(TypeError, match="keys"):
+        br.reserve(
+            MemoryType.HOST,
+            1,
+            allow_overbooking=False,
+            attributes={1: "value"},  # type: ignore[dict-item]
+        )
+    with pytest.raises(TypeError, match="values"):
+        br.reserve(
+            MemoryType.HOST,
+            1,
+            allow_overbooking=False,
+            attributes={"invalid": object()},  # type: ignore[dict-item]
+        )
+
+
+def test_reservation_event_recording_lifecycle() -> None:
+    br = BufferResource(rmm.mr.CudaMemoryResource())
+    br.set_memory_limit(MemoryType.DEVICE, 10)
+    assert br.drain_reservation_events() == []
+    assert br.stop_reservation_event_recording() == []
+
+    br.start_reservation_event_recording()
+    with pytest.raises(RuntimeError, match="already active"):
+        br.start_reservation_event_recording()
+    reservation, _ = br.reserve(
+        MemoryType.DEVICE,
+        4,
+        allow_overbooking=False,
+        attributes={"site": "python", "count": 2, "enabled": True, "ratio": 1.5},
+    )
+    first = br.drain_reservation_events()
+    assert [event["kind"] for event in first] == [
+        "request_submitted",
+        "reservation_created",
+        "request_resolved",
+    ]
+    assert [event["sequence"] for event in first] == [0, 1, 2]
+    assert all(event["timestamp_ns"] > 0 for event in first)
+    assert (
+        first[0]["timestamp_ns"] < first[1]["timestamp_ns"] < first[2]["timestamp_ns"]
+    )
+    submitted = cast("Any", first[0])
+    created = cast("Any", first[1])
+    resolved = cast("Any", first[2])
+    assert submitted["memory_types"] == [MemoryType.DEVICE]
+    assert submitted["policy"] is ReservationRequestPolicy.IMMEDIATE
+    assert submitted["net_memory_delta"] is None
+    assert submitted["attributes"] == {
+        "site": "python",
+        "count": 2,
+        "enabled": True,
+        "ratio": 1.5,
+    }
+    assert created["attributes"] == submitted["attributes"]
+    assert resolved["outcome"] is ReservationRequestOutcome.GRANTED
+    assert br.drain_reservation_events() == []
+
+    reservation.clear()
+    br.set_memory_limit(MemoryType.DEVICE, -7)
+    empty, _ = br.reserve(
+        MemoryType.DEVICE,
+        1,
+        allow_overbooking=False,
+    )
+    assert empty.size == 0
+    final = br.stop_reservation_event_recording()
+    assert [event["kind"] for event in final] == [
+        "reservation_released",
+        "memory_limit_changed",
+        "request_submitted",
+        "request_resolved",
+    ]
+    assert [event["sequence"] for event in final] == [3, 4, 5, 6]
+    assert cast("Any", final[0])["reason"] is ReservationReleaseReason.CLEARED
+    assert cast("Any", final[1])["memory_type"] is MemoryType.DEVICE
+    assert cast("Any", final[1])["configured_limit"] == -7
+    assert cast("Any", final[3])["memory_type"] is None
+    assert br.stop_reservation_event_recording() == []
+
+
+def test_memory_resource_introspection() -> None:
+    br = BufferResource(
+        rmm.mr.CudaMemoryResource(),
+        memory_limits={MemoryType.HOST: 123},
+        periodic_spill_check=None,
+    )
+    assert br.memory_limit(MemoryType.HOST) == 123
+    assert br.has_memory_resource(MemoryType.DEVICE)
+    assert br.has_memory_resource(MemoryType.HOST)
+    assert not br.has_memory_resource(MemoryType.PINNED_HOST)
+    assert not br.has_memory_resource(MemoryType.DISK)
 
 
 def test_host_memory_availability_tracks_live_allocations() -> None:
