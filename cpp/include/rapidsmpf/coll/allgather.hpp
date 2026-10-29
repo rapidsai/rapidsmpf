@@ -93,6 +93,9 @@ class AllGather {
      *
      * @return A vector containing packed data from all participating ranks.
      * @throws std::runtime_error If the timeout is reached.
+     *
+     * @note Extracted buffers retain their current storage tier and may be
+     * disk-resident. Use `unspill_partitions()` when device-resident output is needed.
      */
     [[nodiscard]] std::vector<PackedData> wait_and_extract(
         Ordered ordered = Ordered::YES,

@@ -133,7 +133,9 @@ std::size_t AllGather::spill(std::optional<std::size_t> amount) {
             spilled += inserted_.spill(
                 br_,
                 spill_need - spilled,
-                preference_lt(MemoryType::DEVICE, ADDRESSABLE_MEMORY_TYPES)
+                preference_lt(
+                    MemoryType::DEVICE, exchange_->sendable_memory_types(next_rank())
+                )
             );
         }
     }
@@ -155,10 +157,10 @@ AllGather::AllGather(
     BufferResource* br,
     std::function<void(void)>&& finished_callback
 )
-    : comm_{std::move(comm)},
-      br_{br},
-      finished_callback_{std::move(finished_callback)},
-      finish_counter_{comm_->nranks()} {
+    : comm_{std::move(comm)}, br_{br}, finished_callback_{std::move(finished_callback)} {
+    RAPIDSMPF_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be null");
+    RAPIDSMPF_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be null");
+    finish_counter_.store(comm_->nranks(), std::memory_order_relaxed);
     // The peers are the next and the previous rank in the ring.
     std::set<Rank> peers;
     if (comm_->nranks() > 1) {
