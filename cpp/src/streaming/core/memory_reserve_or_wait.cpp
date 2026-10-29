@@ -144,16 +144,16 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
     };
     try {
         auto result = co_await reserve_or_wait_impl(size, net_memory_delta, scope);
-        if (result.cancelled) {
+        if (!result.has_value()) {
             scope.resolve_cancelled();
             throw ReservationCancelled{};
         }
-        if (result.reservation.size() == 0) {
-            scope.resolve_empty(result.timed_out);
+        if (result->reservation.size() == 0) {
+            scope.resolve_empty(result->timed_out);
         } else {
-            scope.resolve_granted(result);
+            scope.resolve_granted(*result);
         }
-        co_return std::move(result.reservation);
+        co_return std::move(result->reservation);
     } catch (ReservationCancelled const&) {
         throw;
     } catch (std::exception const& e) {
@@ -165,7 +165,8 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
     }
 }
 
-coro::task<detail::ReserveResult> MemoryReserveOrWait::reserve_or_wait_impl(
+coro::task<std::optional<detail::ReserveResult>>
+MemoryReserveOrWait::reserve_or_wait_impl(
     std::size_t size, std::int64_t net_memory_delta, detail::RequestScope& scope
 ) {
     // First, check whether the requested memory is immediately available.
@@ -175,7 +176,6 @@ coro::task<detail::ReserveResult> MemoryReserveOrWait::reserve_or_wait_impl(
         co_return result;
     }
     record_stat("wait-avoided", 0);
-    result.waited = true;
     scope.waiting();
 
     // Use libcoro's queue to track completion of this reservation request.
@@ -227,8 +227,7 @@ coro::task<detail::ReserveResult> MemoryReserveOrWait::reserve_or_wait_impl(
     // Suspend until our request is fulfilled.
     auto request = co_await request_queue.pop();
     if (!request.has_value()) {
-        result.cancelled = true;
-        co_return result;
+        co_return std::nullopt;
     }
     co_return std::move(*request);
 }
@@ -261,24 +260,21 @@ MemoryReserveOrWait::reserve_or_wait_or_overbook(
     };
     try {
         auto result = co_await reserve_or_wait_impl(size, net_memory_delta, scope);
-        if (result.cancelled) {
+        if (!result.has_value()) {
             scope.resolve_cancelled();
             throw ReservationCancelled{};
         }
-        if (result.reservation.size() < size) {
-            auto fallback =
-                br_->reserve_impl(mem_type_, size, AllowOverbooking::YES, &scope);
-            fallback.waited = true;
-            fallback.timed_out = true;
-            result = std::move(fallback);
-            if (result.overbooked_bytes > 0) {
+        if (result->reservation.size() < size) {
+            result = br_->reserve_impl(mem_type_, size, AllowOverbooking::YES, &scope);
+            result->timed_out = true;
+            if (result->overbooked_bytes > 0) {
                 record_stat(
-                    "overbook-bytes", static_cast<double>(result.overbooked_bytes)
+                    "overbook-bytes", static_cast<double>(result->overbooked_bytes)
                 );
             }
         }
-        scope.resolve_granted(result);
-        co_return {std::move(result.reservation), result.total_overbooked_bytes};
+        scope.resolve_granted(*result);
+        co_return {std::move(result->reservation), result->total_overbooked_bytes};
     } catch (ReservationCancelled const&) {
         throw;
     } catch (std::exception const& e) {
@@ -317,18 +313,18 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait_or_fail(
     };
     try {
         auto result = co_await reserve_or_wait_impl(size, net_memory_delta, scope);
-        if (result.cancelled) {
+        if (!result.has_value()) {
             scope.resolve_cancelled();
             throw ReservationCancelled{};
         }
         RAPIDSMPF_EXPECTS(
-            result.reservation.size() == size,
+            result->reservation.size() == size,
             "cannot reserve " + std::string{to_string(mem_type_)} + " memory ("
                 + format_nbytes(size) + ")",
             rapidsmpf::reservation_error
         );
-        scope.resolve_granted(result);
-        co_return std::move(result.reservation);
+        scope.resolve_granted(*result);
+        co_return std::move(result->reservation);
     } catch (ReservationCancelled const&) {
         throw;
     } catch (std::exception const& e) {
@@ -542,7 +538,6 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
             if (result.reservation.size() == 0) {
                 continue;  // Memory is no longer available.
             }
-            result.waited = true;
 
             // Extract the selected request and push the reservation into its queue.
             Request request = reservation_requests_.extract(it).value();
@@ -612,7 +607,6 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
         auto result = br_->reserve_impl(
             mem_type_, request.size, AllowOverbooking::NO, request.scope
         );
-        result.waited = true;
         result.timed_out = true;
 
         // Forced progress: this request ran out the timeout rather than being admitted

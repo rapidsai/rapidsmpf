@@ -103,7 +103,8 @@ void BufferResource::emit_request_resolved(
             id,
             outcome,
             result == nullptr ? 0 : result->reservation.id(),
-            result == nullptr ? std::nullopt : std::optional{result->mem_type},
+            result == nullptr ? std::nullopt
+                              : std::optional{result->reservation.mem_type()},
             result == nullptr ? 0 : result->reservation.size(),
             result == nullptr ? 0 : result->overbooked_bytes,
             timed_out,
@@ -522,9 +523,9 @@ detail::ReserveResult BufferResource::reserve_impl(
         if (overbooking > 0 && allow_overbooking == AllowOverbooking::NO) {
             return {
                 MemoryReservation(mem_type, this, 0),
-                mem_type,
                 std::min(size, overbooking),
-                overbooking
+                overbooking,
+                /* timed_out = */ false
             };
         }
         reserved += size;
@@ -540,7 +541,12 @@ detail::ReserveResult BufferResource::reserve_impl(
     if (reservation.id() != 0) {
         emit_reservation_created(reservation, request == nullptr ? 0 : request->id(), 0);
     }
-    return {std::move(reservation), mem_type, std::min(size, overbooking), overbooking};
+    return {
+        std::move(reservation),
+        std::min(size, overbooking),
+        overbooking,
+        /* timed_out = */ false
+    };
 }
 
 MemoryReservation BufferResource::reserve_device_memory_and_spill(

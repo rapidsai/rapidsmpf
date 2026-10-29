@@ -327,7 +327,7 @@ class MemoryReserveOrWait {
      * extracted and all in-flight work has finished.
      */
     coro::task<void> periodic_memory_check();
-    coro::task<detail::ReserveResult> reserve_or_wait_impl(
+    coro::task<std::optional<detail::ReserveResult>> reserve_or_wait_impl(
         std::size_t size, std::int64_t net_memory_delta, detail::RequestScope& scope
     );
 

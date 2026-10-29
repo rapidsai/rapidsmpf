@@ -64,13 +64,21 @@ namespace detail {
 
 /// @cond
 struct ReserveResult {
+    ReserveResult(
+        MemoryReservation reservation,
+        std::size_t overbooked_bytes,
+        std::size_t total_overbooked_bytes,
+        bool timed_out
+    )
+        : reservation{std::move(reservation)},
+          overbooked_bytes{overbooked_bytes},
+          total_overbooked_bytes{total_overbooked_bytes},
+          timed_out{timed_out} {}
+
     MemoryReservation reservation;
-    MemoryType mem_type{MemoryType::HOST};
-    std::size_t overbooked_bytes{0};
-    std::size_t total_overbooked_bytes{0};
-    bool waited{false};
-    bool timed_out{false};
-    bool cancelled{false};
+    std::size_t overbooked_bytes;
+    std::size_t total_overbooked_bytes;
+    bool timed_out;
 };
 
 class RequestScope {
