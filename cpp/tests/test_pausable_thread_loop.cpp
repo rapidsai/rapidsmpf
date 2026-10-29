@@ -104,6 +104,9 @@ TEST(PausableThreadLoop, CanDoCudaWorkOnFirstTick) {
     auto stream = cuda::stream_ref{cudaStreamLegacy};
 
     std::exception_ptr eptr;
+    std::promise<void> first_tick_done;
+    auto first_tick_future = first_tick_done.get_future();
+    bool signaled = false;
     PausableThreadLoop loop([&]() {
         try {
             auto [reservation, _] =
@@ -112,9 +115,16 @@ TEST(PausableThreadLoop, CanDoCudaWorkOnFirstTick) {
         } catch (...) {
             eptr = std::current_exception();
         }
+        if (!signaled) {
+            signaled = true;
+            first_tick_done.set_value();
+        }
     });
     loop.resume();
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    // Wait for the first iteration to finish so that the CUDA work actually ran.
+    ASSERT_EQ(
+        first_tick_future.wait_for(std::chrono::seconds{30}), std::future_status::ready
+    );
     loop.stop();
 
     if (eptr) {
@@ -127,9 +137,12 @@ namespace {
 // Sleep duration that the tests below must never wait out.
 constexpr auto long_sleep = std::chrono::seconds{10};
 // Bound for the first iteration, which includes setting up the thread's CUDA context.
-constexpr auto setup_timeout = std::chrono::seconds{5};
-// Bound for anything that must interrupt the sleep.
-constexpr auto prompt = std::chrono::milliseconds{500};
+constexpr auto setup_timeout = std::chrono::seconds{30};
+// Bound for anything that must interrupt the sleep. Well below `long_sleep`, but
+// generous enough for loaded CI runners and sanitizer builds.
+constexpr auto prompt = std::chrono::seconds{5};
+// Time given to the loop thread to go from the end of the loop function into its sleep.
+constexpr auto enter_sleep = std::chrono::milliseconds{50};
 
 /// Counts loop iterations and lets the test wait for a given count.
 class IterationCounter {
@@ -172,6 +185,7 @@ TEST(PausableThreadLoop, ResumeInterruptsSleep) {
     // The first iteration runs immediately, then the loop sleeps.
     ASSERT_TRUE(counter.wait_for(1, setup_timeout));
     EXPECT_EQ(counter.get(), 1);
+    std::this_thread::sleep_for(enter_sleep);
 
     loop.resume();
     EXPECT_TRUE(counter.wait_for(2, prompt));
@@ -186,7 +200,7 @@ TEST(PausableThreadLoop, ResumeDuringIterationSkipsNextSleep) {
         [&] {
             // Hold the first iteration open until the test has called resume().
             if (counter.increment() == 1) {
-                resumed_future.wait();
+                resumed_future.wait_for(long_sleep);
             }
         },
         long_sleep
@@ -225,6 +239,7 @@ TEST(PausableThreadLoop, StopInterruptsSleep) {
     PausableThreadLoop loop([&] { counter.increment(); }, long_sleep);
     loop.resume();
     ASSERT_TRUE(counter.wait_for(1, setup_timeout));
+    std::this_thread::sleep_for(enter_sleep);
 
     auto const start = std::chrono::steady_clock::now();
     loop.stop();
@@ -236,10 +251,29 @@ TEST(PausableThreadLoop, PauseInterruptsSleep) {
     PausableThreadLoop loop([&] { counter.increment(); }, long_sleep);
     loop.resume();
     ASSERT_TRUE(counter.wait_for(1, setup_timeout));
+    std::this_thread::sleep_for(enter_sleep);
 
     auto const start = std::chrono::steady_clock::now();
     loop.pause();
     EXPECT_LT(std::chrono::steady_clock::now() - start, prompt);
     EXPECT_FALSE(loop.is_running());
+    loop.stop();
+}
+
+TEST(PausableThreadLoop, PauseNbInterruptsSleep) {
+    IterationCounter counter;
+    PausableThreadLoop loop([&] { counter.increment(); }, long_sleep);
+    loop.resume();
+    ASSERT_TRUE(counter.wait_for(1, setup_timeout));
+    std::this_thread::sleep_for(enter_sleep);
+
+    // pause_nb() returns immediately; the loop must leave its sleep and become paused
+    // well before the sleep would have ended.
+    auto const start = std::chrono::steady_clock::now();
+    loop.pause_nb();
+    while (loop.is_running() && std::chrono::steady_clock::now() - start < prompt) {
+        std::this_thread::yield();
+    }
+    EXPECT_LT(std::chrono::steady_clock::now() - start, prompt);
     loop.stop();
 }

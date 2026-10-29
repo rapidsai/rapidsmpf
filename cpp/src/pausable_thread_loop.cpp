@@ -13,6 +13,8 @@ namespace rapidsmpf::detail {
 PausableThreadLoop::PausableThreadLoop(std::function<void()> func, Duration sleep) {
     thread_ = std::thread([this, f = std::move(func), sleep]() {
         bool is_thread_initialized = false;
+        auto const sleep_dur =
+            std::chrono::duration_cast<std::chrono::steady_clock::duration>(sleep);
 
         while (true) {
             // wait until the thread is not paused
@@ -48,8 +50,8 @@ PausableThreadLoop::PausableThreadLoop(std::function<void()> func, Duration slee
 
             f();
 
-            if (sleep > std::chrono::seconds{0}) {
-                auto const deadline = std::chrono::steady_clock::now() + sleep;
+            if (sleep_dur > std::chrono::steady_clock::duration::zero()) {
+                auto const deadline = std::chrono::steady_clock::now() + sleep_dur;
                 lock.lock();
                 cv_.wait_until(lock, deadline, [&] { return state_ != State::Running; });
                 lock.unlock();

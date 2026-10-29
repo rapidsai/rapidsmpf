@@ -123,7 +123,7 @@ class PausableThreadLoop {
     // | STOPPED    | no_op   | X        | X      | X       | X       | X          |
     // | STOPPING   | e_loop  | no_op    | X      | X       | X       | X          |
     // | PAUSED     | X       | stop     | no_op  | X       | X       | resume     |
-    // | PAUSING    | e_loop  | stop     | e_loop | no_op   | X       | resume     |
+    // | PAUSING    | X       | stop     | e_loop | no_op   | X       | resume     |
     // | RUNNING    | X       | stop     | X      | pause   | no_op   | resume     |
     // | SKIP_SLEEP | X       | stop     | X      | pause   | e_loop  | no_op      |
     //
