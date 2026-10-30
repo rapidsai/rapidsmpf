@@ -644,3 +644,46 @@ TEST_F(SparseAlltoallTest, simultaneous_different_tags) {
         }
     }
 }
+
+TEST_F(SparseAlltoallTest, forces_receive_allocations_without_memory) {
+    auto const& comm = GlobalEnvironment->comm_;
+    auto [srcs, dsts] = ring_peers(comm);
+    // No device or host memory is available, so every receive allocation has to wait
+    // for the timeout and is then forced by overbooking host memory.
+    auto full_br = rapidsmpf::BufferResource::create(
+        rmm::mr::cuda_memory_resource{},
+        rapidsmpf::PinnedMemoryDisabled,
+        {{rapidsmpf::MemoryType::DEVICE, 0}, {rapidsmpf::MemoryType::HOST, 0}},
+        std::nullopt,
+        std::make_shared<rapidsmpf::StreamPool>(1),
+        rapidsmpf::Statistics::disabled(),
+        std::nullopt,
+        std::chrono::milliseconds{1}
+    );
+    rapidsmpf::coll::SparseAlltoall exchange(comm, 0, full_br.get(), srcs, dsts);
+    if (!dsts.empty()) {
+        for (int i = 0; i < 3; ++i) {
+            exchange.insert(
+                dsts.front(),
+                make_payload(
+                    comm->rank() * 10 + i,
+                    comm->rank() * 100 + i,
+                    rapidsmpf::MemoryType::DEVICE,
+                    *br,
+                    br->stream_pool()->get_stream()
+                )
+            );
+        }
+    }
+    exchange.insert_finished();
+    exchange.wait(std::chrono::seconds{30});
+    if (!srcs.empty()) {
+        auto received = exchange.extract(srcs.front());
+        ASSERT_EQ(received.size(), 3);
+        for (int i = 0; i < 3; ++i) {
+            EXPECT_EQ(received[i].data->mem_type(), rapidsmpf::MemoryType::HOST);
+            EXPECT_EQ(decode_metadata(received[i]), srcs.front() * 10 + i);
+            EXPECT_EQ(decode_payload(received[i]), srcs.front() * 100 + i);
+        }
+    }
+}

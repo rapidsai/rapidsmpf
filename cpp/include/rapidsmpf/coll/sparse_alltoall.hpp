@@ -17,6 +17,7 @@
 
 #include <rapidsmpf/coll/utils.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/communicator/metadata_payload_exchange/core.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/memory/spill_manager.hpp>
@@ -157,17 +158,6 @@ class SparseAlltoall {
     [[nodiscard]] std::vector<PackedData> extract(Rank src);
 
   private:
-    struct SourceState {
-        std::uint64_t expected_count{0};
-        std::uint64_t received_count{0};
-        detail::PostBox chunks{};  ///< Ready chunks, spillable.
-        std::vector<std::unique_ptr<detail::Chunk>> incoming{};
-
-        [[nodiscard]] bool ready() const noexcept {
-            return expected_count > 0 && expected_count == received_count;
-        }
-    };
-
     /**
      * @brief Attempt to spill device memory from the ready (received) chunks.
      *
@@ -183,14 +173,8 @@ class SparseAlltoall {
 
     /// @brief Send all ready messages.
     void send_ready_messages();
-    /// @brief Post receives for any outstanding metadata messages.
-    void receive_metadata_messages();
-    /// @brief Post receives for expected data messages.
-    void receive_data_messages();
-    /// @brief Complete receives for data messages.
-    void complete_data_messages();
-    /// @brief @return true if all internal containers are empty.
-    [[nodiscard]] bool containers_empty() const;
+    /// @brief Receive completed messages from the exchange.
+    void receive_messages();
     /// @brief @return Progress the communication state and return the progress state.
     [[nodiscard]] ProgressThread::ProgressState event_loop();
 
@@ -202,15 +186,14 @@ class SparseAlltoall {
 
     mutable std::mutex mutex_;
     std::condition_variable cv_;
-    OpID op_id_;
     std::atomic<bool> locally_finished_{false};
     bool can_extract_{false};
 
     detail::PostBox outgoing_{};
-    std::vector<std::unique_ptr<detail::Chunk>> receive_posted_;
-    std::vector<std::unique_ptr<Communicator::Future>> receive_futures_;
-    std::vector<std::unique_ptr<Communicator::Future>> fire_and_forget_;
-    std::unordered_map<Rank, SourceState> source_states_;
+    /// @brief Received chunks per source rank, spillable.
+    std::unordered_map<Rank, detail::PostBox> received_;
+    /// @brief Exchange used for communication.
+    std::unique_ptr<communicator::MetadataPayloadExchange> exchange_;
     std::function<void()> finished_callback_;
     ProgressThread::FunctionID function_id_;
     SpillManager::SpillFunctionID spill_function_id_{};  ///< Function ID for spilling
