@@ -14,7 +14,6 @@
 
 #include <rmm/mr/per_device_resource.hpp>
 
-#include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/streaming/chunks/packed_data.hpp>
 #include <rapidsmpf/streaming/core/spillable_messages.hpp>
@@ -149,23 +148,14 @@ TEST_F(StreamingSpillableMessages, SpillWithoutReservation) {
 TEST_F(StreamingSpillableMessages, DiskSpill) {
     TempDir disk_dir;
     auto disk_br = create_br(disk_dir.path(), 0);  // No host room, so spill goes to disk.
-    constexpr std::size_t size = 256;
-    std::vector<std::uint8_t> expected(size);
-    for (std::size_t i = 0; i < size; ++i) {
-        expected[i] = static_cast<std::uint8_t>(i);
-    }
-    auto data =
-        disk_br->make_buffer(stream, disk_br->reserve_or_fail(size, MemoryType::DEVICE));
-    data->write_access([&](std::byte* ptr, cuda::stream_ref copy_stream) {
-        RAPIDSMPF_CUDA_TRY(cuda_memcpy_async(ptr, expected.data(), size, copy_stream));
-    });
-    data->stream().sync();
+    constexpr std::size_t n_elements = 64;
+    constexpr std::size_t size = n_elements * sizeof(int);
 
     SpillableMessages msgs;
     auto mid = msgs.insert(to_message(
         0,
         std::make_unique<PackedData>(
-            std::make_unique<std::vector<std::uint8_t>>(1, 42), std::move(data)
+            generate_packed_data(n_elements, 0, stream, *disk_br)
         )
     ));
     EXPECT_EQ(msgs.spill(mid, disk_br.get()), size);
@@ -174,9 +164,7 @@ TEST_F(StreamingSpillableMessages, DiskSpill) {
     // Extraction returns the message in its current (disk) memory tier.
     auto spilled = msgs.extract(mid).release<PackedData>();
     EXPECT_EQ(spilled.data->mem_type(), MemoryType::DISK);
-    EXPECT_EQ(
-        spilled.data->get_storage<Buffer::DiskBufferT>()->copy_to_uint8_vector(), expected
-    );
+    validate_packed_data(std::move(spilled), n_elements, 0, stream, *disk_br);
 }
 
 TEST_F(StreamingSpillableMessages, MultiThreadedRandomInsertSpillExtract) {

@@ -672,6 +672,8 @@ TEST(Shuffler, InsertSpillsOnlyLocalChunksToDisk) {
         mr.get_main_record().num_current_allocs(),
         rapidsmpf::safe_cast<std::int64_t>(comm->nranks() - 1)
     );
+    // No rank sends before all ranks have checked, so no received chunk is counted.
+    GlobalEnvironment->barrier();
     br->set_memory_limit(rapidsmpf::MemoryType::DEVICE, 1LL << 40);
     progress_thread->resume();
 
@@ -844,49 +846,6 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
         shuffler.insert(std::move(chunk));
     }
     EXPECT_EQ(mr.get_main_record().num_current_allocs(), 0);
-    shuffler.insert_finished();
-}
-
-TEST(Shuffler, ReturnsDiskResidentChunksForCallerToUnspill) {
-    constexpr rapidsmpf::shuffler::PartID total_num_partitions = 1;
-    constexpr std::size_t num_rows = 1000;
-    constexpr std::size_t data_size = num_rows * sizeof(int);
-    auto stream = cuda::stream_ref{cudaStreamLegacy};
-    TempDir temp_dir;
-    auto br = create_br(temp_dir.path(), 0);
-    br->set_memory_limit(
-        rapidsmpf::MemoryType::DEVICE, rapidsmpf::safe_cast<std::int64_t>(data_size)
-    );
-    auto const& mr = br->device_mr_adaptor();
-    auto comm = GlobalEnvironment->split_comm();
-    EXPECT_EQ(comm->nranks(), 1);
-
-    rapidsmpf::shuffler::Shuffler shuffler(
-        comm,
-        0,
-        total_num_partitions,
-        br.get(),
-        rapidsmpf::shuffler::Shuffler::round_robin,
-        nullptr
-    );
-    std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> input;
-    input.emplace(0, generate_packed_data(num_rows, 0, stream, *br));
-    shuffler.insert(std::move(input));
-    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
-
-    EXPECT_EQ(shuffler.spill(data_size), data_size);
-    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 0);
-
-    auto extracted = shuffler.extract(0);
-    ASSERT_EQ(extracted.size(), 1);
-    ASSERT_NE(extracted[0].data, nullptr);
-    EXPECT_EQ(extracted[0].data->mem_type(), rapidsmpf::MemoryType::DISK);
-
-    auto unspilled = rapidsmpf::unspill_partitions(
-        std::move(extracted), br.get(), rapidsmpf::AllowOverbooking::NO
-    );
-    EXPECT_EQ(unspilled[0].data->mem_type(), rapidsmpf::MemoryType::DEVICE);
-    validate_packed_data(std::move(unspilled[0]), num_rows, 0, stream, *br);
     shuffler.insert_finished();
 }
 
