@@ -127,35 +127,6 @@ std::unique_ptr<std::vector<std::uint8_t>> Chunk::serialize() const {
 }
 
 std::unique_ptr<Chunk> Chunk::deserialize(
-    std::vector<std::uint8_t>& data, BufferResource* br
-) {
-    ChunkID id;
-    std::uint64_t data_size;
-    std::memcpy(&id, data.data(), sizeof(ChunkID));
-    if (data.size() == sizeof(id)) {
-        return std::unique_ptr<Chunk>(new Chunk(id, Chunk::INVALID_RANK));
-    }
-    std::memcpy(&data_size, data.data() + sizeof(ChunkID), sizeof(data_size));
-    auto metadata = std::make_unique<std::vector<std::uint8_t>>(
-        data.size() - sizeof(ChunkID) - sizeof(data_size)
-    );
-    std::memcpy(
-        metadata->data(),
-        data.data() + sizeof(ChunkID) + sizeof(data_size),
-        metadata->size()
-    );
-    return std::unique_ptr<Chunk>(new Chunk(
-        id,
-        Chunk::INVALID_RANK,
-        std::move(metadata),
-        br->make_buffer(
-            br->stream_pool()->get_stream(),
-            br->reserve_or_fail(data_size, ADDRESSABLE_MEMORY_TYPES)
-        )
-    ));
-}
-
-std::unique_ptr<Chunk> Chunk::deserialize(
     std::vector<std::uint8_t> const& metadata,
     std::unique_ptr<Buffer> data,
     BufferResource* br
@@ -294,31 +265,6 @@ std::size_t PostBox::spill(
         spillable_chunks.pop_back();
     }
     return total_spilled;
-}
-
-std::vector<std::unique_ptr<Chunk>> test_some(
-    std::vector<std::unique_ptr<Chunk>>& chunks,
-    std::vector<std::unique_ptr<Communicator::Future>>& futures,
-    Communicator* comm
-) {
-    RAPIDSMPF_EXPECTS(
-        chunks.size() == futures.size(), "Mismatching size for chunks and futures"
-    );
-    if (chunks.empty()) {
-        return {};
-    }
-    auto [complete_futures, indices] = comm->test_some(futures);
-    std::vector<std::unique_ptr<Chunk>> result;
-    result.reserve(complete_futures.size());
-    std::ranges::transform(
-        indices, complete_futures, std::back_inserter(result), [&](auto i, auto&& fut) {
-            auto chunk = std::move(chunks[i]);
-            chunk->attach_data_buffer(comm->release_data(std::move(fut)));
-            return std::move(chunk);
-        }
-    );
-    std::erase(chunks, nullptr);
-    return result;
 }
 
 }  // namespace rapidsmpf::coll::detail
