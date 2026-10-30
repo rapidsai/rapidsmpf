@@ -359,7 +359,7 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
             && packed_data.data->mem_type() == MemoryType::DEVICE)
         {
             // A chunk for another rank may only spill to memory types it can be sent
-            // from; a local chunk may spill anywhere, including disk.
+            // from. A local chunk may spill anywhere, including disk.
             auto const spill_targets = preference_lt(
                 MemoryType::DEVICE,
                 is_remote ? mpe_->sendable_memory_types(dst_rank)

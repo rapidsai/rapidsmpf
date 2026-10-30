@@ -146,8 +146,11 @@ std::string Chunk::str() const {
     ss << ", expected_num_chunks=" << expected_num_chunks_;
     ss << ", metadata_size=" << metadata_size_;
     ss << ", data_size=" << data_size_;
+    ss << ", data_memory_type=";
     if (data_) {
-        ss << ", data_memory_type=" << data_->mem_type();
+        ss << data_->mem_type();
+    } else {
+        ss << "n/a";
     }
     ss << ")";
     return ss.str();
