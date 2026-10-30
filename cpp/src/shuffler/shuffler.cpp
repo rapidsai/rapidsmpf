@@ -112,7 +112,7 @@ class Shuffler::Progress {
                 };
 
                 for (auto const& chunk : ready_chunks) {
-                    if (chunk.is_data_buffer_set() && chunk.data_size() > 0) {
+                    if (chunk.data_size() > 0) {
                         stats->add_bytes_stat("shuffle-payload-send", chunk.data_size());
                     }
                 }

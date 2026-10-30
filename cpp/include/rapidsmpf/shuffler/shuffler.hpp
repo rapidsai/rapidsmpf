@@ -232,8 +232,8 @@ class Shuffler {
      * To ensure the partition is complete, use `wait()`
      * or another appropriate synchronization mechanism beforehand.
      *
-     * @note When the buffer resource has a disk resource, chunks received under memory
-     * pressure are stored on disk, so extracted chunks may be disk-backed. Use
+     * @note When the buffer resource has a disk resource, chunks spilled under memory
+     * pressure may be stored on disk, so extracted chunks may be disk-backed. Use
      * `unspill_partitions()` to move them back to device memory.
      *
      * @param pid The ID of the partition to extract.
