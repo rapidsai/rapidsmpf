@@ -4,6 +4,8 @@
  */
 
 #include <cstdint>
+#include <memory>
+#include <optional>
 
 #include <gtest/gtest.h>
 #include <ucp/api/ucp.h>
@@ -45,5 +47,22 @@ INSTANTIATE_TEST_SUITE_P(
         ProgressModeFeatureFlagsParam{rapidsmpf::ucxx::ProgressMode::ThreadPolling, false}
     )
 );
+
+TEST(UCXXLifetimeTest, ReleasesSharedResourcesWhenCommunicatorIsDestroyed) {
+    auto options =
+        rapidsmpf::config::Options(rapidsmpf::config::get_environment_variables());
+    auto initialized_rank = rapidsmpf::ucxx::init(nullptr, 1, std::nullopt, options);
+    std::weak_ptr<rapidsmpf::ucxx::SharedResources> resources =
+        initialized_rank->shared_resources_;
+    auto communicator = std::make_shared<rapidsmpf::ucxx::UCXX>(
+        std::move(initialized_rank),
+        std::make_shared<rapidsmpf::ProgressThread>(),
+        rapidsmpf::Logger::from_options(options)
+    );
+
+    communicator.reset();
+
+    EXPECT_TRUE(resources.expired());
+}
 
 }  // namespace
