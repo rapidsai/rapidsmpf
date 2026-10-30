@@ -7,6 +7,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstring>
+#include <filesystem>
 #include <future>
 #include <memory>
 #include <thread>
@@ -152,6 +153,41 @@ TEST(ReceivedChunks, data_size_ignores_control_and_repeated_spill) {
     // Nothing is left on the device, so a second spill is a no-op.
     EXPECT_EQ(received.spill(br.get(), /*amount=*/1024), 0UL);
     check_data_sizes();
+}
+
+TEST(ReceivedChunks, spill_to_disk_and_unspill) {
+    using rapidsmpf::MemoryType;
+    constexpr std::size_t n_elements = 100;
+    constexpr std::size_t data_size = n_elements * sizeof(int);
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+    TempDir temp_dir;
+    auto br = create_br(temp_dir.path(), 0);  // No host room, so spill goes to disk.
+
+    rapidsmpf::shuffler::detail::ReceivedChunks received;
+    received.insert(
+        rapidsmpf::shuffler::detail::Chunk::from_packed_data(
+            0, 0, generate_packed_data(n_elements, 0, stream, *br)
+        )
+    );
+    EXPECT_EQ(received.spill(br.get(), data_size), data_size);
+    EXPECT_EQ(received.data_size(MemoryType::DISK), data_size);
+
+    auto chunks = received.extract(0);
+    ASSERT_EQ(chunks.size(), 1);
+    auto data = chunks[0].release_data_buffer();
+    ASSERT_EQ(data->mem_type(), MemoryType::DISK);
+    auto const path = data->get_storage<rapidsmpf::Buffer::DiskBufferT>()->path();
+    EXPECT_TRUE(std::filesystem::exists(path));
+
+    std::vector<rapidsmpf::PackedData> packed_data;
+    packed_data.emplace_back(chunks[0].release_metadata_buffer(), std::move(data));
+    auto restored = rapidsmpf::unspill_partitions(
+        std::move(packed_data), br.get(), rapidsmpf::AllowOverbooking::NO
+    );
+    ASSERT_EQ(restored.size(), 1);
+    EXPECT_EQ(restored[0].data->mem_type(), MemoryType::DEVICE);
+    EXPECT_FALSE(std::filesystem::exists(path));
+    validate_packed_data(std::move(restored[0]), n_elements, 0, stream, *br);
 }
 
 TEST(MetadataMessage, round_trip) {
@@ -597,31 +633,73 @@ TEST(Shuffler, RejectsNullBufferResource) {
     );
 }
 
-// Chunks inserted by a spilling shuffler wait to be sent, so they can't be spilled to
-// disk. When host memory has no room, insert() must leave them on the device instead of
-// throwing. Where the chunks end up afterwards is not observable: once received they are
-// at rest and may legitimately spill to disk.
-TEST(Shuffler, InsertSpillWillNotSpillToDisk) {
+// Chunks for another rank wait to be sent, so insert() must not spill them to disk.
+// With no host room, insert() spills the local chunk to disk and leaves the remote
+// chunks on the device.
+TEST(Shuffler, InsertSpillsOnlyLocalChunksToDisk) {
     auto const& comm = GlobalEnvironment->comm_;
-    // With a single rank every chunk is local, so every chunk is spillable.
-    if (comm->nranks() != 1) {
-        GTEST_SKIP() << "Test requires a single rank";
+    if (comm->nranks() < 2) {
+        GTEST_SKIP() << "Test requires multiple ranks";
     }
     auto stream = cuda::stream_ref{cudaStreamLegacy};
     constexpr std::size_t n_elements = 100;
     TempDir temp_dir;
     auto br = create_br(temp_dir.path(), 0);
-    // A negative device limit makes insert() want to spill every chunk.
-    br->set_memory_limit(rapidsmpf::MemoryType::DEVICE, -(1LL << 40));
-    constexpr rapidsmpf::shuffler::PartID total_num_partitions = 2;
+    auto const& mr = br->device_mr_adaptor();
+    auto const total_num_partitions =
+        rapidsmpf::safe_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
     rapidsmpf::shuffler::Shuffler shuffler(comm, 0, total_num_partitions, br.get());
 
+    // The offset encodes the inserting rank and the partition.
+    auto offset = [&](rapidsmpf::Rank rank, rapidsmpf::shuffler::PartID pid) {
+        return rapidsmpf::safe_cast<int>(rank) * 1000
+               + rapidsmpf::safe_cast<int>(pid) * 10;
+    };
     std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> chunks;
     for (rapidsmpf::shuffler::PartID pid = 0; pid < total_num_partitions; ++pid) {
-        chunks.emplace(pid, generate_packed_data(n_elements, 0, stream, *br));
+        chunks.emplace(
+            pid, generate_packed_data(n_elements, offset(comm->rank(), pid), stream, *br)
+        );
     }
-    EXPECT_NO_THROW(shuffler.insert(std::move(chunks)));
+
+    // Pause the progress thread so the remote chunks stay in the shuffler, and use a
+    // negative device limit so insert() spills every chunk it can.
+    auto progress_thread = comm->progress_thread();
+    progress_thread->pause();
+    br->set_memory_limit(rapidsmpf::MemoryType::DEVICE, -(1LL << 40));
+    shuffler.insert(std::move(chunks));
+    EXPECT_EQ(
+        mr.get_main_record().num_current_allocs(),
+        rapidsmpf::safe_cast<std::int64_t>(comm->nranks() - 1)
+    );
+    // No rank sends before all ranks have checked, so no received chunk is counted.
+    GlobalEnvironment->barrier();
+    br->set_memory_limit(rapidsmpf::MemoryType::DEVICE, 1LL << 40);
+    progress_thread->resume();
+
     shuffler.insert_finished();
+    shuffler.wait(std::chrono::seconds{30});
+    for (auto pid : shuffler.local_partitions()) {
+        auto extracted = rapidsmpf::unspill_partitions(
+            shuffler.extract(pid), br.get(), rapidsmpf::AllowOverbooking::YES
+        );
+        ASSERT_EQ(extracted.size(), rapidsmpf::safe_cast<std::size_t>(comm->nranks()));
+        std::vector<int> offsets;
+        for (auto& packed_data : extracted) {
+            int first;
+            std::memcpy(&first, packed_data.metadata->data(), sizeof(first));
+            offsets.push_back(first);
+            EXPECT_NO_FATAL_FAILURE(validate_packed_data(
+                std::move(packed_data), n_elements, first, stream, *br
+            ));
+        }
+        std::ranges::sort(offsets);
+        for (rapidsmpf::Rank rank = 0; rank < comm->nranks(); ++rank) {
+            EXPECT_EQ(
+                offsets[rapidsmpf::safe_cast<std::size_t>(rank)], offset(rank, pid)
+            );
+        }
+    }
 }
 
 TEST(Shuffler, InsertsDiskBackedData) {
@@ -768,6 +846,48 @@ TEST(Shuffler, SpillOnInsertAndExtraction) {
         shuffler.insert(std::move(chunk));
     }
     EXPECT_EQ(mr.get_main_record().num_current_allocs(), 0);
+    shuffler.insert_finished();
+}
+
+TEST(Shuffler, SpillToDiskOnInsert) {
+    constexpr rapidsmpf::shuffler::PartID num_partitions = 1;
+    constexpr std::int64_t force_spill_limit = -(1LL << 40);
+    constexpr std::int64_t available_limit = 1LL << 40;
+    constexpr std::size_t num_rows = 1000;
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+    TempDir temp_dir;
+    auto br = create_br(temp_dir.path(), 0);
+    br->set_memory_limit(rapidsmpf::MemoryType::DEVICE, force_spill_limit);
+    auto const& mr = br->device_mr_adaptor();
+    auto comm = GlobalEnvironment->split_comm();
+    EXPECT_EQ(comm->nranks(), 1);
+
+    rapidsmpf::shuffler::Shuffler shuffler(
+        comm,
+        0,
+        num_partitions,
+        br.get(),
+        rapidsmpf::shuffler::Shuffler::round_robin,
+        nullptr
+    );
+    std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> input;
+    input.emplace(0, generate_packed_data(num_rows, 0, stream, *br));
+    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 1);
+
+    shuffler.insert(std::move(input));
+    EXPECT_EQ(mr.get_main_record().num_current_allocs(), 0);
+
+    br->set_memory_limit(rapidsmpf::MemoryType::DEVICE, available_limit);
+    auto extracted = shuffler.extract(0);
+    ASSERT_EQ(extracted.size(), 1);
+    ASSERT_NE(extracted[0].data, nullptr);
+    EXPECT_EQ(extracted[0].data->mem_type(), rapidsmpf::MemoryType::DISK);
+
+    auto unspilled = rapidsmpf::unspill_partitions(
+        std::move(extracted), br.get(), rapidsmpf::AllowOverbooking::NO
+    );
+    EXPECT_EQ(unspilled[0].data->mem_type(), rapidsmpf::MemoryType::DEVICE);
+    validate_packed_data(std::move(unspilled[0]), num_rows, 0, stream, *br);
     shuffler.insert_finished();
 }
 

@@ -345,9 +345,9 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
         }
 
         // Data for another rank must be in a memory type that can be sent to it.
-        if (Rank const dst_rank = partition_owner(comm_, pid, total_num_partitions);
-            dst_rank != comm_->rank())
-        {
+        Rank const dst_rank = partition_owner(comm_, pid, total_num_partitions);
+        bool const is_remote = dst_rank != comm_->rank();
+        if (is_remote) {
             packed_data.data = br_->ensure_memory_type(
                 std::move(packed_data.data), mpe_->sendable_memory_types(dst_rank)
             );
@@ -358,12 +358,14 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
         if (headroom < 0 && packed_data.data
             && packed_data.data->mem_type() == MemoryType::DEVICE)
         {
-            // NB: the chunk may be for another rank, so it must only spill to sendable
-            // (addressable) memory types.
-            auto reservation = br_->try_reserve(
-                packed_data.data->size,
-                preference_lt(MemoryType::DEVICE, ADDRESSABLE_MEMORY_TYPES)
+            // A chunk for another rank may only spill to memory types it can be sent
+            // from. A local chunk may spill anywhere, including disk.
+            auto const spill_targets = preference_lt(
+                MemoryType::DEVICE,
+                is_remote ? mpe_->sendable_memory_types(dst_rank)
+                          : std::span<MemoryType const>{MEMORY_TYPES}
             );
+            auto reservation = br_->try_reserve(packed_data.data->size, spill_targets);
             auto chunk = create_chunk(pid, std::move(packed_data));
             // Spill the new chunk before inserting. If no target has room, the chunk
             // is left on the device.
