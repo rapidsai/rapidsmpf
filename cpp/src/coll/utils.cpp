@@ -127,9 +127,7 @@ std::unique_ptr<std::vector<std::uint8_t>> Chunk::serialize() const {
 }
 
 std::unique_ptr<Chunk> Chunk::deserialize(
-    std::vector<std::uint8_t> const& metadata,
-    std::unique_ptr<Buffer> data,
-    BufferResource* br
+    std::vector<std::uint8_t>&& metadata, std::unique_ptr<Buffer> data, BufferResource* br
 ) {
     ChunkID id;
     std::memcpy(&id, metadata.data(), sizeof(ChunkID));
@@ -142,9 +140,9 @@ std::unique_ptr<Chunk> Chunk::deserialize(
     std::uint64_t data_size;
     std::memcpy(&data_size, metadata.data() + sizeof(ChunkID), sizeof(data_size));
     auto const offset = safe_cast<std::ptrdiff_t>(sizeof(ChunkID) + sizeof(data_size));
-    auto chunk_metadata = std::make_unique<std::vector<std::uint8_t>>(
-        metadata.begin() + offset, metadata.end()
-    );
+    metadata.erase(metadata.begin(), metadata.begin() + offset);
+    auto chunk_metadata =
+        std::make_unique<std::vector<std::uint8_t>>(std::move(metadata));
     if (data == nullptr) {
         RAPIDSMPF_EXPECTS(
             data_size == 0, "data chunk is missing its data", std::invalid_argument

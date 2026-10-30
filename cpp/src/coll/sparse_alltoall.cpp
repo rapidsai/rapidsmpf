@@ -214,7 +214,7 @@ void SparseAlltoall::receive_messages() {
     for (auto& msg : exchange_->recv()) {
         auto const src = msg->peer_rank();
         auto chunk =
-            detail::Chunk::deserialize(msg->metadata(), msg->release_data(), br_);
+            detail::Chunk::deserialize(msg->release_metadata(), msg->release_data(), br_);
         RAPIDSMPF_EXPECTS(
             chunk->origin() == src,
             "SparseAlltoall received a chunk with unexpected origin"

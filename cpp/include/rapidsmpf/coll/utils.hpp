@@ -214,7 +214,7 @@ class Chunk {
     /**
      * @brief Deserialize a chunk from its metadata and its received data.
      *
-     * @param metadata The serialized chunk metadata.
+     * @param metadata The serialized chunk metadata, which is consumed.
      * @param data The received data buffer, or `nullptr` for a finish chunk or a data
      * chunk without data.
      * @param br Buffer resource used to allocate an empty data buffer for a data chunk
@@ -225,7 +225,7 @@ class Chunk {
      * serialized data size, or if @p data is given for a finish chunk.
      */
     [[nodiscard]] static std::unique_ptr<Chunk> deserialize(
-        std::vector<std::uint8_t> const& metadata,
+        std::vector<std::uint8_t>&& metadata,
         std::unique_ptr<Buffer> data,
         BufferResource* br
     );

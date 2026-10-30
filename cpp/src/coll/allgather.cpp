@@ -267,18 +267,21 @@ ProgressThread::ProgressState AllGather::event_loop() {
         // messages.
         for (auto&& msg : exchange_->release_sent()) {
             for_extraction_.insert(
-                detail::Chunk::deserialize(msg->metadata(), msg->release_data(), br_)
+                detail::Chunk::deserialize(
+                    msg->release_metadata(), msg->release_data(), br_
+                )
             );
         }
 
         for (auto&& msg : exchange_->recv()) {
-            auto chunk =
-                detail::Chunk::deserialize(msg->metadata(), msg->release_data(), br_);
+            auto chunk = detail::Chunk::deserialize(
+                msg->release_metadata(), msg->release_data(), br_
+            );
             if (chunk->is_finish()) {
                 num_expected_messages_ += chunk->sequence();
                 if (chunk->origin() != dst) {
                     exchange_->send(
-                        std::make_unique<Message>(dst, msg->release_metadata())
+                        std::make_unique<Message>(dst, std::move(*chunk->serialize()))
                     );
                 }
                 mark_finish(chunk->sequence());
