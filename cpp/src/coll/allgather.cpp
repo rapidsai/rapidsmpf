@@ -231,8 +231,10 @@ ProgressThread::ProgressState AllGather::event_loop() {
     } else {
         using Message = communicator::MetadataPayloadExchange::Message;
         // Send the chunks that are ready.
+        auto ready_chunks = inserted_.extract_ready();
         std::vector<std::unique_ptr<Message>> messages;
-        for (auto&& chunk : inserted_.extract_ready()) {
+        messages.reserve(ready_chunks.size());
+        for (auto&& chunk : ready_chunks) {
             if (chunk->is_finish()) {
                 // Finish chunk contains as sequence number the number
                 // of insertions from that rank.
