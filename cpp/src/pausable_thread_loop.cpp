@@ -13,36 +13,29 @@ namespace rapidsmpf::detail {
 PausableThreadLoop::PausableThreadLoop(std::function<void()> func, Duration sleep) {
     thread_ = std::thread([this, f = std::move(func), sleep]() {
         bool is_thread_initialized = false;
+        auto const sleep_dur =
+            std::chrono::duration_cast<std::chrono::steady_clock::duration>(sleep);
 
         while (true) {
             // wait until the thread is not paused
-            state_.wait(State::Paused, std::memory_order_acquire);
+            std::unique_lock<std::mutex> lock(mutex_);
+            cv_.wait(lock, [&] { return state_ != State::Paused; });
 
-            // if the thread is pausing, set it to paused, and loop again
-            State expected = State::Pausing;
-            if (state_.compare_exchange_strong(
-                    expected,
-                    State::Paused,
-                    std::memory_order_acq_rel,
-                    std::memory_order_relaxed
-                ))
-            {
-                state_.notify_all();
+            if (state_ == State::Pausing) {
+                state_ = State::Paused;
+                cv_.notify_all();
                 continue;
-            }  // else - We don't have to worry about Stopped state, because Stopping ->
-               // Stopped state change only performed by this thread.
-
-            expected = State::Stopping;
-            if (state_.compare_exchange_strong(
-                    expected,
-                    State::Stopped,
-                    std::memory_order_acq_rel,
-                    std::memory_order_relaxed
-                ))
-            {
-                state_.notify_all();
+            }
+            if (state_ == State::Stopping) {
+                state_ = State::Stopped;
+                cv_.notify_all();
                 return;
             }
+
+            // This iteration serves any pending resume(). A resume() during the
+            // iteration or the sleep sets SkipSleep again, which skips or ends the sleep.
+            state_ = State::Running;
+            lock.unlock();  // Never run the loop function while holding the lock.
 
             if (!is_thread_initialized) {
                 // Establish a CUDA context on this thread before the first user callback.
@@ -57,8 +50,11 @@ PausableThreadLoop::PausableThreadLoop(std::function<void()> func, Duration slee
 
             f();
 
-            if (sleep > std::chrono::seconds{0}) {
-                std::this_thread::sleep_for(sleep);
+            if (sleep_dur > std::chrono::steady_clock::duration::zero()) {
+                auto const deadline = std::chrono::steady_clock::now() + sleep_dur;
+                lock.lock();
+                cv_.wait_until(lock, deadline, [&] { return state_ != State::Running; });
+                lock.unlock();
             } else {
                 std::this_thread::yield();
             }
@@ -75,64 +71,58 @@ PausableThreadLoop::~PausableThreadLoop() noexcept {
 }
 
 bool PausableThreadLoop::is_running() const noexcept {
-    auto state = state_.load(std::memory_order_acquire);
-    return state != State::Paused && state != State::Stopped;
+    std::lock_guard<std::mutex> lock(mutex_);
+    return state_ != State::Paused && state_ != State::Stopped;
 }
 
 void PausableThreadLoop::pause_nb() noexcept {
-    State expected = State::Running;
-    if (state_.compare_exchange_strong(
-            expected, State::Pausing, std::memory_order_acq_rel, std::memory_order_relaxed
-        ))
     {
-        state_.notify_all();
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (state_ != State::Running && state_ != State::SkipSleep) {
+            return;
+        }
+        state_ = State::Pausing;
     }
+    cv_.notify_all();
 }
 
 void PausableThreadLoop::pause() noexcept {
     pause_nb();
-    state_.wait(State::Pausing, std::memory_order_acquire);
+    std::unique_lock<std::mutex> lock(mutex_);
+    cv_.wait(lock, [&] { return state_ != State::Pausing; });
 }
 
 bool PausableThreadLoop::resume() noexcept {
-    State curr = state_.load(std::memory_order_relaxed);
-    while (curr == State::Paused || curr == State::Pausing) {
-        // if state_ is still the value we saw, toggle it to Running
-        if (state_.compare_exchange_weak(
-                curr, State::Running, std::memory_order_acq_rel, std::memory_order_relaxed
-            ))
-        // using CAS weak because we can tolerate a spurious failure on retry
+    bool was_paused;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (state_ == State::Stopping || state_ == State::Stopped
+            || state_ == State::SkipSleep)
         {
-            state_.notify_all();
-            return true;
+            return false;
         }
+        was_paused = state_ == State::Paused || state_ == State::Pausing;
+        state_ = State::SkipSleep;  // event loop will switch to Running
     }
-    return false;
+    cv_.notify_all();
+    return was_paused;
 }
 
 bool PausableThreadLoop::stop() noexcept {
-    State curr = state_.load(std::memory_order_relaxed);
-    while (curr == State::Running || curr == State::Pausing || curr == State::Paused) {
-        // if state_ is still the value we saw, toggle it to Stopping
-        if (state_.compare_exchange_weak(
-                curr,
-                State::Stopping,
-                std::memory_order_acq_rel,
-                std::memory_order_relaxed
-            ))
-        // using CAS weak because we can tolerate a spurious failure on retry
-        {
-            state_.notify_all();
-
-            // wait for state_ Stopping -> Stopped by the event loop thread
-            if (thread_.joinable()) {
-                thread_.join();
-            }
-            return true;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (state_ == State::Stopping || state_ == State::Stopped) {
+            return false;
         }
-        // else (someone other thread has changed state_) curr has the new value. retry.
+        state_ = State::Stopping;
     }
-    return false;
+    cv_.notify_all();
+
+    // wait for state_ Stopping -> Stopped by the event loop thread
+    if (thread_.joinable()) {
+        thread_.join();
+    }
+    return true;
 }
 
 }  // namespace rapidsmpf::detail

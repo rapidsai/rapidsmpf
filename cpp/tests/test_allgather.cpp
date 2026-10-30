@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <filesystem>
 #include <iterator>
 #include <vector>
 
@@ -22,6 +23,7 @@
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
+#include <rapidsmpf/memory/spill.hpp>
 #include <rapidsmpf/statistics.hpp>
 
 #include "environment.hpp"
@@ -531,4 +533,100 @@ TEST(PostBox, spill_to_addressable_targets_never_uses_disk) {
     chunks = postbox.extract();
     ASSERT_EQ(chunks.size(), 1);
     EXPECT_EQ(chunks[0]->memory_type(), rapidsmpf::MemoryType::DISK);
+}
+
+TEST_F(BaseAllGatherTest, null_arguments_throw) {
+    auto const& comm = GlobalEnvironment->comm_;
+    EXPECT_THROW(AllGather(nullptr, 0, br.get(), nullptr), std::logic_error);
+    EXPECT_THROW(AllGather(comm, 0, nullptr, nullptr), std::logic_error);
+}
+
+// A chunk spilled to disk keeps its payload and its file is removed once restored.
+TEST(PostBox, spill_to_disk_preserves_payload) {
+    constexpr std::size_t n_elements = 16;
+    constexpr std::size_t data_size = n_elements * sizeof(int);
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+    TempDir temp_dir;  // Declared before `br` so it outlives the buffer resource.
+    auto br = create_br(temp_dir.path());
+    rapidsmpf::coll::detail::PostBox postbox;
+
+    postbox.insert(
+        rapidsmpf::coll::detail::Chunk::from_packed_data(
+            0,
+            0,
+            rapidsmpf::coll::detail::Chunk::INVALID_RANK,
+            generate_packed_data(n_elements, 5, stream, *br)
+        )
+    );
+
+    EXPECT_EQ(
+        postbox.spill(
+            br.get(),
+            data_size,
+            rapidsmpf::preference_lt(
+                rapidsmpf::MemoryType::DEVICE, rapidsmpf::MEMORY_TYPES
+            )
+        ),
+        data_size
+    );
+
+    auto chunks = postbox.extract();
+    ASSERT_EQ(chunks.size(), 1);
+    auto packed_data = chunks[0]->release();
+    // Spilling prefers host over disk, so move the payload to disk explicitly.
+    packed_data = move_to_disk(std::move(packed_data), *br);
+    ASSERT_EQ(packed_data.data->mem_type(), rapidsmpf::MemoryType::DISK);
+    auto const path =
+        (*packed_data.data->get_storage<rapidsmpf::Buffer::DiskBufferT>()).path();
+    EXPECT_TRUE(std::filesystem::exists(path));
+
+    std::vector<rapidsmpf::PackedData> spilled;
+    spilled.emplace_back(std::move(packed_data));
+    auto restored = rapidsmpf::unspill_partitions(
+        std::move(spilled), br.get(), rapidsmpf::AllowOverbooking::NO
+    );
+    ASSERT_EQ(restored.size(), 1);
+    EXPECT_FALSE(std::filesystem::exists(path));
+    EXPECT_NO_FATAL_FAILURE(
+        validate_packed_data(std::move(restored[0]), n_elements, 5, stream, *br)
+    );
+}
+
+TEST_F(BaseAllGatherTest, forces_receive_allocations_without_memory) {
+    constexpr int n_elements = 10;
+    constexpr int n_inserts = 3;
+    // No device or host memory is available, so every receive allocation has to wait
+    // for the timeout and is then forced by overbooking host memory. Forced receives
+    // are forwarded, so they must not be moved to disk although disk is available.
+    TempDir temp_dir;
+    auto full_br = rapidsmpf::BufferResource::create(
+        rmm::mr::cuda_memory_resource{},
+        rapidsmpf::PinnedMemoryDisabled,
+        {{rapidsmpf::MemoryType::DEVICE, 0}, {rapidsmpf::MemoryType::HOST, 0}},
+        std::nullopt,
+        std::make_shared<rapidsmpf::StreamPool>(1),
+        rapidsmpf::Statistics::disabled(),
+        temp_dir.path(),
+        std::chrono::milliseconds{1}
+    );
+    AllGather allgather{GlobalEnvironment->comm_, 0, full_br.get()};
+    auto const& comm = allgather.comm();
+    for (int i = 0; i < n_inserts; i++) {
+        allgather.insert(
+            i, generate_packed_data(n_elements, gen_offset(i, comm->rank()), stream, *br)
+        );
+    }
+    allgather.insert_finished();
+    auto results =
+        allgather.wait_and_extract(AllGather::Ordered::YES, std::chrono::seconds{30});
+    ASSERT_EQ(results.size(), n_inserts * comm->nranks());
+    for (int r = 0; r < comm->nranks(); r++) {
+        for (int i = 0; i < n_inserts; i++) {
+            auto& result = results[r * n_inserts + i];
+            EXPECT_NE(result.data->mem_type(), rapidsmpf::MemoryType::DISK);
+            EXPECT_NO_FATAL_FAILURE(validate_packed_data(
+                std::move(result), n_elements, gen_offset(i, r), stream, *br
+            ));
+        }
+    }
 }

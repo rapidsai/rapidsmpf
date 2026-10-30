@@ -212,23 +212,9 @@ class Chunk {
     [[nodiscard]] std::unique_ptr<std::vector<std::uint8_t>> serialize() const;
 
     /**
-     * @brief Deserialize a chunk from a byte vector of its metadata.
-     *
-     * @param data The serialized chunk data.
-     * @param br Buffer resource for memory allocation.
-     * @return A unique pointer to the deserialized chunk.
-     *
-     * @note If the serialized form encodes a data chunk, this
-     * function allocates space for the data buffer.
-     */
-    [[nodiscard]] static std::unique_ptr<Chunk> deserialize(
-        std::vector<std::uint8_t>& data, BufferResource* br
-    );
-
-    /**
      * @brief Deserialize a chunk from its metadata and its received data.
      *
-     * @param metadata The serialized chunk metadata.
+     * @param metadata The serialized chunk metadata, which is consumed.
      * @param data The received data buffer, or `nullptr` for a finish chunk or a data
      * chunk without data.
      * @param br Buffer resource used to allocate an empty data buffer for a data chunk
@@ -239,7 +225,7 @@ class Chunk {
      * serialized data size, or if @p data is given for a finish chunk.
      */
     [[nodiscard]] static std::unique_ptr<Chunk> deserialize(
-        std::vector<std::uint8_t> const& metadata,
+        std::vector<std::uint8_t>&& metadata,
         std::unique_ptr<Buffer> data,
         BufferResource* br
     );
@@ -367,23 +353,5 @@ class PostBox {
     mutable std::mutex mutex_{};  ///< Mutex for thread-safe access
     std::vector<std::unique_ptr<Chunk>> chunks_{};  ///< Container for stored chunks
 };
-
-/**
- * @brief Complete posted chunk receives.
- *
- * Tests a set of outstanding communicator futures, and for every
- * completed receive, reattaches the received data buffer to the
- * corresponding chunk before returning it.
- *
- * @param chunks Chunks with receives currently in flight.
- * @param futures Receive futures corresponding 1:1 with @p chunks.
- * @param comm Communicator used to test and release completed receives.
- * @return The subset of chunks whose receives completed during this call.
- */
-[[nodiscard]] std::vector<std::unique_ptr<Chunk>> test_some(
-    std::vector<std::unique_ptr<Chunk>>& chunks,
-    std::vector<std::unique_ptr<Communicator::Future>>& futures,
-    Communicator* comm
-);
 
 }  // namespace rapidsmpf::coll::detail
