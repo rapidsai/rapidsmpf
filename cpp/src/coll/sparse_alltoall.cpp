@@ -70,7 +70,9 @@ SparseAlltoall::SparseAlltoall(
     }
     // SparseAlltoall isn't movable, so the spill function can capture `this`.
     spill_function_id_ = br_->spill_manager().add_spill_function(
-        [this](std::size_t amount) -> std::size_t { return spill(amount); },
+        [this](MemoryType mem_type, std::size_t amount) -> std::size_t {
+            return spill(mem_type, amount);
+        },
         /* priority = */ 0
     );
     // The peers are the union of the sources and the destinations.
@@ -166,7 +168,12 @@ std::vector<PackedData> SparseAlltoall::extract(Rank src) {
     return result;
 }
 
-std::size_t SparseAlltoall::spill(std::optional<std::size_t> amount) {
+std::size_t SparseAlltoall::spill(
+    MemoryType mem_type, std::optional<std::size_t> amount
+) {
+    if (mem_type != MemoryType::DEVICE) {
+        return 0;
+    }
     std::size_t spill_need{0};
     if (amount.has_value()) {
         spill_need = amount.value();
