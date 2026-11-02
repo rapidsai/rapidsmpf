@@ -260,9 +260,8 @@ class Shuffler {
     /**
      * @brief Spills at least `amount` bytes from the given memory type, if possible.
      *
-     * @param mem_type The memory type to spill from. Only `MemoryType::DEVICE` is
-     * supported for now, other types spill nothing.
      * @param amount The amount of memory to spill, in bytes.
+     * @param mem_type The memory type to spill from.
      * @return The amount of memory actually spilled.
      */
     std::size_t spill(std::size_t amount, MemoryType mem_type);

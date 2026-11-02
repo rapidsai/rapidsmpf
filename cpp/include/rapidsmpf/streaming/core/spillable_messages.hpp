@@ -91,10 +91,14 @@ class SpillableMessages {
     [[nodiscard]] Message copy(MessageId mid, MemoryReservation& reservation);
 
     /**
-     * @brief Spill a message's device memory to host memory.
+     * @brief Spill a message's memory of type @p mem_type to the lower memory types.
      *
-     * Performs an in-place deep copy of the message's payload from device to
-     * host memory using the specified buffer resource.
+     * Moves the message in-place into the first memory type in
+     * `preference_lt(mem_type, MEMORY_TYPES)` that has room for it.
+     *
+     * @note `Message::move()` moves the whole message, so a message with content in
+     * several memory types (e.g. device and host) that is spilled from `HOST` also
+     * moves its device content to the target.
      *
      * If the message is currently being accessed by another thread, is already
      * spilled, not spillable, or does not exist, the operation returns immediately
@@ -102,11 +106,13 @@ class SpillableMessages {
      *
      * @param mid Message identifier. If the message does not exist, zero is returned.
      * @param br Buffer resource used for allocations during the spill operation.
-     * @return Number of bytes released from device memory (0 if nothing was spilled).
-     *
-     * @throws std::runtime_error If there is insufficient host memory to reserve.
+     * @param mem_type The memory type to spill from.
+     * @return Number of bytes released from @p mem_type (0 if nothing was spilled, e.g.
+     * when no target has room).
      */
-    [[nodiscard]] std::size_t spill(MessageId mid, BufferResource* br) const;
+    [[nodiscard]] std::size_t spill(
+        MessageId mid, BufferResource* br, MemoryType mem_type = MemoryType::DEVICE
+    ) const;
 
     /**
      * @brief Get a snapshot of current messages' content descriptions.
