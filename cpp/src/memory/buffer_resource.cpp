@@ -453,7 +453,10 @@ std::unique_ptr<Buffer> BufferResource::ensure_memory_type(
             "cannot reserve memory to move the buffer and overbooking is not allowed",
             rapidsmpf::reservation_error
         );
-        res = reserve(accepted.back(), buffer->size, AllowOverbooking::YES).first;
+        // Overbook device memory when accepted, since the spill manager can relieve it.
+        auto const overbook_mem_type =
+            contains(accepted, MemoryType::DEVICE) ? MemoryType::DEVICE : accepted.back();
+        res = reserve(overbook_mem_type, buffer->size, AllowOverbooking::YES).first;
     }
     return move(std::move(buffer), *res);
 }

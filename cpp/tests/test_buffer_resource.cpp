@@ -5,6 +5,7 @@
 
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <limits>
 #include <span>
@@ -540,9 +541,14 @@ TEST(BufferResource, EnsureMemoryTypeTriesInReverseOrder) {
     ret = br->ensure_memory_type(make_disk_data(), ADDRESSABLE_MEMORY_TYPES);
     EXPECT_EQ(ret->mem_type(), MemoryType::DEVICE);
 
-    // Without any memory, the last memory type is overbooked.
+    // Without any memory, device memory is overbooked since it is accepted.
     br->set_memory_limit(MemoryType::DEVICE, 0);
     ret = br->ensure_memory_type(make_disk_data(), ADDRESSABLE_MEMORY_TYPES);
+    EXPECT_EQ(ret->mem_type(), MemoryType::DEVICE);
+
+    // Without device memory accepted, the last memory type is overbooked.
+    constexpr std::array host_only{MemoryType::HOST};
+    ret = br->ensure_memory_type(make_disk_data(), host_only);
     EXPECT_EQ(ret->mem_type(), MemoryType::HOST);
     ret->stream().sync();
     auto host_res =

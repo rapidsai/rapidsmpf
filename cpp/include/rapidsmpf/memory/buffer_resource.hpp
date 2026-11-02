@@ -623,9 +623,10 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @brief Move a buffer into one of @p accepted, unless it is already in one of them.
      *
      * The memory types are tried in reverse order of @p accepted without overbooking.
-     * If none of them fits, the last memory type is overbooked if
-     * `allow_overbooking_by_default()` allows it. The move may block the calling
-     * thread.
+     * If none of them fits and `allow_overbooking_by_default()` allows it, device
+     * memory is overbooked if it is in @p accepted, otherwise the last memory type is.
+     * This function does not spill; relieving the overbooking is left to the spill
+     * manager. The move may block the calling thread.
      *
      * @param buffer The buffer. Must not be `nullptr`.
      * @param accepted The accepted memory types in decreasing order of preference.
