@@ -111,7 +111,7 @@ std::uint64_t SpillManager::spill_generation() const noexcept {
 std::size_t SpillManager::spill(std::size_t amount, MemoryType mem_type) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     RAPIDSMPF_EXPECTS(
-        !preference_lt(mem_type).empty(),
+        !preference_lt(mem_type, MEMORY_TYPES).empty(),
         "cannot spill from " + std::string{to_string(mem_type)},
         std::invalid_argument
     );
