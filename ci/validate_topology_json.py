@@ -118,7 +118,8 @@ def validate_topology(data: Any) -> list[str]:
             cpu_affinity = gpu.get("cpu_affinity")
             if not isinstance(cpu_affinity, dict):
                 errors.append(f"{ctx}.cpu_affinity must be an object")
-            else:
+            # WSL2 GPUs have no /sys/bus/pci/devices entry, so CPU affinity is empty.
+            elif cpu_affinity.get("cpulist") or cpu_affinity.get("cores"):
                 ensure_non_empty_string(
                     errors, cpu_affinity, "cpulist", f"{ctx}.cpu_affinity"
                 )
