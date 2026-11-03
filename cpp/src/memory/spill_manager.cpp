@@ -70,7 +70,7 @@ void SpillManager::remove_spill_function(SpillFunctionID fid) {
     }
 }
 
-std::size_t SpillManager::spill_unsafe(MemoryType mem_type, std::size_t amount) {
+std::size_t SpillManager::spill_unsafe(std::size_t amount, MemoryType mem_type) {
     if (amount == 0) {
         return 0;
     }
@@ -95,7 +95,7 @@ std::size_t SpillManager::spill_unsafe(MemoryType mem_type, std::size_t amount) 
         if (spilled >= amount) {
             break;
         }
-        spilled += spill_functions_.at(fid)(mem_type, amount - spilled);
+        spilled += spill_functions_.at(fid)(amount - spilled, mem_type);
     }
     return spilled;
 }
@@ -116,7 +116,7 @@ std::size_t SpillManager::spill(std::size_t amount, MemoryType mem_type) {
         std::invalid_argument
     );
     std::lock_guard<std::mutex> lock(mutex_);
-    return spill_unsafe(mem_type, amount);
+    return spill_unsafe(amount, mem_type);
 }
 
 SpillManager::HeadroomResult SpillManager::spill_to_make_headroom(std::int64_t headroom) {
@@ -129,7 +129,7 @@ SpillManager::HeadroomResult SpillManager::spill_to_make_headroom(std::int64_t h
         return {.deficit = 0, .spilled = 0};
     }
     auto const deficit = safe_cast<std::size_t>(headroom - available);
-    return {.deficit = deficit, .spilled = spill_unsafe(MemoryType::DEVICE, deficit)};
+    return {.deficit = deficit, .spilled = spill_unsafe(deficit, MemoryType::DEVICE)};
 }
 
 }  // namespace rapidsmpf

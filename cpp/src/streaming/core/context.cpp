@@ -25,9 +25,9 @@ namespace {
  *
  * @param spillable_messages Container holding messages eligible for spilling.
  * @param br Buffer resource used for spill allocations.
+ * @param amount Target number of bytes to spill.
  * @param mem_type The memory type to spill from. Only `MemoryType::DEVICE` is
  * supported for now, other types spill nothing.
- * @param amount Target number of bytes to spill.
  * @return The total number of bytes actually spilled.
  *
  * @todo Support additional spilling strategies (e.g., size-based or priority-based).
@@ -35,8 +35,8 @@ namespace {
 std::size_t spill_messages(
     SpillableMessages const& spillable_messages,
     std::shared_ptr<BufferResource> br,
-    MemoryType mem_type,
-    std::size_t amount
+    std::size_t amount,
+    MemoryType mem_type
 ) {
     // TODO(stage 3): spill from non-DEVICE memory types.
     if (mem_type != MemoryType::DEVICE) {
@@ -86,8 +86,8 @@ Context::Context(
 
     // Setup a spilling function.
     spill_function_id_ = br_->spill_manager().add_spill_function(
-        [this](MemoryType mem_type, std::size_t amount) -> std::size_t {
-            return spill_messages(*spillable_messages_, br_, mem_type, amount);
+        [this](std::size_t amount, MemoryType mem_type) -> std::size_t {
+            return spill_messages(*spillable_messages_, br_, amount, mem_type);
         },
         -1  // set priority lower than in the Shuffler and AllGather.
     );

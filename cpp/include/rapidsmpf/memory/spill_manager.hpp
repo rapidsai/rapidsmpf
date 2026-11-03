@@ -47,7 +47,7 @@ class SpillManager {
      * during destruction before releasing any buffer-owning members.
      */
     using SpillFunction =
-        std::function<std::size_t(MemoryType mem_type, std::size_t amount)>;
+        std::function<std::size_t(std::size_t amount, MemoryType mem_type)>;
 
     /**
      * @brief Represents a unique identifier for a registered spill function.
@@ -176,11 +176,11 @@ class SpillManager {
     /**
      * @brief Spills memory without locking. The caller must hold `mutex_`.
      *
-     * @param mem_type The memory type to spill from.
      * @param amount The amount of memory (in bytes) to spill.
+     * @param mem_type The memory type to spill from.
      * @return The actual amount of memory spilled (in bytes).
      */
-    std::size_t spill_unsafe(MemoryType mem_type, std::size_t amount);
+    std::size_t spill_unsafe(std::size_t amount, MemoryType mem_type);
 
     mutable std::mutex mutex_;
     BufferResource* br_;

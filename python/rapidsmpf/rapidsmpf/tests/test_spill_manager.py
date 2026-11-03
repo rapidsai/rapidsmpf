@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 def test_error_handling(
     device_mr: rmm.mr.CudaMemoryResource, error: type[Exception]
 ) -> None:
-    def spill(mem_type: MemoryType, amount: int) -> int:
+    def spill(amount: int, mem_type: MemoryType) -> int:
         raise error
 
     br = BufferResource(device_mr, periodic_spill_check=None)
@@ -49,7 +49,7 @@ def test_spill_function(
     br = BufferResource(device_mr, periodic_spill_check=None)
     track_spilled = [0]
 
-    def spill_unlimited(mem_type: MemoryType, amount: int) -> int:
+    def spill_unlimited(amount: int, mem_type: MemoryType) -> int:
         track_spilled[0] += amount
         return amount
 
@@ -58,7 +58,7 @@ def test_spill_function(
     assert track_spilled[0] == 10
     track_spilled[0] = 0
 
-    def spill_not_needed(mem_type: MemoryType, amount: int) -> int:
+    def spill_not_needed(amount: int, mem_type: MemoryType) -> int:
         raise ValueError("shouldn't be needed")
 
     f2 = br.spill_manager.add_spill_function(spill_not_needed, priority=-1)
@@ -66,7 +66,7 @@ def test_spill_function(
     assert track_spilled[0] == 10
     track_spilled[0] = 0
 
-    def spill_limited(mem_type: MemoryType, amount: int) -> int:
+    def spill_limited(amount: int, mem_type: MemoryType) -> int:
         return 5
 
     f3 = br.spill_manager.add_spill_function(spill_limited, priority=1)
@@ -92,7 +92,7 @@ def test_spill_function_outlive_buffer_resource(
 ) -> None:
     spill_manager = BufferResource(device_mr, periodic_spill_check=None).spill_manager
     with pytest.raises(ValueError):
-        spill_manager.add_spill_function(lambda mem_type, x: x, 0)
+        spill_manager.add_spill_function(lambda x, mem_type: x, 0)
     with pytest.raises(ValueError):
         spill_manager.remove_spill_function(0)
     with pytest.raises(ValueError):
@@ -113,7 +113,7 @@ def test_periodic_spill_check(
 
     track_spilled = [0]
 
-    def spill(mem_type: MemoryType, amount: int) -> int:
+    def spill(amount: int, mem_type: MemoryType) -> int:
         track_spilled[0] += amount
         return amount
 
@@ -135,7 +135,7 @@ def test_reserve_device_memory_and_spill(
 
     track_spilled = [0]
 
-    def spill(mem_type: MemoryType, amount: int) -> int:
+    def spill(amount: int, mem_type: MemoryType) -> int:
         track_spilled[0] += amount
         return amount
 
@@ -155,7 +155,7 @@ def test_spill_function_receives_mem_type(
     br = BufferResource(device_mr, periodic_spill_check=None)
     calls: list[tuple[MemoryType, int]] = []
 
-    def spill(mem_type: MemoryType, amount: int) -> int:
+    def spill(amount: int, mem_type: MemoryType) -> int:
         calls.append((mem_type, amount))
         return amount
 

@@ -14,7 +14,7 @@ import weakref
 
 
 cdef size_t cython_invoke_python_spill_function(
-    void* py_spill_function, MemoryType mem_type, size_t amount
+    void* py_spill_function, size_t amount, MemoryType mem_type
 ) noexcept nogil:
     """
     Invokes a Python spill function from C++ in a Cython-safe manner.
@@ -30,10 +30,10 @@ cdef size_t cython_invoke_python_spill_function(
     ----------
     py_spill_function
         A pointer to a Python callable that implements a spill function.
-    mem_type
-        The memory type to spill from.
     amount
         The amount of memory (in bytes) to be spilled.
+    mem_type
+        The memory type to spill from.
 
     Returns
     -------
@@ -46,7 +46,7 @@ cdef size_t cython_invoke_python_spill_function(
     cdef CppExcept err
     with gil:
         try:
-            return (<object?>py_spill_function)(mem_type, amount)
+            return (<object?>py_spill_function)(amount, mem_type)
         except BaseException as e:
             err = translate_py_to_cpp_exception(e)
     throw_py_as_cpp_exception(err)
@@ -61,14 +61,14 @@ cdef extern from *:
         T1 wrapper, T2 py_spill_function
     ) {
         return [wrapper, py_spill_function](
-            rapidsmpf::MemoryType mem_type, std::size_t amount
+            std::size_t amount, rapidsmpf::MemoryType mem_type
         ) -> std::size_t {
-            return wrapper(py_spill_function, mem_type, amount);
+            return wrapper(py_spill_function, amount, mem_type);
         };
     }
     """
     cpp_SpillFunction cython_to_cpp_closure_lambda(
-         size_t (*wrapper)(void *, MemoryType, size_t),
+         size_t (*wrapper)(void *, size_t, MemoryType),
          void *py_spill_function
     ) except +ex_handler nogil
 
@@ -129,9 +129,9 @@ cdef class SpillManager:
         Parameters
         ----------
         func
-            The spill function to be added. It is called as ``func(mem_type, amount)``
-            where ``mem_type`` is the :class:`~.MemoryType` to free and ``amount`` the
-            requested number of bytes. It returns the number of bytes spilled, or zero
+            The spill function to be added. It is called as ``func(amount, mem_type)``
+            where ``amount`` is the requested number of bytes and ``mem_type`` the
+            :class:`~.MemoryType` to free. It returns the number of bytes spilled, or zero
             if it holds no data in ``mem_type``.
         priority
             The priority level of the spill function (higher values indicate higher
