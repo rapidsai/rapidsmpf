@@ -76,7 +76,7 @@ jobs:
       run_codecov: false
       script: ci/test_python.sh
       sha: ${{ inputs.sha }}
-      matrix_type: nightly
+      matrix_type: python-3-15-nightly,nightly
   wheel-test:
     permissions:
       actions: read
@@ -93,4 +93,4 @@ jobs:
       date: ${{ inputs.date }}
       sha: ${{ inputs.sha }}
       script: ci/test_wheel.sh
-      matrix_type: nightly
+      matrix_type: python-3-15-nightly,nightly

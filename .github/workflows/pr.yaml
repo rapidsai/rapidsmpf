@@ -252,7 +252,7 @@ jobs:
       build_type: pull-request
       container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
       script: ci/test_wheel.sh
-      matrix_type: pull-request
+      matrix_type: python-3-15-pr,pull-request
   conda-cpp-build:
     needs: [build-details, checks]
     permissions:
@@ -346,7 +346,7 @@ jobs:
       container-options: "--cap-add CAP_SYS_PTRACE --shm-size=8g --ulimit=nofile=1000000:1000000"
       run_codecov: false
       script: ci/test_python.sh
-      matrix_type: pull-request
+      matrix_type: python-3-15-pr,pull-request
   docs-build:
     needs: [conda-python-build, changed-files]
     permissions:
