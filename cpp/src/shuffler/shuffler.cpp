@@ -223,22 +223,25 @@ Shuffler::Shuffler(
 )
     : total_num_partitions{total_num_partitions},
       partition_owner{std::move(partition_owner_fn)},
-      br_{br},
+      br_{[br] {
+          RAPIDSMPF_EXPECTS(br != nullptr, "the buffer resource pointer cannot be NULL");
+          return br;
+      }()},
       to_send_{},
       received_{safe_cast<std::size_t>(total_num_partitions)},
-      comm_{std::move(comm)},
+      comm_{[&comm] {
+          RAPIDSMPF_EXPECTS(comm != nullptr, "the communicator pointer cannot be NULL");
+          return std::move(comm);
+      }()},
       mpe_{
           mpe ? std::move(mpe)
               : std::make_unique<communicator::TagMetadataPayloadExchange>(
                     comm_,
                     op_id,
-                    [this](std::size_t size) -> std::unique_ptr<Buffer> {
-                        return br_->make_buffer(
-                            br_->stream_pool()->get_stream(),
-                            br_->reserve_or_fail(size, ADDRESSABLE_MEMORY_TYPES)
-                        );
-                    },
-                    comm_->progress_thread()->statistics()
+                    all_remote_ranks(*comm_),
+                    communicator::default_allocate_buffer,
+                    br->memory_reserve_timeout(),
+                    br
                 )
       },
       local_partitions_{local_partitions(comm_, total_num_partitions, partition_owner)},
@@ -248,8 +251,6 @@ Shuffler::Shuffler(
     RAPIDSMPF_EXPECTS(
         total_num_partitions > 0, "number of partitions must be strictly positive"
     );
-    RAPIDSMPF_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be NULL");
-    RAPIDSMPF_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be NULL");
 
     // We need to register the progress function with the progress thread, but
     // that cannot be done in the constructor's initializer list because the
@@ -310,6 +311,14 @@ void Shuffler::insert_into_received(detail::Chunk&& chunk) {
 
 void Shuffler::insert(detail::Chunk&& chunk) {
     Rank dst_rank = partition_owner(comm_, chunk.part_id(), total_num_partitions);
+    // Validate before counting the chunk, so a rejected chunk isn't announced to its
+    // destination in `insert_finished()`.
+    RAPIDSMPF_EXPECTS(
+        dst_rank == comm_->rank() || !chunk.is_data_buffer_set()
+            || contains(mpe_->sendable_memory_types(dst_rank), chunk.data_memory_type()),
+        "data for another rank is not in a sendable memory type",
+        std::logic_error
+    );
     if (!chunk.is_control_message()) {
         std::atomic_ref(outbound_chunk_counter_[safe_cast<std::size_t>(dst_rank)])
             .fetch_add(1, std::memory_order_relaxed);
@@ -335,16 +344,36 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
             continue;
         }
 
+        // Data for another rank must be in a memory type that can be sent to it.
+        Rank const dst_rank = partition_owner(comm_, pid, total_num_partitions);
+        bool const is_remote = dst_rank != comm_->rank();
+        if (is_remote) {
+            packed_data.data = br_->ensure_memory_type(
+                std::move(packed_data.data), mpe_->sendable_memory_types(dst_rank)
+            );
+        }
+
         // Check if we should spill the chunk before inserting into the inbox.
         std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE);
         if (headroom < 0 && packed_data.data
             && packed_data.data->mem_type() == MemoryType::DEVICE)
         {
-            auto reservation =
-                br_->reserve_or_fail(packed_data.data->size, SPILL_TARGET_MEMORY_TYPES);
+            // A chunk for another rank may only spill to memory types it can be sent
+            // from. A local chunk may spill anywhere, including disk.
+            auto const spill_targets = preference_lt(
+                MemoryType::DEVICE,
+                is_remote ? mpe_->sendable_memory_types(dst_rank)
+                          : std::span<MemoryType const>{MEMORY_TYPES}
+            );
+            auto reservation = br_->try_reserve(packed_data.data->size, spill_targets);
             auto chunk = create_chunk(pid, std::move(packed_data));
-            // Spill the new chunk before inserting.
-            chunk.set_data_buffer(br_->move(chunk.release_data_buffer(), reservation));
+            // Spill the new chunk before inserting. If no target has room, the chunk
+            // is left on the device.
+            if (reservation) {
+                chunk.set_data_buffer(
+                    br_->move(chunk.release_data_buffer(), *reservation)
+                );
+            }
             insert(std::move(chunk));
         } else {
             insert(create_chunk(pid, std::move(packed_data)));

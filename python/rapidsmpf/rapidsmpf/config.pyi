@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from typing import Generic, TypeVar, overload
+from typing import TypeVar, overload
 
 T = TypeVar("T")
 
@@ -32,7 +32,7 @@ class Options:
     def __getstate__(self) -> bytes: ...
     def __setstate__(self, state: bytes) -> None: ...
 
-class Optional(Generic[T]):
+class Optional[T]:
     def __init__(self, value: T) -> None: ...
     @property
     def value(self) -> T | None: ...

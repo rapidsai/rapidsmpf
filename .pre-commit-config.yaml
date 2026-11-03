@@ -139,7 +139,7 @@ repos:
         name: verify-hardcoded-version-ucxx
         args: [--fix, --version-file=UCXX_VERSION]
   - repo: https://github.com/rapidsai/dependency-file-generator
-    rev: 43302d278c4215036b7fe4b4af0a85f6fad39d2c  # frozen: v1.20.2
+    rev: 8268c3bcf21f40fd7fe6a444df8a3f58e75b21ed  # frozen: v1.22.0
     hooks:
       - id: rapids-dependency-file-generator
         args: ["--clean", "--warn-all", "--strict"]

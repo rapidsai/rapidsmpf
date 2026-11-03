@@ -7,6 +7,7 @@
 
 #include <cuda/stream>
 
+#include <rapidsmpf/cuda_stream.hpp>
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/memory/host_buffer.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
@@ -20,6 +21,9 @@ HostBuffer::HostBuffer(
     cuda::mr::any_resource<cuda::mr::host_accessible> mr
 )
     : stream_{stream} {
+    RAPIDSMPF_EXPECTS(
+        stream != cuda::invalid_stream, "stream must be valid", std::invalid_argument
+    );
     if (size > 0) {
         auto* ptr = static_cast<std::byte*>(
             mr.allocate(stream_, size, alignof(::cuda::std::max_align_t))
@@ -36,7 +40,11 @@ HostBuffer::HostBuffer(
     cuda::stream_ref stream,
     std::function<void(cuda::stream_ref)> deallocate_fn
 )
-    : stream_{stream}, span_{span}, deallocate_fn_{std::move(deallocate_fn)} {}
+    : stream_{stream}, span_{span}, deallocate_fn_{std::move(deallocate_fn)} {
+    RAPIDSMPF_EXPECTS(
+        stream != cuda::invalid_stream, "stream must be valid", std::invalid_argument
+    );
+}
 
 void HostBuffer::deallocate_async() noexcept {
     if (!span_.empty() && deallocate_fn_) {
@@ -90,6 +98,9 @@ std::byte const* HostBuffer::data() const noexcept {
 }
 
 void HostBuffer::set_stream(cuda::stream_ref new_stream) {
+    RAPIDSMPF_EXPECTS(
+        new_stream != cuda::invalid_stream, "stream must be valid", std::invalid_argument
+    );
     stream_ = new_stream;
 }
 
@@ -137,6 +148,9 @@ HostBuffer HostBuffer::from_rmm_device_buffer(
     std::unique_ptr<rmm::device_buffer> pinned_host_buffer, cuda::stream_ref stream
 ) {
     RAPIDSMPF_EXPECTS(
+        stream != cuda::invalid_stream, "stream must be valid", std::invalid_argument
+    );
+    RAPIDSMPF_EXPECTS(
         pinned_host_buffer != nullptr,
         "pinned_host_buffer must not be null",
         std::invalid_argument
@@ -148,6 +162,14 @@ HostBuffer HostBuffer::from_rmm_device_buffer(
         std::logic_error
     );
 
+    // Order `stream` after pending work on the buffer's stream. An empty buffer owns
+    // no memory, so there is no work to join. This also covers default-constructed
+    // RMM buffers, which have no stream.
+    if (pinned_host_buffer->capacity() > 0) {
+        cuda_stream_join(stream, pinned_host_buffer->stream());
+    }
+    pinned_host_buffer->set_stream(stream);
+
     // Wrap in shared_ptr so the lambda is copyable (required by std::function).
     auto shared_db = std::make_shared<rmm::device_buffer>(std::move(*pinned_host_buffer));
     std::span<std::byte> span{
@@ -157,7 +179,10 @@ HostBuffer HostBuffer::from_rmm_device_buffer(
     return HostBuffer{
         std::move(span),
         stream,
-        [shared_db_ = std::move(shared_db)](cuda::stream_ref) mutable {
+        // Deallocate on the HostBuffer's current stream, which `set_stream()` may
+        // have changed since construction.
+        [shared_db_ = std::move(shared_db)](cuda::stream_ref s) mutable {
+            shared_db_->set_stream(s);
             shared_db_.reset();
         }
     };

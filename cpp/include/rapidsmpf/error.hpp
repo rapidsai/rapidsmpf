@@ -140,26 +140,6 @@ inline std::string build_error_message(
 }
 
 /**
- * @brief Core implementation for RAPIDSMPF_EXPECTS.
- *
- * @param condition The condition to check.
- * @param reason The error reason if condition is false.
- * @param throw_fn Callable that throws the appropriate exception type.
- * @param loc The source location (automatically captured).
- */
-template <typename ThrowFn>
-constexpr void expects_impl(
-    bool condition,
-    std::string_view reason,
-    ThrowFn&& throw_fn,
-    std::source_location const& loc = std::source_location::current()
-) {
-    if (!condition) {
-        throw_fn(build_error_message(reason, loc));
-    }
-}
-
-/**
  * @brief Build a CUDA error message with source location information.
  *
  * @param error The CUDA error code.
@@ -215,24 +195,7 @@ inline std::string build_cuda_alloc_error_message(
 }
 
 /**
- * @brief Implementation for RAPIDSMPF_EXPECTS_FATAL.
- *
- * @param condition The condition to check.
- * @param reason The error message if the condition is false.
- * @param loc The source location (automatically captured at call site).
- */
-constexpr void expects_fatal_impl(
-    bool condition,
-    std::string_view reason,
-    std::source_location const& loc = std::source_location::current()
-) noexcept {
-    if (!condition) {
-        detail::fatal_error(reason, loc);
-    }
-}
-
-/**
- * @brief Implementation for RAPIDSMPF_FATAL.
+ * @brief Implementation for RAPIDSMPF_FATAL and RAPIDSMPF_EXPECTS_FATAL.
  *
  * @param reason The error message describing the fatal error.
  * @param loc The source location (automatically captured at call site).
@@ -265,6 +228,7 @@ constexpr void expects_fatal_impl(
  *   - The first argument must be an expression that evaluates to true or false,
  *     and is the condition being checked.
  *   - The second argument is a string used to construct the `what` of the exception.
+ *     It is evaluated only if the condition is false, and then exactly once.
  *   - When given, the third argument is the exception type to be thrown. When not
  *     specified, it defaults to `std::logic_error`.
  *
@@ -276,14 +240,12 @@ constexpr void expects_fatal_impl(
 
 #define GET_RAPIDSMPF_EXPECTS_MACRO(_1, _2, _3, NAME, ...) NAME
 
-#define RAPIDSMPF_EXPECTS_3(_condition, _reason, _exception_type)          \
-    do {                                                                   \
-        static_assert(std::is_base_of_v<std::exception, _exception_type>); \
-        rapidsmpf::detail::expects_impl(                                   \
-            static_cast<bool>(_condition), (_reason), [](auto&& msg) {     \
-                throw _exception_type{msg};                                \
-            }                                                              \
-        );                                                                 \
+#define RAPIDSMPF_EXPECTS_3(_condition, _reason, _exception_type)                     \
+    do {                                                                              \
+        static_assert(std::is_base_of_v<std::exception, _exception_type>);            \
+        if (!static_cast<bool>(_condition)) [[unlikely]] {                            \
+            throw _exception_type{rapidsmpf::detail::build_error_message((_reason))}; \
+        }                                                                             \
     } while (0)
 
 #define RAPIDSMPF_EXPECTS_2(_condition, _reason) \
@@ -334,11 +296,14 @@ constexpr void expects_fatal_impl(
  * RAPIDSMPF_EXPECTS_FATAL(ptr != nullptr, "Unexpected null pointer");
  * @endcode
  *
+ * The macro is an expression of type `void`.
+ *
  * @param _condition The condition to check.
- * @param _reason The error message if the condition is false.
+ * @param _reason The error message if the condition is false. It is evaluated only if
+ * the condition is false, and then exactly once.
  */
 #define RAPIDSMPF_EXPECTS_FATAL(_condition, _reason) \
-    rapidsmpf::detail::expects_fatal_impl(static_cast<bool>(_condition), (_reason))
+    (static_cast<bool>(_condition) ? void(0) : rapidsmpf::detail::fatal_impl((_reason)))
 
 /**
  * @brief Indicate a fatal error and terminate the program.

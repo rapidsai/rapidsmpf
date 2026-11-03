@@ -18,6 +18,7 @@
 #include <rapidsmpf/streaming/chunks/packed_data.hpp>
 #include <rapidsmpf/streaming/core/spillable_messages.hpp>
 
+#include "../utils.hpp"
 #include "base_streaming_fixture.hpp"
 
 using namespace rapidsmpf;
@@ -125,6 +126,45 @@ TEST_F(StreamingSpillableMessages, InsertSpillExtract) {
     EXPECT_EQ(msg.get<int>(), 3);
     EXPECT_THROW(std::ignore = msgs.extract(mid2), std::out_of_range);
     EXPECT_TRUE(msgs.get_content_descriptions().empty());
+}
+
+TEST_F(StreamingSpillableMessages, SpillWithoutReservation) {
+    SpillableMessages msgs;
+    auto mid = msgs.insert(
+        create_int_msg(1, 42, MemoryType::DEVICE, ContentDescription::Spillable::YES)
+    );
+
+    br->set_memory_limit(MemoryType::HOST, 0);
+    EXPECT_EQ(msgs.spill(mid, br.get()), 0);
+    EXPECT_EQ(
+        msgs.get_content_description(mid).content_size(MemoryType::DEVICE), sizeof(int)
+    );
+
+    br->set_memory_limit(MemoryType::HOST, sizeof(int));
+    EXPECT_EQ(msgs.spill(mid, br.get()), sizeof(int));
+    EXPECT_EQ(msgs.extract(mid).get<int>(), 42);
+}
+
+TEST_F(StreamingSpillableMessages, DiskSpill) {
+    TempDir disk_dir;
+    auto disk_br = create_br(disk_dir.path(), 0);  // No host room, so spill goes to disk.
+    constexpr std::size_t n_elements = 64;
+    constexpr std::size_t size = n_elements * sizeof(int);
+
+    SpillableMessages msgs;
+    auto mid = msgs.insert(to_message(
+        0,
+        std::make_unique<PackedData>(
+            generate_packed_data(n_elements, 0, stream, *disk_br)
+        )
+    ));
+    EXPECT_EQ(msgs.spill(mid, disk_br.get()), size);
+    EXPECT_EQ(msgs.get_content_description(mid).content_size(MemoryType::DISK), size);
+
+    // Extraction returns the message in its current (disk) memory tier.
+    auto spilled = msgs.extract(mid).release<PackedData>();
+    EXPECT_EQ(spilled.data->mem_type(), MemoryType::DISK);
+    validate_packed_data(std::move(spilled), n_elements, 0, stream, *disk_br);
 }
 
 TEST_F(StreamingSpillableMessages, MultiThreadedRandomInsertSpillExtract) {
