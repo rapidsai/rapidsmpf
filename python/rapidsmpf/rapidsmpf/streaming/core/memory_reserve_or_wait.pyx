@@ -349,9 +349,9 @@ cdef class MemoryReserveOrWait:
         requests, makes progress within the configured timeout.
 
         While no pending request fits, spilling is attempted to free the memory the
-        highest-priority one needs, and again just before progress is forced. Both are
-        limited to :attr:`~.MemoryType.DEVICE`, since ``SpillManager`` measures headroom
-        against device memory. Requests of other memory types wait without spilling.
+        highest-priority one needs, and again just before progress is forced. A request
+        for any addressable memory type (everything except :attr:`~.MemoryType.DISK`)
+        keeps waiting while a spill is in flight and still freeing memory.
 
         The timeout does not apply specifically to this request. Instead, it bounds
         when a final recovery attempt begins, not when it completes. If no pending

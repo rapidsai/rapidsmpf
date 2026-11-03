@@ -308,6 +308,21 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     [[nodiscard]] rmm::host_async_resource_ref host_mr() noexcept;
 
     /**
+     * @brief Access the concrete host memory resource.
+     *
+     * `BufferResource` tracks host allocations through its internal
+     * `HostMemoryResource`. This exposes it directly, e.g. to query allocation
+     * statistics via `current_allocated()`.
+     *
+     * @return Reference to the internal `HostMemoryResource`. The reference is valid
+     * for as long as this `BufferResource` is alive.
+     *
+     * @note To ensure that the allocations are properly tracked, use `host_mr()` or
+     * `host_mr_adaptor()`.
+     */
+    [[nodiscard]] HostMemoryResource& host_mr_adaptor() noexcept;
+
+    /**
      * @brief Get the RMM pinned host memory resource.
      *
      * @throws std::invalid_argument if no pinned memory resource is available.
