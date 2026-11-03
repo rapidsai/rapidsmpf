@@ -21,7 +21,9 @@
 #include <rapidsmpf/communicator/mpi.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
+#include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
 #include "utils.hpp"
@@ -35,7 +37,8 @@ namespace rapidsmpf {
 // Found by gtest through argument-dependent lookup, so a failed comparison prints the
 // fields rather than the struct's raw bytes.
 inline void PrintTo(SpillManager::HeadroomResult const& result, std::ostream* os) {
-    *os << "{deficit=" << result.deficit << ", spilled=" << result.spilled << "}";
+    *os << "{mem_type=" << result.mem_type << ", deficit=" << result.deficit
+        << ", spilled=" << result.spilled << "}";
 }
 
 }  // namespace rapidsmpf
@@ -105,17 +108,28 @@ TEST(SpillManager, SpillFunction) {
 
     // If the headroom is already there, no spilling should be happening.
     auto const available = br->spill_manager().spill_to_make_headroom(10_KiB);
-    EXPECT_EQ(available, (HeadroomResult{.deficit = 0, .spilled = 0}));
+    EXPECT_EQ(
+        available,
+        (HeadroomResult{.mem_type = MemoryType::DEVICE, .deficit = 0, .spilled = 0})
+    );
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 40_KiB);
 
     // If the headroom isn't there, we should spill to get the headroom.
     auto const short_of = br->spill_manager().spill_to_make_headroom(100_KiB);
-    EXPECT_EQ(short_of, (HeadroomResult{.deficit = 60_KiB, .spilled = 60_KiB}));
+    EXPECT_EQ(
+        short_of,
+        (HeadroomResult{
+            .mem_type = MemoryType::DEVICE, .deficit = 60_KiB, .spilled = 60_KiB
+        })
+    );
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 100_KiB);
 
     // A negative headroom is allowed.
     auto const negative = br->spill_manager().spill_to_make_headroom(-100_KiB);
-    EXPECT_EQ(negative, (HeadroomResult{.deficit = 0, .spilled = 0}));
+    EXPECT_EQ(
+        negative,
+        (HeadroomResult{.mem_type = MemoryType::DEVICE, .deficit = 0, .spilled = 0})
+    );
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 100_KiB);
 }
 
@@ -138,7 +152,10 @@ TEST(SpillManager, HeadroomAccountsForReservations) {
 
     // Without a reservation, a headroom equal to the availability doesn't spill.
     auto const unreserved = br->spill_manager().spill_to_make_headroom(100_KiB);
-    EXPECT_EQ(unreserved, (HeadroomResult{.deficit = 0, .spilled = 0}));
+    EXPECT_EQ(
+        unreserved,
+        (HeadroomResult{.mem_type = MemoryType::DEVICE, .deficit = 0, .spilled = 0})
+    );
 
     // Reserving 40 KiB leaves the availability untouched but 40 KiB less reservable,
     // and the same headroom now spills that amount.
@@ -148,7 +165,12 @@ TEST(SpillManager, HeadroomAccountsForReservations) {
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 100_KiB);
     EXPECT_EQ(br->memory_available_for_reservation(MemoryType::DEVICE), 60_KiB);
     auto const reserved = br->spill_manager().spill_to_make_headroom(100_KiB);
-    EXPECT_EQ(reserved, (HeadroomResult{.deficit = 40_KiB, .spilled = 40_KiB}));
+    EXPECT_EQ(
+        reserved,
+        (HeadroomResult{
+            .mem_type = MemoryType::DEVICE, .deficit = 40_KiB, .spilled = 40_KiB
+        })
+    );
     EXPECT_EQ(br->memory_available_for_reservation(MemoryType::DEVICE), 100_KiB);
 }
 
@@ -166,7 +188,12 @@ TEST(SpillManager, HeadroomReportsTheShortfallNotWhatWasSpilled) {
     );
 
     auto const result = br->spill_manager().spill_to_make_headroom(10_KiB);
-    EXPECT_EQ(result, (HeadroomResult{.deficit = 10_KiB, .spilled = 1_KiB}));
+    EXPECT_EQ(
+        result,
+        (HeadroomResult{
+            .mem_type = MemoryType::DEVICE, .deficit = 10_KiB, .spilled = 1_KiB
+        })
+    );
 
     br->spill_manager().remove_spill_function(fid);
 }
@@ -392,6 +419,57 @@ TEST(SpillManager, SpillRejectsDisk) {
         std::ignore = manager.spill(1_KiB, MemoryType::DISK), std::invalid_argument
     );
     EXPECT_FALSE(called);
+
+    manager.remove_spill_function(fid);
+}
+
+TEST(SpillManager, HeadroomForAnotherMemoryType) {
+    TempDir temp_dir;
+    auto br = BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        PinnedMemoryDisabled,
+        {{MemoryType::HOST, 10_KiB}},
+        std::nullopt,  // disable periodic spill thread
+        std::make_shared<StreamPool>(1),
+        Statistics::disabled(),
+        temp_dir.path()
+    );
+    auto& manager = br->spill_manager();
+
+    std::vector<std::pair<MemoryType, std::size_t>> calls;
+    auto const fid = manager.add_spill_function(
+        [&](MemoryType mem_type, std::size_t amount) -> std::size_t {
+            calls.emplace_back(mem_type, amount);
+            br->set_memory_limit(
+                mem_type, br->memory_available(mem_type) + safe_cast<std::int64_t>(amount)
+            );
+            return amount;
+        },
+        /* priority = */ 0
+    );
+
+    // Enough HOST headroom, nothing is spilled.
+    EXPECT_EQ(
+        manager.spill_to_make_headroom(4_KiB, MemoryType::HOST),
+        (HeadroomResult{.mem_type = MemoryType::HOST, .deficit = 0, .spilled = 0})
+    );
+    EXPECT_TRUE(calls.empty());
+
+    // The shortfall is measured on, and spilled from, HOST.
+    EXPECT_EQ(
+        manager.spill_to_make_headroom(16_KiB, MemoryType::HOST),
+        (HeadroomResult{.mem_type = MemoryType::HOST, .deficit = 6_KiB, .spilled = 6_KiB})
+    );
+    EXPECT_EQ(
+        calls,
+        (std::vector<std::pair<MemoryType, std::size_t>>{{MemoryType::HOST, 6_KiB}})
+    );
+
+    // DISK cannot be spilled.
+    EXPECT_THROW(
+        std::ignore = manager.spill_to_make_headroom(0, MemoryType::DISK),
+        std::invalid_argument
+    );
 
     manager.remove_spill_function(fid);
 }

@@ -279,7 +279,7 @@ MemoryReservation BufferResource::reserve_device_memory_and_spill(
         // With a headroom of zero, `deficit` is the overbooking still outstanding once
         // the spill lock is held. All of it is spilled, but this call is judged only on
         // its own share.
-        auto const [deficit, spilled] = spill_manager_.spill_to_make_headroom();
+        auto const [_, deficit, spilled] = spill_manager_.spill_to_make_headroom();
         RAPIDSMPF_EXPECTS(
             allow_overbooking == AllowOverbooking::YES
                 || spilled >= std::min(own_overbooking, deficit),
