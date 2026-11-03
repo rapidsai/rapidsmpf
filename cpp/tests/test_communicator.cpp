@@ -3,7 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cstdlib>
+#include <limits>
 #include <stdexcept>
+#include <thread>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -104,4 +107,79 @@ TEST_P(BasicCommunicatorTest, SendToSelf) {
     auto recv_data_h = br->move_to_host_buffer(std::move(recv_buf), host_reservation);
     stream.sync();
     EXPECT_EQ(send_data_h, recv_data_h->copy_to_uint8_vector());
+}
+
+namespace {
+// MPI counts are `int`, so a message larger than INT_MAX bytes takes a different path
+// (#78). These tests move several GiB per rank, so they only run when asked to.
+bool large_message_tests_enabled() {
+    return std::getenv("RAPIDSMPF_TEST_LARGE_MESSAGES") != nullptr;
+}
+
+constexpr std::size_t large_message_nbytes =
+    std::size_t{std::numeric_limits<int>::max()} + 12345;
+
+std::vector<std::uint8_t> large_message_pattern() {
+    std::vector<std::uint8_t> data(large_message_nbytes);
+    for (std::size_t i = 0; i < data.size(); ++i) {
+        data[i] = static_cast<std::uint8_t>(i % 251);
+    }
+    return data;
+}
+}  // namespace
+
+TEST_P(BasicCommunicatorTest, LargeMessageSendToSelf) {
+    if (GlobalEnvironment->type() == TestEnvironmentType::SINGLE) {
+        GTEST_SKIP() << "Unsupported send to self";
+    }
+    if (!large_message_tests_enabled()) {
+        GTEST_SKIP() << "Set RAPIDSMPF_TEST_LARGE_MESSAGES to run";
+    }
+    auto const send_data_h = large_message_pattern();
+    auto const nbytes = send_data_h.size();
+    auto send_buf = br->make_buffer(stream, br->reserve_or_fail(nbytes, memory_type()));
+    send_buf->write_access([&](std::byte* send_buf_data, cuda::stream_ref stream) {
+        RAPIDSMPF_CUDA_TRY(
+            rapidsmpf::cuda_memcpy_async(
+                send_buf_data, send_data_h.data(), nbytes, stream
+            )
+        );
+    });
+    send_buf->stream().sync();
+    rapidsmpf::Tag tag{0, 0};
+    auto send_fut = comm->send(std::move(send_buf), comm->rank(), tag);
+
+    auto recv_buf = br->make_buffer(stream, br->reserve_or_fail(nbytes, memory_type()));
+    recv_buf->stream().sync();
+    auto recv_fut = comm->recv(comm->rank(), tag, std::move(recv_buf));
+    std::ignore = comm->wait(std::move(send_fut));
+    recv_buf = comm->wait(std::move(recv_fut));
+    auto [host_reservation, host_ob] = br->reserve(
+        rapidsmpf::MemoryType::HOST, nbytes, rapidsmpf::AllowOverbooking::YES
+    );
+    auto recv_data_h = br->move_to_host_buffer(std::move(recv_buf), host_reservation);
+    stream.sync();
+    EXPECT_EQ(send_data_h, recv_data_h->copy_to_uint8_vector());
+}
+
+TEST_F(BaseCommunicatorTest, LargeHostMessageRecvFrom) {
+    if (GlobalEnvironment->type() == TestEnvironmentType::SINGLE) {
+        GTEST_SKIP() << "Unsupported send to self";
+    }
+    if (!large_message_tests_enabled()) {
+        GTEST_SKIP() << "Set RAPIDSMPF_TEST_LARGE_MESSAGES to run";
+    }
+    auto const expected = large_message_pattern();
+    rapidsmpf::Tag tag{0, 1};
+    auto send_fut = comm->send(
+        std::make_unique<std::vector<std::uint8_t>>(expected), comm->rank(), tag
+    );
+    auto received = comm->recv_from(comm->rank(), tag);
+    while (!received) {
+        received = comm->recv_from(comm->rank(), tag);
+    }
+    while (!comm->test(send_fut)) {
+        std::this_thread::yield();
+    }
+    EXPECT_EQ(expected, *received);
 }
