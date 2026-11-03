@@ -20,6 +20,7 @@
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/memory_reserve_or_wait.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
 namespace rapidsmpf::streaming {
@@ -295,7 +296,7 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
     // normally forced through by overbooking. If a spill is running at that moment,
     // it may be about to free enough memory, so instead we keep waiting:
     //
-    //  - Only device reservations wait, since spilling only frees device memory.
+    //  - Only addressable memory types wait, since nothing spills out of disk.
     //  - The wait continues only while a spill is in flight. Admission is still
     //    checked on every pass, so memory released meanwhile is used right away.
     //  - Each time a spill completes, the wait continues only if the memory available
@@ -354,7 +355,7 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
                         extend_available = available;
                     }
                 }
-                bool const keep_waiting = mem_type_ == MemoryType::DEVICE
+                bool const keep_waiting = contains(ADDRESSABLE_MEMORY_TYPES, mem_type_)
                                           && !spill_stalled
                                           && now - last_reservation_success
                                                  <= (1 + SPILL_WAIT_CAP_FACTOR) * timeout_
