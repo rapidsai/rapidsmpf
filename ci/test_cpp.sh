@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 set -euo pipefail
@@ -49,8 +49,7 @@ trap set_exit_code ERR
 set +e
 
 rapids-logger "Run librapidsmpf gtests"
-./wsl_probe.sh
-exit 1
+./wsl_probe.sh || true
 ./run_ctests.sh
 
 # Ensure that examples are runnable

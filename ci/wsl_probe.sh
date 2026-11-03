@@ -1,4 +1,7 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 # TEMP: WSL diagnostics for ShufflerManyStreams slowdown.
 set -x
 nproc
@@ -22,4 +25,3 @@ run "ucxx np=5" mpirun --map-by node --bind-to none -np 5 ./ucxx_tests "${F}"
 run "default np=5 repeat" mpirun --map-by node --bind-to none -np 5 ./mpi_tests "${F}"
 echo "=== bench_memory_resources"
 cd "${CONDA_PREFIX}/bin/benchmarks/librapidsmpf/" && RAPIDSMPF_SMOKE_TEST_MODE=ON timeout 120 ./bench_memory_resources 2>&1 | grep -E "BM_"
-exit 1
