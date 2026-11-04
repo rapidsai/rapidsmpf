@@ -33,6 +33,13 @@ This page contains the API reference for `rapidsmpf`.
    :members:
 ```
 
+## Progress thread
+
+```{eval-rst}
+.. automodule:: rapidsmpf.progress_thread
+   :members:
+```
+
 ## Multi-process Communicators
 
 ```{eval-rst}
@@ -83,6 +90,13 @@ This page contains the API reference for `rapidsmpf`.
 
 ```{eval-rst}
 .. automodule:: rapidsmpf.statistics
+   :members:
+```
+
+## Exceptions
+
+```{eval-rst}
+.. automodule:: rapidsmpf.error
    :members:
 ```
 
