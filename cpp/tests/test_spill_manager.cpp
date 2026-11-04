@@ -81,7 +81,7 @@ TEST(SpillManager, SpillFunction) {
         return amount;
     };
     br->spill_manager().add_spill_function(func1, /* priority = */ 1);
-    EXPECT_EQ(br->spill_manager().spill(10_KiB), 10_KiB);
+    EXPECT_EQ(br->spill_manager().spill(10_KiB, MemoryType::DEVICE), 10_KiB);
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 20_KiB);
 
     // Spill function that never spill any memory but has a higher priority.
@@ -92,14 +92,14 @@ TEST(SpillManager, SpillFunction) {
         return 0;
     };
     auto fid2 = br->spill_manager().add_spill_function(func2, /* priority = */ 2);
-    EXPECT_EQ(br->spill_manager().spill(10_KiB), 10_KiB);
+    EXPECT_EQ(br->spill_manager().spill(10_KiB, MemoryType::DEVICE), 10_KiB);
     EXPECT_TRUE(func2_called);
     func2_called = false;
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 30_KiB);
 
     // Removing `func2` means it shouldn't run.
     br->spill_manager().remove_spill_function(fid2);
-    EXPECT_EQ(br->spill_manager().spill(10_KiB), 10_KiB);
+    EXPECT_EQ(br->spill_manager().spill(10_KiB, MemoryType::DEVICE), 10_KiB);
     EXPECT_FALSE(func2_called);
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 40_KiB);
 
@@ -201,7 +201,9 @@ TEST(SpillManager, ReserveAndSpillCreditsAConcurrentSpill) {
     );
 
     // Hold a spill open, so the reservation below has to queue behind it.
-    std::thread spiller{[&] { std::ignore = br->spill_manager().spill(1_KiB); }};
+    std::thread spiller{[&] {
+        std::ignore = br->spill_manager().spill(1_KiB, MemoryType::DEVICE);
+    }};
     {
         std::unique_lock lock(mutex);
         cv.wait(lock, [&] { return entered; });
@@ -306,7 +308,7 @@ TEST(SpillManager, ProgressCountersTrackSpillExecution) {
         /* priority = */ 0
     );
 
-    std::ignore = manager.spill(1_KiB);
+    std::ignore = manager.spill(1_KiB, MemoryType::DEVICE);
     EXPECT_TRUE(seen_in_flight);
     EXPECT_EQ(seen_generation, 0u);
     EXPECT_FALSE(manager.spilling_now());
@@ -315,7 +317,7 @@ TEST(SpillManager, ProgressCountersTrackSpillExecution) {
     // A zero-byte ask runs no spill function, so there is nothing for a waiter to wait
     // for and the generation must not move.
     seen_in_flight = false;
-    std::ignore = manager.spill(0);
+    std::ignore = manager.spill(0, MemoryType::DEVICE);
     EXPECT_FALSE(seen_in_flight);
     EXPECT_EQ(manager.spill_generation(), 1u);
 
@@ -336,7 +338,9 @@ TEST(SpillManager, ProgressCountersSurviveAThrowingSpillFunction) {
         /* priority = */ 0
     );
 
-    EXPECT_THROW(std::ignore = manager.spill(1_KiB), std::runtime_error);
+    EXPECT_THROW(
+        std::ignore = manager.spill(1_KiB, MemoryType::DEVICE), std::runtime_error
+    );
 
     // A throwing spill function must not leave the manager looking permanently busy,
     // which would make every waiter extend its deadline forever.
@@ -359,7 +363,7 @@ TEST(SpillManager, SpillFunctionReceivesRequestedMemoryType) {
         /* priority = */ 0
     );
 
-    EXPECT_EQ(manager.spill(1_KiB), 1_KiB);
+    EXPECT_EQ(manager.spill(1_KiB, MemoryType::DEVICE), 1_KiB);
     EXPECT_EQ(manager.spill(2_KiB, MemoryType::HOST), 2_KiB);
     EXPECT_EQ(
         calls,

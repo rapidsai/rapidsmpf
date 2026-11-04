@@ -169,6 +169,7 @@ std::vector<PackedData> SparseAlltoall::extract(Rank src) {
 }
 
 std::size_t SparseAlltoall::spill(std::size_t amount, MemoryType mem_type) {
+    // TODO(stage 3): spill from non-DEVICE memory types.
     if (mem_type != MemoryType::DEVICE) {
         return 0;
     }

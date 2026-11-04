@@ -120,14 +120,14 @@ class SpillManager {
      * spilling is possible.
      *
      * @param amount The amount of memory (in bytes) to spill.
-     * @param mem_type The memory type to spill from, `MemoryType::DEVICE` by default.
+     * @param mem_type The memory type to spill from.
      * @return The actual amount of memory spilled (in bytes), which may be more, less
      * or equal to the requested.
      *
      * @throws std::invalid_argument if @p mem_type has no lower memory type to spill
      * into, i.e. `MemoryType::DISK`.
      */
-    std::size_t spill(std::size_t amount, MemoryType mem_type = MemoryType::DEVICE);
+    std::size_t spill(std::size_t amount, MemoryType mem_type);
 
     /**
      * @brief Attempts to free up memory by spilling data until the requested headroom is

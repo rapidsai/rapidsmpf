@@ -785,7 +785,9 @@ class BlockingSpill {
 
     /// @brief Start another spill on its own thread and return once it is executing.
     void start() {
-        spillers_.emplace_back([this] { std::ignore = br_->spill_manager().spill(1); });
+        spillers_.emplace_back([this] {
+            std::ignore = br_->spill_manager().spill(1, MemoryType::DEVICE);
+        });
         auto const n = static_cast<int>(spillers_.size());
         std::unique_lock lock(mutex_);
         cv_.wait(lock, [&] { return entered_ >= n; });

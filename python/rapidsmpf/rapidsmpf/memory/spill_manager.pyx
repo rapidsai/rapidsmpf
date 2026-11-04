@@ -14,7 +14,7 @@ import weakref
 
 
 cdef size_t cython_invoke_python_spill_function(
-    void* py_spill_function, size_t amount, MemoryType mem_type
+    void* py_spill_function, size_t amount
 ) noexcept nogil:
     """
     Invokes a Python spill function from C++ in a Cython-safe manner.
@@ -32,8 +32,6 @@ cdef size_t cython_invoke_python_spill_function(
         A pointer to a Python callable that implements a spill function.
     amount
         The amount of memory (in bytes) to be spilled.
-    mem_type
-        The memory type to spill from.
 
     Returns
     -------
@@ -46,7 +44,7 @@ cdef size_t cython_invoke_python_spill_function(
     cdef CppExcept err
     with gil:
         try:
-            return (<object?>py_spill_function)(amount, mem_type)
+            return (<object?>py_spill_function)(amount)
         except BaseException as e:
             err = translate_py_to_cpp_exception(e)
     throw_py_as_cpp_exception(err)
@@ -54,6 +52,8 @@ cdef size_t cython_invoke_python_spill_function(
 # To run a Python spill function in C++ with catchable exceptions, we use this function
 # to create a lambda function that uses `cython_invoke_python_spill_function` to run
 # the Python. The returned lambda function can then be given to the C++ SpillManager.
+# Python spill functions only take an amount, so they are only called for DEVICE memory
+# and spill nothing for other memory types.
 cdef extern from *:
     """
     template<typename T1, typename T2>
@@ -63,12 +63,14 @@ cdef extern from *:
         return [wrapper, py_spill_function](
             std::size_t amount, rapidsmpf::MemoryType mem_type
         ) -> std::size_t {
-            return wrapper(py_spill_function, amount, mem_type);
+            return mem_type == rapidsmpf::MemoryType::DEVICE
+                       ? wrapper(py_spill_function, amount)
+                       : 0;
         };
     }
     """
     cpp_SpillFunction cython_to_cpp_closure_lambda(
-         size_t (*wrapper)(void *, size_t, MemoryType),
+         size_t (*wrapper)(void *, size_t),
          void *py_spill_function
     ) except +ex_handler nogil
 
@@ -129,10 +131,9 @@ cdef class SpillManager:
         Parameters
         ----------
         func
-            The spill function to be added. It is called as ``func(amount, mem_type)``
-            where ``amount`` is the requested number of bytes and ``mem_type`` the
-            :class:`~.MemoryType` to free. It returns the number of bytes spilled, or zero
-            if it holds no data in ``mem_type``.
+            The spill function to be added. It is called as ``func(amount)`` with the
+            requested number of bytes, and only for ``MemoryType.DEVICE``. It returns the
+            number of bytes spilled.
         priority
             The priority level of the spill function (higher values indicate higher
             priority).
