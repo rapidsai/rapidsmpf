@@ -47,7 +47,7 @@ constexpr std::chrono::seconds wait_timeout(30);
 
 TEST(ShufflerManyStreams, Test) {
     std::mt19937 random_generator{42};
-    constexpr std::size_t chunksize = 1 << 20;
+    constexpr std::size_t chunksize = 1 << 16;
     constexpr int num_partitions = 100;
     auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
 
