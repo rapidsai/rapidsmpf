@@ -49,8 +49,6 @@ trap set_exit_code ERR
 set +e
 
 rapids-logger "Run librapidsmpf gtests"
-./wsl_probe.sh
-exit 1
 ./run_ctests.sh
 
 # Ensure that examples are runnable
