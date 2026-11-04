@@ -5,6 +5,9 @@ This page contains the API reference for `rapidsmpf`.
 ## Buffers and memory utilities
 
 ```{eval-rst}
+.. automodule:: rapidsmpf.cuda_stream
+   :members:
+
 .. automodule:: rapidsmpf.memory
    :members:
 
@@ -37,6 +40,13 @@ This page contains the API reference for `rapidsmpf`.
 
 ```{eval-rst}
 .. automodule:: rapidsmpf.progress_thread
+   :members:
+```
+
+## Bootstrap utilities
+
+```{eval-rst}
+.. automodule:: rapidsmpf.bootstrap
    :members:
 ```
 
