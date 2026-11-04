@@ -116,29 +116,23 @@ class ByteMessageType {
             return;
         }
         constexpr std::size_t chunk_size = std::size_t{1} << 30;
+        auto const nchunks = nbytes / chunk_size;
+        auto const remainder = nbytes % chunk_size;
         MPI_Datatype chunk;
-        MPI_Datatype chunks;
         RAPIDSMPF_MPI(
             MPI_Type_contiguous(safe_cast<int>(chunk_size), MPI_UINT8_T, &chunk)
         );
-        RAPIDSMPF_MPI(
-            MPI_Type_contiguous(safe_cast<int>(nbytes / chunk_size), chunk, &chunks)
-        );
+        std::array<int, 2> block_lengths{
+            safe_cast<int>(nchunks), safe_cast<int>(remainder)
+        };
+        std::array<MPI_Aint, 2> displacements{
+            0, safe_cast<MPI_Aint>(nchunks * chunk_size)
+        };
+        std::array<MPI_Datatype, 2> types{chunk, MPI_UINT8_T};
+        RAPIDSMPF_MPI(MPI_Type_create_struct(
+            2, block_lengths.data(), displacements.data(), types.data(), &type_
+        ));
         RAPIDSMPF_MPI(MPI_Type_free(&chunk));
-        auto const remainder = nbytes % chunk_size;
-        if (remainder == 0) {
-            type_ = chunks;
-        } else {
-            std::array<int, 2> block_lengths{1, safe_cast<int>(remainder)};
-            std::array<MPI_Aint, 2> displacements{
-                0, safe_cast<MPI_Aint>(nbytes - remainder)
-            };
-            std::array<MPI_Datatype, 2> types{chunks, MPI_UINT8_T};
-            RAPIDSMPF_MPI(MPI_Type_create_struct(
-                2, block_lengths.data(), displacements.data(), types.data(), &type_
-            ));
-            RAPIDSMPF_MPI(MPI_Type_free(&chunks));
-        }
         RAPIDSMPF_MPI(MPI_Type_commit(&type_));
         count_ = 1;
     }
