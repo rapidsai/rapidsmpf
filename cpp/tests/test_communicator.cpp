@@ -5,6 +5,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <limits>
 #include <stdexcept>
 #include <thread>
@@ -121,6 +123,18 @@ constexpr std::size_t large_message_nbytes =
 constexpr std::size_t pattern_chunk_nbytes = 251 * 16384;
 constexpr auto large_message_timeout = std::chrono::minutes{5};
 
+[[noreturn]] void fail_large_message_timeout(char const* message) {
+    // A pending request can still reference a future's buffer, and some sends
+    // cannot be cancelled. Do not unwind those futures on timeout.
+    try {
+        ADD_FAILURE() << message;
+    } catch (...) {
+        // GTest can be configured to throw when recording a failure.
+    }
+    std::fflush(nullptr);
+    std::_Exit(EXIT_FAILURE);
+}
+
 std::vector<std::uint8_t> large_message_pattern_chunk() {
     std::vector<std::uint8_t> data(pattern_chunk_nbytes);
     for (std::size_t i = 0; i < data.size(); ++i) {
@@ -186,13 +200,16 @@ TEST_P(BasicCommunicatorTest, LargeMessageSendToSelf) {
     auto recv_fut = comm->recv(comm->rank(), tag, std::move(recv_buf));
     auto const deadline = std::chrono::steady_clock::now() + large_message_timeout;
     while (!comm->test(send_fut)) {
-        ASSERT_LT(std::chrono::steady_clock::now(), deadline) << "Large send timed out";
+        if (std::chrono::steady_clock::now() >= deadline) {
+            fail_large_message_timeout("Large send timed out");
+        }
         std::this_thread::yield();
     }
     std::ignore = comm->wait(std::move(send_fut));
     while (!comm->test(recv_fut)) {
-        ASSERT_LT(std::chrono::steady_clock::now(), deadline)
-            << "Large receive timed out";
+        if (std::chrono::steady_clock::now() >= deadline) {
+            fail_large_message_timeout("Large receive timed out");
+        }
         std::this_thread::yield();
     }
     recv_buf = comm->wait(std::move(recv_fut));
@@ -239,13 +256,16 @@ TEST_F(BaseCommunicatorTest, LargeHostMessageRecvFrom) {
     auto received = comm->recv_from(comm->rank(), tag);
     auto const deadline = std::chrono::steady_clock::now() + large_message_timeout;
     while (!received) {
-        ASSERT_LT(std::chrono::steady_clock::now(), deadline)
-            << "Large receive timed out";
+        if (std::chrono::steady_clock::now() >= deadline) {
+            fail_large_message_timeout("Large receive timed out");
+        }
         std::this_thread::yield();
         received = comm->recv_from(comm->rank(), tag);
     }
     while (!comm->test(send_fut)) {
-        ASSERT_LT(std::chrono::steady_clock::now(), deadline) << "Large send timed out";
+        if (std::chrono::steady_clock::now() >= deadline) {
+            fail_large_message_timeout("Large send timed out");
+        }
         std::this_thread::yield();
     }
     ASSERT_EQ(received->size(), large_message_nbytes);
