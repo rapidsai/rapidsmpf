@@ -595,10 +595,11 @@ TEST_P(ConcurrentShuffleTest, round_trip) {
     ASSERT_NO_FATAL_FAILURE(RunTestTemplate());
 }
 
-// test different `num_shufflers` and `total_num_partitions`. The combination of 4
-// shufflers and 100 partitions is left out because it sends thousands of small
+// test different `num_shufflers` and `total_num_partitions`. The combinations of 2 or
+// 4 shufflers and 100 partitions are left out because they send thousands of small
 // messages per rank and can exceed the wait timeout on slow CI runners.
-// See <https://github.com/rapidsai/rapidsmpf/pull/1291>
+// See <https://github.com/rapidsai/rapidsmpf/pull/1291> and
+// <https://github.com/rapidsai/rapidsmpf/pull/1304>
 INSTANTIATE_TEST_SUITE_P(
     ConcurrentShuffle,
     ConcurrentShuffleTest,
@@ -608,7 +609,6 @@ INSTANTIATE_TEST_SUITE_P(
         std::make_tuple(std::size_t{1}, rapidsmpf::shuffler::PartID{100}),
         std::make_tuple(std::size_t{2}, rapidsmpf::shuffler::PartID{1}),
         std::make_tuple(std::size_t{2}, rapidsmpf::shuffler::PartID{10}),
-        std::make_tuple(std::size_t{2}, rapidsmpf::shuffler::PartID{100}),
         std::make_tuple(std::size_t{4}, rapidsmpf::shuffler::PartID{1}),
         std::make_tuple(std::size_t{4}, rapidsmpf::shuffler::PartID{10})
     ),
