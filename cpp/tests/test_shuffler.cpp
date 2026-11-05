@@ -863,12 +863,7 @@ TEST(Shuffler, SpillToDiskOnInsert) {
     EXPECT_EQ(comm->nranks(), 1);
 
     rapidsmpf::shuffler::Shuffler shuffler(
-        comm,
-        0,
-        num_partitions,
-        br.get(),
-        rapidsmpf::shuffler::Shuffler::round_robin,
-        nullptr
+        comm, 0, num_partitions, br.get(), rapidsmpf::shuffler::Shuffler::round_robin
     );
     std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> input;
     input.emplace(0, generate_packed_data(num_rows, 0, stream, *br));
