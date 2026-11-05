@@ -275,7 +275,8 @@ TEST_F(StreamingSpillableMessages, SpillInFlightMessages) {
                 co_await ctx->executor()->schedule();
                 for (int j = 0; j < msgs_per_producer; ++j) {
                     spilled_expect.fetch_add(
-                        ctx->br()->spill_manager().spill(1024), std::memory_order_relaxed
+                        ctx->br()->spill_manager().spill(1024, MemoryType::DEVICE),
+                        std::memory_order_relaxed
                     );
 
                     auto msg = co_await ch_in->receive();
