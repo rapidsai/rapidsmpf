@@ -142,15 +142,16 @@ class Single final : public Communicator {
     /**
      * @brief Tests for completion of multiple futures in a map.
      *
-     * @param future_map Map of futures identified by keys.
-     * @return Keys of completed futures.
+     * @param[inout] future_map Map of futures identified by keys. Completed futures are
+     * erased from the map.
+     * @return Map of the completed futures, identified by their keys.
      *
      * @throws std::runtime_error if called (single-process communicators should never
      * send messages).
      */
-    std::vector<std::size_t> test_some(
-        std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> const&
-            future_map
+    [[nodiscard]] std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>>
+    test_some(
+        std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>>& future_map
     ) override;
 
     /// @copydoc Communicator::test

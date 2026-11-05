@@ -153,12 +153,10 @@ class Shuffler::Progress {
 
         // Signal the MPE that no more messages will be sent once all application
         // messages have been flushed from to_send_ into the MPE.
-        if (!mpe_finish_called_
-            && shuffler_.locally_finished_.load(std::memory_order_acquire)
+        if (shuffler_.locally_finished_.load(std::memory_order_acquire)
             && shuffler_.to_send_.empty())
         {
             shuffler_.mpe_->finish();
-            mpe_finish_called_ = true;
         }
 
         // There are no messages to be posted, or waiting to be completed.
@@ -191,7 +189,6 @@ class Shuffler::Progress {
 
   private:
     Shuffler& shuffler_;
-    bool mpe_finish_called_{false};
 
 #if RAPIDSMPF_VERBOSE_INFO
     std::int64_t p_iters = 0;  ///< Number of progress iterations (for NVTX)
@@ -218,8 +215,7 @@ Shuffler::Shuffler(
     PartID total_num_partitions,
     BufferResource* br,
     FinishedCallback&& finished_callback,
-    PartitionOwner partition_owner_fn,
-    std::unique_ptr<communicator::MetadataPayloadExchange> mpe
+    PartitionOwner partition_owner_fn
 )
     : total_num_partitions{total_num_partitions},
       partition_owner{std::move(partition_owner_fn)},
@@ -233,17 +229,14 @@ Shuffler::Shuffler(
           RAPIDSMPF_EXPECTS(comm != nullptr, "the communicator pointer cannot be NULL");
           return std::move(comm);
       }()},
-      mpe_{
-          mpe ? std::move(mpe)
-              : std::make_unique<communicator::TagMetadataPayloadExchange>(
-                    comm_,
-                    op_id,
-                    all_remote_ranks(*comm_),
-                    communicator::default_allocate_buffer,
-                    br->memory_reserve_timeout(),
-                    br
-                )
-      },
+      mpe_{std::make_unique<communicator::TagMetadataPayloadExchange>(
+          comm_,
+          op_id,
+          all_remote_ranks(*comm_),
+          communicator::default_allocate_buffer,
+          br->memory_reserve_timeout(),
+          br
+      )},
       local_partitions_{local_partitions(comm_, total_num_partitions, partition_owner)},
       finish_counter_{comm_->nranks(), safe_cast<PartID>(local_partitions_.size())},
       outbound_chunk_counter_(safe_cast<std::size_t>(comm_->nranks()), 0),
@@ -264,7 +257,9 @@ Shuffler::Shuffler(
     // Register a spill function that spill buffers in this shuffler.
     // Note, the spill function can use `this` because a Shuffler isn't movable.
     spill_function_id_ = br_->spill_manager().add_spill_function(
-        [this](std::size_t amount) -> std::size_t { return spill(amount); },
+        [this](std::size_t amount, MemoryType mem_type) -> std::size_t {
+            return spill(amount, mem_type);
+        },
         /* priority = */ 0
     );
 }
@@ -450,22 +445,13 @@ void Shuffler::wait(std::optional<std::chrono::milliseconds> timeout) {
     }
 }
 
-std::size_t Shuffler::spill(std::optional<std::size_t> amount) {
+std::size_t Shuffler::spill(std::size_t amount, MemoryType mem_type) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    std::size_t spill_need{0};
-    if (amount.has_value()) {
-        spill_need = amount.value();
-    } else {
-        std::int64_t const headroom = br_->memory_available(MemoryType::DEVICE);
-        if (headroom < 0) {
-            spill_need = safe_cast<std::size_t>(std::abs(headroom));
-        }
+    // TODO(stage 3): spill from non-DEVICE memory types.
+    if (mem_type != MemoryType::DEVICE) {
+        return 0;
     }
-    std::size_t spilled{0};
-    if (spill_need > 0) {
-        spilled = received_.spill(br_, spill_need);
-    }
-    return spilled;
+    return received_.spill(br_, amount);
 }
 
 detail::ChunkID Shuffler::get_new_cid() {

@@ -283,10 +283,12 @@ MPI::test_some(std::vector<std::unique_ptr<Communicator::Future>>& future_vector
     };
 }
 
-std::vector<std::size_t> MPI::test_some(
-    std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> const&
-        future_map
+std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> MPI::test_some(
+    std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>>& future_map
 ) {
+    if (future_map.empty()) {
+        return {};
+    }
     std::vector<MPI_Request> reqs;
     std::vector<std::size_t> key_reqs;
     reqs.reserve(future_map.size());
@@ -299,25 +301,25 @@ std::vector<std::size_t> MPI::test_some(
     }
 
     // Get completed requests as indices into `key_reqs` (and `reqs`).
-    std::vector<int> completed(reqs.size());
-    {
-        int num_completed{0};
-        RAPIDSMPF_MPI(MPI_Testsome(
-            reqs.size(),
-            reqs.data(),
-            &num_completed,
-            completed.data(),
-            MPI_STATUSES_IGNORE
-        ));
-        completed.resize(safe_cast<std::size_t>(num_completed));
+    std::vector<int> indices(reqs.size());
+    int num_completed{0};
+    RAPIDSMPF_MPI(MPI_Testsome(
+        safe_cast<int>(reqs.size()),
+        reqs.data(),
+        &num_completed,
+        indices.data(),
+        MPI_STATUSES_IGNORE
+    ));
+    RAPIDSMPF_EXPECTS(
+        num_completed != MPI_UNDEFINED, "Expected at least one active handle."
+    );
+    std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> completed;
+    for (std::size_t i = 0; i < safe_cast<std::size_t>(num_completed); ++i) {
+        completed.insert(
+            future_map.extract(key_reqs[safe_cast<std::size_t>(indices[i])])
+        );
     }
-
-    std::vector<std::size_t> ret;
-    ret.reserve(completed.size());
-    for (int i : completed) {
-        ret.push_back(key_reqs.at(safe_cast<std::size_t>(i)));
-    }
-    return ret;
+    return completed;
 }
 
 bool MPI::test(std::unique_ptr<Communicator::Future>& future) {
