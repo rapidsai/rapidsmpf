@@ -5,12 +5,16 @@
 
 #include <algorithm>
 #include <deque>
+#include <memory>
 #include <ranges>
 #include <span>
+#include <utility>
 
 #include <coro/coro.hpp>
 
+#include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
+#include <rapidsmpf/memory/spill_manager.hpp>
 #include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/coro_utils.hpp>
@@ -142,10 +146,38 @@ struct UnboundedFanout {
     /**
      * @brief Constructor.
      *
+     * Creates a dedicated spillable-messages container that spills the most recently
+     * received messages first (LIFO), and registers a spill function for it with the
+     * buffer resource's spill manager.
+     *
+     * @param br The buffer resource to register the spill function with.
      * @param num_channels The number of output channels.
      */
-    explicit UnboundedFanout(std::size_t num_channels)
-        : per_ch_processed(num_channels, 0) {}
+    UnboundedFanout(std::shared_ptr<BufferResource> br, std::size_t num_channels)
+        : per_ch_processed(num_channels, 0),
+          br_{std::move(br)},
+          spillable_msgs_{std::make_shared<SpillableMessages>(
+              SpillableMessages::SpillOrder::LATEST_FIRST
+          )} {
+        spill_function_id_ = br_->spill_manager().add_spill_function(
+            [this](std::size_t amount) -> std::size_t {
+                return spillable_msgs_->spill(br_.get(), amount);
+            },
+            -1  // same priority as the Context's spill function.
+        );
+    }
+
+    /**
+     * @brief Destructor. Removes the spill function.
+     */
+    ~UnboundedFanout() noexcept {
+        br_->spill_manager().remove_spill_function(spill_function_id_);
+    }
+
+    UnboundedFanout(UnboundedFanout const&) = delete;
+    UnboundedFanout& operator=(UnboundedFanout const&) = delete;
+    UnboundedFanout(UnboundedFanout&&) = delete;
+    UnboundedFanout& operator=(UnboundedFanout&&) = delete;
 
     /**
      * @brief Sentinel value indicating that the index is invalid. This is set when a
@@ -195,8 +227,6 @@ struct UnboundedFanout {
         };
         co_await ctx.executor()->schedule();
 
-        auto spillable_messages = ctx.spillable_messages();
-
         std::size_t n_available_messages = 0;
         std::vector<SpillableMessages::MessageId> msg_ids_to_send;
         while (true) {
@@ -223,13 +253,13 @@ struct UnboundedFanout {
             }
 
             for (auto const msg_id : msg_ids_to_send) {
-                auto const cd = spillable_messages->get_content_description(msg_id);
+                auto const cd = spillable_msgs_->get_content_description(msg_id);
                 // Reserve memory for the output using the input message's memory type, or
                 // a lower-priority type if needed.
                 auto const mem_types =
                     preference_leq(cd.principal_memory_type(), MEMORY_TYPES);
                 auto res = ctx.br()->reserve_or_fail(cd.content_size(), mem_types);
-                if (!co_await ch_out->send(spillable_messages->copy(msg_id, res))) {
+                if (!co_await ch_out->send(spillable_msgs_->copy(msg_id, res))) {
                     // Failed to send message. Could be that the channel is shut down.
                     // So we need to abort the send task, and notify the process input
                     // task
@@ -328,10 +358,6 @@ struct UnboundedFanout {
         // index of the first message to purge
         std::size_t purge_idx = 0;
 
-        // To make staged input messages spillable, we insert them into the Context's
-        // spillable_messages container while they are in transit.
-        auto spillable_messages = ctx.spillable_messages();
-
         // no_more_input is only set by this task, so reading without lock is safe here
         while (!no_more_input) {
             auto [per_ch_processed_min, per_ch_processed_max] =
@@ -349,7 +375,10 @@ struct UnboundedFanout {
                 if (msg.empty()) {
                     no_more_input = true;
                 } else {
-                    recv_msg_ids.emplace_back(spillable_messages->insert(std::move(msg)));
+                    // To make staged input messages spillable, we insert them into this
+                    // fanout's LIFO spillable_messages_ container while they are in
+                    // transit.
+                    recv_msg_ids.emplace_back(spillable_msgs_->insert(std::move(msg)));
                 }
             }
 
@@ -360,7 +389,7 @@ struct UnboundedFanout {
             // However the deque is not resized. This guarantees that the indices are not
             // invalidated.
             while (purge_idx < per_ch_processed_min) {
-                std::ignore = spillable_messages->extract(recv_msg_ids[purge_idx]);
+                std::ignore = spillable_msgs_->extract(recv_msg_ids[purge_idx]);
                 purge_idx++;
             }
         }
@@ -386,6 +415,12 @@ struct UnboundedFanout {
     /// @brief number of messages processed for each channel (ie. next index to send for
     /// each channel)
     std::vector<std::size_t> per_ch_processed;
+
+  private:
+    std::shared_ptr<BufferResource> br_;
+    /// @brief Staged messages, spilled latest-first.
+    std::shared_ptr<SpillableMessages> spillable_msgs_;
+    SpillManager::SpillFunctionID spill_function_id_{};
 };
 
 /**
@@ -409,7 +444,7 @@ Actor unbounded_fanout(
     ShutdownAtExit ch_in_shutdown{ch_in};
     ShutdownAtExit chs_out_shutdown{chs_out};
     co_await executor.schedule();
-    UnboundedFanout fanout(chs_out.size());
+    UnboundedFanout fanout(ctx->br(), chs_out.size());
 
     std::vector<Actor> tasks;
     tasks.reserve(chs_out.size() + 1);

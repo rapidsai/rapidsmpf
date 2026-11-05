@@ -38,10 +38,24 @@ namespace rapidsmpf::streaming {
  */
 class SpillableMessages {
   public:
+    /// @brief Order in which messages are chosen for spilling.
+    enum class SpillOrder : bool {
+        EARLIEST_FIRST,  ///< Spill the earliest inserted messages first.
+        LATEST_FIRST  ///< Spill the most recently inserted messages first.
+    };
+
     /// @brief Unique identifier assigned to each message.
     using MessageId = std::uint64_t;
 
-    SpillableMessages() = default;
+    /**
+     * @brief Construct an empty container.
+     *
+     * @param spill_order Order in which `spill(BufferResource*, std::size_t)` picks
+     * messages. Defaults to earliest inserted first.
+     */
+    explicit SpillableMessages(SpillOrder spill_order = SpillOrder::EARLIEST_FIRST)
+        : spill_order_{spill_order} {}
+
     SpillableMessages(SpillableMessages const&) = delete;
     SpillableMessages& operator=(SpillableMessages const&) = delete;
     SpillableMessages(SpillableMessages&&) noexcept = delete;
@@ -109,6 +123,23 @@ class SpillableMessages {
     [[nodiscard]] std::size_t spill(MessageId mid, BufferResource* br) const;
 
     /**
+     * @brief Spill messages until the target amount of memory has been released.
+     *
+     * Messages are spilled in the order given by the `SpillOrder` passed at
+     * construction (earliest inserted first by default). The function stops once
+     * the cumulative amount of spilled memory reaches or exceeds `amount`, or when no
+     * further spillable messages remain.
+     *
+     * @param br Buffer resource used for spill allocations.
+     * @param amount Target number of bytes to spill.
+     * @return The total number of bytes actually spilled.
+     *
+     * @todo Support additional spilling strategies (e.g., size-based or
+     * priority-based).
+     */
+    [[nodiscard]] std::size_t spill(BufferResource* br, std::size_t amount) const;
+
+    /**
      * @brief Get a snapshot of current messages' content descriptions.
      *
      * The returned map may become outdated immediately if other threads
@@ -167,6 +198,7 @@ class SpillableMessages {
 
     // Never lock the global mutex and an item's mutex at the same time!
     mutable std::mutex global_mutex_;
+    SpillOrder spill_order_;
     MessageId counter_{0};
     std::unordered_map<MessageId, std::shared_ptr<Item>> items_;
     mutable std::map<MessageId, ContentDescription> content_descriptions_;
