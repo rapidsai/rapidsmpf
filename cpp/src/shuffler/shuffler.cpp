@@ -168,9 +168,9 @@ class Shuffler::Progress {
         bool const is_finished =
             shuffler_.locally_finished_.load(std::memory_order_acquire)
             && shuffler_.finish_counter_.all_finished();
-        // Finished and shuffler is no longer active.
-        bool const is_done = !shuffler_.active_.load(std::memory_order_acquire)
-                             && is_finished && containers_empty;
+        // The shuffle is complete on this rank and no further message for this op_id
+        // can arrive.
+        bool const is_done = is_finished && containers_empty;
         // Signal can_extract_ when all chunks have been received and all internal
         // containers are drained. If we own no partitions we "can-extract" immediately,
         // but we only wake a waiter once we've drained internal containers so that we can
