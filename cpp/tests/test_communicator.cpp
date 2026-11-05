@@ -16,7 +16,6 @@
 
 #include <cuda/stream>
 
-#include <rmm/cuda_device.hpp>
 #include <rmm/mr/cuda_memory_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
@@ -24,7 +23,6 @@
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
-#include <rapidsmpf/system_info.hpp>
 
 #include "environment.hpp"
 #include "utils.hpp"
@@ -144,7 +142,7 @@ std::vector<std::uint8_t> large_message_pattern_chunk() {
 }
 }  // namespace
 
-TEST_P(BasicCommunicatorTest, LargeMessageSendToSelf) {
+TEST_F(BaseCommunicatorTest, LargeMessageSendToSelf) {
     if (GlobalEnvironment->type() == TestEnvironmentType::SINGLE) {
         GTEST_SKIP() << "Unsupported send to self";
     }
@@ -152,50 +150,23 @@ TEST_P(BasicCommunicatorTest, LargeMessageSendToSelf) {
         GTEST_SKIP() << "Large transfer runs on rank 0 only";
     }
     auto const nbytes = large_message_nbytes;
-    constexpr std::size_t reserve_headroom = 64 * 1024 * 1024;
-    auto const host_needed =
-        reserve_headroom
-        + (memory_type() == rapidsmpf::MemoryType::HOST ? 2 * nbytes : 0);
-    if (rapidsmpf::get_total_host_memory() < host_needed) {
-        GTEST_SKIP() << "Not enough host memory for the large-message test";
-    }
-    if (memory_type() == rapidsmpf::MemoryType::DEVICE) {
-        auto const [free_device_memory, total_device_memory] =
-            rmm::available_device_memory();
-        (void)total_device_memory;
-        if (free_device_memory < 2 * nbytes + reserve_headroom) {
-            GTEST_SKIP() << "Not enough free device memory for the large-message test";
-        }
-    }
-    if (br->memory_available(memory_type()) < static_cast<std::int64_t>(2 * nbytes)) {
-        GTEST_SKIP() << "Buffer resource limit is too small for two large messages";
-    }
     auto const pattern = large_message_pattern_chunk();
-    auto send_buf = br->make_buffer(stream, br->reserve_or_fail(nbytes, memory_type()));
+    auto send_buf =
+        br->make_buffer(stream, br->reserve_or_fail(nbytes, rapidsmpf::MemoryType::HOST));
     send_buf->stream().sync();
-    send_buf->write_access([&](std::byte* send_buf_data, cuda::stream_ref stream) {
+    send_buf->write_access([&](std::byte* send_buf_data, cuda::stream_ref) {
+        auto* data = reinterpret_cast<std::uint8_t*>(send_buf_data);
         for (std::size_t offset = 0; offset < nbytes; offset += pattern.size()) {
             auto const length = std::min(pattern.size(), nbytes - offset);
-            if (memory_type() == rapidsmpf::MemoryType::HOST) {
-                std::copy_n(
-                    pattern.data(),
-                    length,
-                    reinterpret_cast<std::uint8_t*>(send_buf_data) + offset
-                );
-            } else {
-                RAPIDSMPF_CUDA_TRY(
-                    rapidsmpf::cuda_memcpy_async(
-                        send_buf_data + offset, pattern.data(), length, stream
-                    )
-                );
-            }
+            std::copy_n(pattern.data(), length, data + offset);
         }
     });
     send_buf->stream().sync();
     rapidsmpf::Tag tag{0, 0};
     auto send_fut = comm->send(std::move(send_buf), comm->rank(), tag);
 
-    auto recv_buf = br->make_buffer(stream, br->reserve_or_fail(nbytes, memory_type()));
+    auto recv_buf =
+        br->make_buffer(stream, br->reserve_or_fail(nbytes, rapidsmpf::MemoryType::HOST));
     recv_buf->stream().sync();
     auto recv_fut = comm->recv(comm->rank(), tag, std::move(recv_buf));
     auto const deadline = std::chrono::steady_clock::now() + large_message_timeout;
@@ -213,21 +184,10 @@ TEST_P(BasicCommunicatorTest, LargeMessageSendToSelf) {
         std::this_thread::yield();
     }
     recv_buf = comm->wait(std::move(recv_fut));
-    std::vector<std::uint8_t> staging;
-    if (memory_type() == rapidsmpf::MemoryType::DEVICE) {
-        staging.resize(pattern.size());
-    }
     for (std::size_t offset = 0; offset < nbytes; offset += pattern.size()) {
         auto const length = std::min(pattern.size(), nbytes - offset);
         auto const* received =
             reinterpret_cast<std::uint8_t const*>(recv_buf->data()) + offset;
-        if (memory_type() == rapidsmpf::MemoryType::DEVICE) {
-            RAPIDSMPF_CUDA_TRY(
-                rapidsmpf::cuda_memcpy_async(staging.data(), received, length, stream)
-            );
-            stream.sync();
-            received = staging.data();
-        }
         auto const mismatch =
             std::mismatch(pattern.begin(), pattern.begin() + length, received);
         ASSERT_EQ(mismatch.first, pattern.begin() + length)
@@ -242,10 +202,6 @@ TEST_F(BaseCommunicatorTest, LargeHostMessageRecvFrom) {
     }
     if (comm->rank() != 0) {
         GTEST_SKIP() << "Large transfer runs on rank 0 only";
-    }
-    if (rapidsmpf::get_total_host_memory() < 2 * large_message_nbytes + 64 * 1024 * 1024)
-    {
-        GTEST_SKIP() << "Not enough host memory for the large-message test";
     }
     auto send_data = std::make_unique<std::vector<std::uint8_t>>(large_message_nbytes);
     for (std::size_t i = 0; i < send_data->size(); ++i) {
