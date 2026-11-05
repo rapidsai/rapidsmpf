@@ -226,16 +226,18 @@ SocketServer::~SocketServer() {
     }
 
     // Unblock every handler: shut down the client sockets it may be reading
-    // from, and wake the ones waiting for other ranks.
+    // from, and wake the ones waiting for other ranks. Since `mu` is taken
+    // after `shutdown` is set, a waiting handler has either seen `shutdown` or
+    // is already waiting and gets the notification.
     {
         std::lock_guard<std::mutex> lk(state_->mu);
         for (int fd : state_->client_fds) {
             ::shutdown(fd, SHUT_RDWR);
         }
-        state_->kv_cv.notify_all();
-        state_->barrier_cv.notify_all();
-        state_->sync_cv.notify_all();
     }
+    state_->kv_cv.notify_all();
+    state_->barrier_cv.notify_all();
+    state_->sync_cv.notify_all();
 
     std::lock_guard<std::mutex> lk(handler_mutex_);
     for (auto& t : handler_threads_) {
