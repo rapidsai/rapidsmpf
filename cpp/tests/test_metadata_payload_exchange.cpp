@@ -558,6 +558,43 @@ TEST_F(MetadataPayloadExchangeTest, RetriesDeferredAllocation) {
     finish_and_wait();
 }
 
+TEST_F(MetadataPayloadExchangeTest, ReceivesPayloadsCompletingOutOfOrder) {
+    if (comm->nranks() < 2) {
+        GTEST_SKIP() << "Test requires at least 2 ranks";
+    }
+    Rank next_rank = (comm->rank() + 1) % comm->nranks();
+    // Alternate large and small payloads, so a small payload can finish transferring
+    // before the large one in front of it.
+    constexpr int num_messages = 16;
+    constexpr std::size_t large_size = 16 << 20;
+    constexpr std::size_t small_size = 64;
+    auto payload_size = [&](int i) { return i % 2 == 0 ? large_size : small_size; };
+
+    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> messages;
+    for (int i = 0; i < num_messages; ++i) {
+        messages.push_back(create_test_message(
+            next_rank, {static_cast<std::uint8_t>(i)}, payload_size(i)
+        ));
+    }
+    comm_interface->send(std::move(messages));
+
+    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> received;
+    auto const deadline = Clock::now() + std::chrono::seconds{30};
+    while (received.size() < num_messages && Clock::now() < deadline) {
+        comm_interface->progress();
+        std::ranges::move(comm_interface->recv(), std::back_inserter(received));
+        std::this_thread::yield();
+    }
+    ASSERT_EQ(received.size(), num_messages);
+    for (int i = 0; i < num_messages; ++i) {
+        EXPECT_EQ(received[i]->metadata(), std::vector{static_cast<std::uint8_t>(i)});
+        ASSERT_NE(received[i]->data(), nullptr);
+        EXPECT_EQ(received[i]->data()->size, payload_size(i));
+    }
+    verify_data_content(received[1]->data(), small_size);
+    finish_and_wait();
+}
+
 TEST_F(MetadataPayloadExchangeTest, OverbooksOnTimeout) {
     if (comm->nranks() < 2) {
         GTEST_SKIP() << "Test requires at least 2 ranks";
