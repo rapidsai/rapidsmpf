@@ -43,7 +43,7 @@ Context::Context(
     // Setup a spilling function.
     spill_function_id_ = br_->spill_manager().add_spill_function(
         [this](std::size_t amount) -> std::size_t {
-            return spillable_messages_->spill(br_.get(), amount);
+            return spillable_messages_->try_spill(br_.get(), amount);
         },
         -1  // set priority lower than in the Shuffler and AllGather.
     );

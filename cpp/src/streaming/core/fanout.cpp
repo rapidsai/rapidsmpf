@@ -150,20 +150,21 @@ struct UnboundedFanout {
      * received messages first (LIFO), and registers a spill function for it with the
      * buffer resource's spill manager.
      *
-     * @param br The buffer resource to register the spill function with.
+     * @param buffer_resource The buffer resource to register the spill function with.
      * @param num_channels The number of output channels.
      */
-    UnboundedFanout(std::shared_ptr<BufferResource> br, std::size_t num_channels)
+    UnboundedFanout(std::shared_ptr<BufferResource> buf_res, std::size_t num_channels)
         : per_ch_processed(num_channels, 0),
-          br_{std::move(br)},
-          spillable_msgs_{std::make_shared<SpillableMessages>(
-              SpillableMessages::SpillOrder::LATEST_FIRST
-          )} {
-        spill_function_id_ = br_->spill_manager().add_spill_function(
+          br{std::move(buf_res)},
+          spillable_msgs{SpillableMessages::SpillOrder::LATEST_FIRST} {
+        spill_function_id = br->spill_manager().add_spill_function(
             [this](std::size_t amount) -> std::size_t {
-                return spillable_msgs_->spill(br_.get(), amount);
+                return spillable_msgs.try_spill(br.get(), amount);
             },
-            -1  // same priority as the Context's spill function.
+            // Priority 0 (higher than the Context's -1), so staged fanout messages are
+            // spilled before channel messages. They wait for the slowest consumer and are
+            // typically the coldest data. This matches cudf-polars' unbounded fanout.
+            0
         );
     }
 
@@ -171,7 +172,7 @@ struct UnboundedFanout {
      * @brief Destructor. Removes the spill function.
      */
     ~UnboundedFanout() noexcept {
-        br_->spill_manager().remove_spill_function(spill_function_id_);
+        br->spill_manager().remove_spill_function(spill_function_id);
     }
 
     UnboundedFanout(UnboundedFanout const&) = delete;
@@ -253,13 +254,13 @@ struct UnboundedFanout {
             }
 
             for (auto const msg_id : msg_ids_to_send) {
-                auto const cd = spillable_msgs_->get_content_description(msg_id);
+                auto const cd = spillable_msgs.get_content_description(msg_id);
                 // Reserve memory for the output using the input message's memory type, or
                 // a lower-priority type if needed.
                 auto const mem_types =
                     preference_leq(cd.principal_memory_type(), MEMORY_TYPES);
                 auto res = ctx.br()->reserve_or_fail(cd.content_size(), mem_types);
-                if (!co_await ch_out->send(spillable_msgs_->copy(msg_id, res))) {
+                if (!co_await ch_out->send(spillable_msgs.copy(msg_id, res))) {
                     // Failed to send message. Could be that the channel is shut down.
                     // So we need to abort the send task, and notify the process input
                     // task
@@ -378,7 +379,7 @@ struct UnboundedFanout {
                     // To make staged input messages spillable, we insert them into this
                     // fanout's LIFO spillable_messages_ container while they are in
                     // transit.
-                    recv_msg_ids.emplace_back(spillable_msgs_->insert(std::move(msg)));
+                    recv_msg_ids.emplace_back(spillable_msgs.insert(std::move(msg)));
                 }
             }
 
@@ -389,7 +390,7 @@ struct UnboundedFanout {
             // However the deque is not resized. This guarantees that the indices are not
             // invalidated.
             while (purge_idx < per_ch_processed_min) {
-                std::ignore = spillable_msgs_->extract(recv_msg_ids[purge_idx]);
+                std::ignore = spillable_msgs.extract(recv_msg_ids[purge_idx]);
                 purge_idx++;
             }
         }
@@ -416,11 +417,10 @@ struct UnboundedFanout {
     /// each channel)
     std::vector<std::size_t> per_ch_processed;
 
-  private:
-    std::shared_ptr<BufferResource> br_;
+    std::shared_ptr<BufferResource> br;
     /// @brief Staged messages, spilled latest-first.
-    std::shared_ptr<SpillableMessages> spillable_msgs_;
-    SpillManager::SpillFunctionID spill_function_id_{};
+    SpillableMessages spillable_msgs{SpillableMessages::SpillOrder::LATEST_FIRST};
+    SpillManager::SpillFunctionID spill_function_id{};
 };
 
 /**

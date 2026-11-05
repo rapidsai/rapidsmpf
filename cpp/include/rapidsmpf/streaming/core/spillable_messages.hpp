@@ -39,7 +39,7 @@ namespace rapidsmpf::streaming {
 class SpillableMessages {
   public:
     /// @brief Order in which messages are chosen for spilling.
-    enum class SpillOrder : bool {
+    enum class SpillOrder : std::uint8_t {
         EARLIEST_FIRST,  ///< Spill the earliest inserted messages first.
         LATEST_FIRST  ///< Spill the most recently inserted messages first.
     };
@@ -50,7 +50,7 @@ class SpillableMessages {
     /**
      * @brief Construct an empty container.
      *
-     * @param spill_order Order in which `spill(BufferResource*, std::size_t)` picks
+     * @param spill_order Order in which `try_spill()` picks
      * messages. Defaults to earliest inserted first.
      */
     explicit SpillableMessages(SpillOrder spill_order = SpillOrder::EARLIEST_FIRST)
@@ -137,7 +137,7 @@ class SpillableMessages {
      * @todo Support additional spilling strategies (e.g., size-based or
      * priority-based).
      */
-    [[nodiscard]] std::size_t spill(BufferResource* br, std::size_t amount) const;
+    [[nodiscard]] std::size_t try_spill(BufferResource* br, std::size_t amount) const;
 
     /**
      * @brief Get a snapshot of current messages' content descriptions.
