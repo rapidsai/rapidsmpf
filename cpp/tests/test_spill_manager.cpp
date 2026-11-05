@@ -436,10 +436,10 @@ TEST(SpillManager, HeadroomForAnotherMemoryType) {
     );
     auto& manager = br->spill_manager();
 
-    std::vector<std::pair<MemoryType, std::size_t>> calls;
+    std::vector<std::pair<std::size_t, MemoryType>> calls;
     auto const fid = manager.add_spill_function(
-        [&](MemoryType mem_type, std::size_t amount) -> std::size_t {
-            calls.emplace_back(mem_type, amount);
+        [&](std::size_t amount, MemoryType mem_type) -> std::size_t {
+            calls.emplace_back(amount, mem_type);
             br->set_memory_limit(
                 mem_type, br->memory_available(mem_type) + safe_cast<std::int64_t>(amount)
             );
@@ -462,7 +462,7 @@ TEST(SpillManager, HeadroomForAnotherMemoryType) {
     );
     EXPECT_EQ(
         calls,
-        (std::vector<std::pair<MemoryType, std::size_t>>{{MemoryType::HOST, 6_KiB}})
+        (std::vector<std::pair<std::size_t, MemoryType>>{{6_KiB, MemoryType::HOST}})
     );
 
     // DISK cannot be spilled.
