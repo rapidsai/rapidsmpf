@@ -6,9 +6,14 @@
 #include <atomic>
 #include <cerrno>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <functional>
+#include <future>
+#include <iostream>
+#include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -211,4 +216,38 @@ TEST(SocketServerTest, WrongTokenRejected) {
         send_recv_line(fd, "AUTH rank=0 nranks=1 token=" + std::string(64, 'x'));
     EXPECT_TRUE(resp.starts_with("ERROR")) << "Expected ERROR, got: " << resp;
     ::close(fd);
+}
+
+TEST(SocketServerTest, DestructorUnblocksWaitingRank) {
+    // Rank 0 waits in a barrier that rank 1, which has already left, never
+    // joins. Destroying the server must not hang, and rank 0's barrier fails.
+    auto server = std::make_unique<SocketServer>(2);
+    ::setenv("RRUN_SOCKET_ADDR", server->address().c_str(), 1);
+    ::setenv("RRUN_SOCKET_TOKEN", server->token().c_str(), 1);
+    auto make_ctx = [](int rank) {
+        return Context{.rank = rank, .nranks = 2, .type = BackendType::SOCKET};
+    };
+    std::optional<SocketBackend> rank1{make_ctx(1)};
+    SocketBackend rank0{make_ctx(0)};
+    rank1.reset();
+
+    std::thread waiter([&rank0] { EXPECT_THROW(rank0.barrier(), std::runtime_error); });
+
+    // Destroy the server on another thread, so that a hang fails the test
+    // instead of blocking it.
+    std::promise<void> destroyed;
+    auto destroyed_future = destroyed.get_future();
+    std::thread([&server, &destroyed] {
+        server.reset();
+        destroyed.set_value();
+    }).detach();
+    if (destroyed_future.wait_for(std::chrono::seconds{10}) != std::future_status::ready)
+    {
+        std::cerr << "~SocketServer did not return within 10s" << std::endl;
+        std::_Exit(EXIT_FAILURE);
+    }
+
+    waiter.join();
+    ::unsetenv("RRUN_SOCKET_ADDR");
+    ::unsetenv("RRUN_SOCKET_TOKEN");
 }

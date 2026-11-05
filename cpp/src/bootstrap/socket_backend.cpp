@@ -13,6 +13,7 @@
 #include <cstring>
 #include <map>
 #include <mutex>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -36,15 +37,16 @@
 
 namespace {
 
+// Writes to a socket. A peer that has closed raises an exception, not SIGPIPE.
 void write_all(int fd, void const* buf, std::size_t n) {
     auto const* ptr = static_cast<char const*>(buf);
     while (n > 0) {
-        ssize_t w = ::write(fd, ptr, n);
+        ssize_t w = ::send(fd, ptr, n, MSG_NOSIGNAL);
         if (w < 0) {
             if (errno == EINTR)
                 continue;
             throw std::runtime_error(
-                "write() failed: " + std::string{std::strerror(errno)}
+                "send() failed: " + std::string{std::strerror(errno)}
             );
         }
         ptr += w;
@@ -135,6 +137,9 @@ struct SocketServer::State {
     int sync_count{0};
     std::condition_variable sync_cv;
 
+    // Client sockets of running handlers, shut down by the destructor.
+    std::set<int> client_fds;
+
     int nranks;
     std::string token;  // 64-char hex
     std::atomic<bool> shutdown{false};
@@ -220,6 +225,18 @@ SocketServer::~SocketServer() {
         wakeup_pipe_[0] = -1;
     }
 
+    // Unblock every handler: shut down the client sockets it may be reading
+    // from, and wake the ones waiting for other ranks.
+    {
+        std::lock_guard<std::mutex> lk(state_->mu);
+        for (int fd : state_->client_fds) {
+            ::shutdown(fd, SHUT_RDWR);
+        }
+        state_->kv_cv.notify_all();
+        state_->barrier_cv.notify_all();
+        state_->sync_cv.notify_all();
+    }
+
     std::lock_guard<std::mutex> lk(handler_mutex_);
     for (auto& t : handler_threads_) {
         if (t.joinable()) {
@@ -278,13 +295,47 @@ void SocketServer::accept_loop() {
 }
 
 void SocketServer::handle_connection(int fd) {
-    struct FdGuard {
-        int fd;
+    // Register the socket so the destructor can shut it down. It is
+    // unregistered before it is closed, so the destructor never touches a
+    // reused fd number.
+    {
+        std::lock_guard<std::mutex> lk(state_->mu);
+        if (state_->shutdown.load(std::memory_order_acquire)) {
+            ::close(fd);
+            return;
+        }
+        state_->client_fds.insert(fd);
+    }
+
+    class FdGuard {
+      public:
+        FdGuard(State& state, int fd) : state_{state}, fd_{fd} {}
 
         ~FdGuard() {
-            ::close(fd);
+            {
+                std::lock_guard<std::mutex> lk(state_.mu);
+                state_.client_fds.erase(fd_);
+            }
+            ::close(fd_);
         }
-    } guard{fd};
+
+        FdGuard(FdGuard const&) = delete;
+        FdGuard& operator=(FdGuard const&) = delete;
+        FdGuard(FdGuard&&) = delete;
+        FdGuard& operator=(FdGuard&&) = delete;
+
+      private:
+        State& state_;
+        int fd_;
+    };
+
+    FdGuard const guard{*state_, fd};
+
+    // After shutdown, a handler returns without writing to its client, whose
+    // socket the destructor has shut down.
+    auto const shutting_down = [&] {
+        return state_->shutdown.load(std::memory_order_acquire);
+    };
 
     try {
         // Enforce a short timeout for AUTH so lingering connections don't block.
@@ -401,6 +452,9 @@ void SocketServer::handle_connection(int fd) {
                     auto deadline = std::chrono::steady_clock::now()
                                     + std::chrono::milliseconds(timeout_ms);
                     while (state_->kv.find(key) == state_->kv.end()) {
+                        if (shutting_down()) {
+                            return;
+                        }
                         if (state_->kv_cv.wait_until(lk, deadline)
                             == std::cv_status::timeout)
                             break;
@@ -430,8 +484,11 @@ void SocketServer::handle_connection(int fd) {
                     state_->barrier_cv.notify_all();
                 } else {
                     state_->barrier_cv.wait(lk, [&] {
-                        return state_->barrier_gen != gen;
+                        return state_->barrier_gen != gen || shutting_down();
                     });
+                    if (state_->barrier_gen == gen) {
+                        return;  // woken by shutdown
+                    }
                 }
                 lk.unlock();
                 write_all(fd, "OK\n", 3);
@@ -444,7 +501,12 @@ void SocketServer::handle_connection(int fd) {
                     state_->sync_count = 0;
                     state_->sync_cv.notify_all();
                 } else {
-                    state_->sync_cv.wait(lk, [&] { return state_->sync_gen != gen; });
+                    state_->sync_cv.wait(lk, [&] {
+                        return state_->sync_gen != gen || shutting_down();
+                    });
+                    if (state_->sync_gen == gen) {
+                        return;  // woken by shutdown
+                    }
                 }
                 lk.unlock();
                 write_all(fd, "OK\n", 3);
