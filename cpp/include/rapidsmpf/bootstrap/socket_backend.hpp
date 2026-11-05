@@ -6,6 +6,9 @@
 #pragma once
 
 #include <array>
+#include <atomic>
+#include <chrono>
+#include <cstddef>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -27,6 +30,13 @@ namespace rapidsmpf::bootstrap::detail {
  *
  * Binds to 127.0.0.1:0 (OS assigns an ephemeral port), generates a 256-bit
  * random authentication token via getrandom(2), and starts an accept thread.
+ * The server accepts connections for its whole lifetime.
+ *
+ * Every authenticated connection belongs to a session. The k-th connection
+ * that authenticates as rank `r` joins session k, and a session is complete
+ * once all ranks have joined it. The KV store, barriers and syncs are scoped
+ * to a session, so each bootstrap round sees only its own keys. A session is
+ * discarded once it is complete and all its connections have closed.
  */
 class SocketServer {
   public:
@@ -45,8 +55,8 @@ class SocketServer {
     /**
      * @brief Shut down the server and join all threads.
      *
-     * Closes the listen socket (which unblocks accept()), then joins the accept
-     * thread and all connection-handler threads.
+     * Stops the accept thread, closes the listen socket, then joins all
+     * connection-handler threads.
      */
     ~SocketServer();
 
@@ -68,6 +78,25 @@ class SocketServer {
         return token_;
     }
 
+    /**
+     * @brief Returns the number of accepted client connections still open.
+     *
+     * The result is a snapshot. Connections still waiting in the listen
+     * backlog are not counted.
+     *
+     * @return The number of open connections, authenticated or not.
+     */
+    [[nodiscard]] int num_open_connections() const;
+
+    /**
+     * @brief Returns the number of connection-handler threads not yet joined.
+     *
+     * The result is a snapshot.
+     *
+     * @return The number of handler threads.
+     */
+    [[nodiscard]] std::size_t num_handler_threads() const;
+
     SocketServer(SocketServer const&) = delete;
     SocketServer& operator=(SocketServer const&) = delete;
     SocketServer(SocketServer&&) = delete;
@@ -75,18 +104,29 @@ class SocketServer {
 
   private:
     struct State;
+
+    /// @brief A connection-handler thread and a flag it sets when it is done.
+    struct HandlerThread {
+        std::thread thread;  ///< The handler thread.
+        std::shared_ptr<std::atomic<bool>> done;  ///< Set when the handler returns.
+    };
+
     std::shared_ptr<State> state_;
     int listen_fd_{-1};
     std::array<int, 2> wakeup_pipe_{-1, -1};
     std::string address_;
     std::string token_;
     std::thread accept_thread_;
-    std::mutex handler_mutex_;
-    std::vector<std::thread> handler_threads_;
+    mutable std::mutex handler_mutex_;
+    std::vector<HandlerThread> handler_threads_;
 
     void accept_loop();
+    void reap_finished_handlers();
     void handle_connection(int client_fd);
 };
+
+/// @brief Default timeout for the coordination server to answer `AUTH`.
+inline constexpr Duration default_auth_timeout = std::chrono::seconds{30};
 
 /**
  * @brief Socket-based coordination backend (client side, runs in each rank).
@@ -101,11 +141,23 @@ class SocketServer {
  * - `RRUN_SOCKET_TOKEN`: 64-hex-char authentication token
  * - `RRUN_RANK`: This process's rank (0-indexed)
  * - `RRUN_NRANKS`: Total number of ranks
+ *
+ * A process may create any number of backends one after another, each one
+ * joining the next session on the server. At most one backend per rank may
+ * be alive in a process at a time.
  */
 class SocketBackend : public Backend {
   public:
-    /** @copydoc FileBackend::FileBackend */
-    explicit SocketBackend(Context ctx);
+    /**
+     * @brief Connect and authenticate to the coordination server.
+     *
+     * @param ctx Bootstrap context containing rank and nranks.
+     * @param auth_timeout How long to wait for the server to answer `AUTH`.
+     * @throws std::runtime_error if a backend for `ctx.rank` is already alive in
+     * this process, if the connection fails, or if the server rejects or does not
+     * answer `AUTH`.
+     */
+    explicit SocketBackend(Context ctx, Duration auth_timeout = default_auth_timeout);
 
     ~SocketBackend() override;
 
@@ -122,6 +174,21 @@ class SocketBackend : public Backend {
     void sync() override;
 
   private:
+    /// @brief Registers a rank as having a live backend in this process.
+    class RankRegistration {
+      public:
+        explicit RankRegistration(Rank rank);
+        ~RankRegistration();
+        RankRegistration(RankRegistration const&) = delete;
+        RankRegistration& operator=(RankRegistration const&) = delete;
+        RankRegistration(RankRegistration&&) = delete;
+        RankRegistration& operator=(RankRegistration&&) = delete;
+
+      private:
+        Rank rank_;
+    };
+
+    RankRegistration registration_;  // must be initialized before ctx_
     Context ctx_;
     int fd_{-1};
 

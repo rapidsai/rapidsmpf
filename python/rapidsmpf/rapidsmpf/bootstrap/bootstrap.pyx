@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from libcpp.memory cimport dynamic_pointer_cast, make_shared, shared_ptr
@@ -58,6 +58,11 @@ def create_ucxx_comm(
     coordination backend (currently file-based), relying on environment
     variables such as ``RRUN_RANK``, ``RRUN_NRANKS``, and
     ``RRUN_COORD_DIR``.
+
+    The call is collective over all ranks. Under ``rrun`` it may be called
+    several times per process, as long as all ranks make the calls in the same
+    order and the calls within a process do not overlap. An overlapping call
+    raises an error.
 
     Parameters
     ----------
