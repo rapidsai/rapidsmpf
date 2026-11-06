@@ -22,7 +22,8 @@ namespace rapidsmpf {
 class BufferResource;
 
 /**
- * @brief Manages memory spilling to free up device memory when needed.
+ * @brief Manages memory spilling to free up addressable memory (device, pinned host and
+ * host) when needed.
  *
  * The SpillManager is responsible for registering, prioritizing, and executing spill
  * functions to ensure efficient memory management.
@@ -65,6 +66,18 @@ class SpillManager {
         /// little spillable data, or more, since data is spilled in whole buffers.
         std::size_t spilled;
 
+        /**
+         * @brief Constructs a result.
+         *
+         * @param mem_type The memory type the headroom was requested for.
+         * @param deficit How far the available memory fell short of the headroom.
+         * @param spilled What was spilled towards the headroom.
+         */
+        constexpr HeadroomResult(
+            MemoryType mem_type, std::size_t deficit, std::size_t spilled
+        ) noexcept
+            : mem_type{mem_type}, deficit{deficit}, spilled{spilled} {}
+
         /// @brief Member-wise comparison, `mem_type` first.
         /// @return The ordering of the two results.
         auto operator<=>(HeadroomResult const&) const = default;
@@ -75,9 +88,10 @@ class SpillManager {
      *
      * @param br Buffer resource used to retrieve current available memory.
      * @param periodic_spill_check Enable periodic spill checks. A dedicated thread
-     * continuously checks and perform spilling based on the current available memory as
-     * reported by the buffer resource. The value of `periodic_spill_check` is used as the
-     * pause between checks. If `std::nullopt`, no periodic spill check is performed.
+     * continuously checks and performs spilling based on the current available memory as
+     * reported by the buffer resource, making headroom in every addressable memory type
+     * (see `ADDRESSABLE_MEMORY_TYPES`). The value of `periodic_spill_check` is used as
+     * the pause between checks. If `std::nullopt`, no periodic spill check is performed.
      */
     SpillManager(
         BufferResource* br, std::optional<Duration> periodic_spill_check = std::nullopt

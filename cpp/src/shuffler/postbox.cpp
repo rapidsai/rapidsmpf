@@ -98,12 +98,7 @@ std::size_t ReceivedChunks::spill(
     BufferResource* br, std::size_t amount, MemoryType mem_type
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE(amount);
-    // Don't block behind another spill (or an insert/extract); a concurrent spill is
-    // already making progress, so report nothing spilled instead of queueing up.
-    std::unique_lock lock(mutex_, std::try_to_lock);
-    if (!lock.owns_lock()) {
-        return 0;
-    }
+    std::lock_guard const lock(mutex_);
     auto const spill_targets = preference_lt(mem_type, MEMORY_TYPES);
     // Return early if there is no data to spill from `mem_type` or nowhere to spill to.
     if (data_sizes_[mem_type] == 0 || spill_targets.empty()) {

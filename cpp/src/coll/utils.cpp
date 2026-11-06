@@ -221,12 +221,10 @@ std::size_t PostBox::spill(
     MemoryType mem_type,
     std::span<MemoryType const> spill_target_types
 ) {
-    // Don't block behind another spill (or an insert/extract); a concurrent spill is
-    // already making progress, so report nothing spilled instead of queueing up.
-    std::unique_lock lock(mutex_, std::try_to_lock);
-    if (!lock.owns_lock()) {
+    if (spill_target_types.empty() || amount == 0) {
         return 0;
     }
+    std::lock_guard const lock(mutex_);
     std::vector<Chunk*> spillable_chunks;
     std::size_t max_spillable{0};
     std::size_t total_spilled{0};

@@ -798,9 +798,12 @@ TEST(Shuffler, InsertsDiskBackedData) {
     for (rapidsmpf::shuffler::PartID pid = 0; pid < total_num_partitions; ++pid) {
         chunks.emplace(
             pid,
-            move_to_disk(
-                generate_packed_data(n_elements, offset(comm->rank(), pid), stream, *br),
-                *br
+            generate_packed_data(
+                n_elements,
+                offset(comm->rank(), pid),
+                stream,
+                *br,
+                rapidsmpf::MemoryType::DISK
             )
         );
     }

@@ -342,8 +342,7 @@ class PostBox {
      * @param mem_type The memory type to spill from.
      * @param spill_target_types Memory types to spill to, in decreasing order of
      * preference. Types without a backing resource are skipped.
-     * @return Actual amount of data spilled in bytes. Zero if the post box is locked by
-     * another thread (e.g. a concurrent spill), in which case nothing is spilled.
+     * @return Actual amount of data spilled in bytes.
      *
      * @note We attempt to minimise the number of individual buffers
      * spilled, as well as the amount of "overspill".

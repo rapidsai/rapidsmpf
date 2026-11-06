@@ -18,6 +18,18 @@
 
 namespace rapidsmpf {
 
+namespace {
+
+/// @brief Throw if data in @p mem_type cannot be spilled, i.e. it isn't addressable.
+void expect_spillable(MemoryType mem_type) {
+    RAPIDSMPF_EXPECTS(
+        contains(ADDRESSABLE_MEMORY_TYPES, mem_type),
+        "cannot spill from " + std::string{to_string(mem_type)},
+        std::invalid_argument
+    );
+}
+
+}  // namespace
 
 SpillManager::SpillManager(
     BufferResource* br, std::optional<Duration> periodic_spill_check
@@ -116,11 +128,7 @@ std::uint64_t SpillManager::spill_generation() const noexcept {
 
 std::size_t SpillManager::spill(std::size_t amount, MemoryType mem_type) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    RAPIDSMPF_EXPECTS(
-        contains(ADDRESSABLE_MEMORY_TYPES, mem_type),
-        "cannot spill from " + std::string{to_string(mem_type)},
-        std::invalid_argument
-    );
+    expect_spillable(mem_type);
     std::lock_guard<std::mutex> lock(mutex_);
     return spill_unsafe(amount, mem_type);
 }
@@ -129,22 +137,14 @@ SpillManager::HeadroomResult SpillManager::spill_to_make_headroom(
     std::int64_t headroom, MemoryType mem_type
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    RAPIDSMPF_EXPECTS(
-        contains(ADDRESSABLE_MEMORY_TYPES, mem_type),
-        "cannot spill from " + std::string{to_string(mem_type)},
-        std::invalid_argument
-    );
+    expect_spillable(mem_type);
     std::lock_guard<std::mutex> lock(mutex_);
     std::int64_t const available = br_->memory_available_for_reservation(mem_type);
     if (headroom <= available) {
-        return {.mem_type = mem_type, .deficit = 0, .spilled = 0};
+        return {mem_type, 0, 0};
     }
     auto const deficit = safe_cast<std::size_t>(headroom - available);
-    return {
-        .mem_type = mem_type,
-        .deficit = deficit,
-        .spilled = spill_unsafe(deficit, mem_type)
-    };
+    return {mem_type, deficit, spill_unsafe(deficit, mem_type)};
 }
 
 }  // namespace rapidsmpf

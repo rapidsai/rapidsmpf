@@ -154,8 +154,7 @@ class ReceivedChunks {
      * @param br The buffer resource for host and device allocations.
      * @param amount Requested amount of data to spill in bytes.
      * @param mem_type The memory type to spill from.
-     * @return Actual amount of data spilled in bytes. Zero if the container is locked
-     * by another thread (e.g. a concurrent spill), in which case nothing is spilled.
+     * @return Actual amount of data spilled in bytes.
      */
     [[nodiscard]] std::size_t spill(
         BufferResource* br, std::size_t amount, MemoryType mem_type = MemoryType::DEVICE
