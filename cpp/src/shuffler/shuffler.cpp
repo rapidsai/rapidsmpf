@@ -447,11 +447,7 @@ void Shuffler::wait(std::optional<std::chrono::milliseconds> timeout) {
 
 std::size_t Shuffler::spill(std::size_t amount, MemoryType mem_type) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    // TODO(stage 3): spill from non-DEVICE memory types.
-    if (mem_type != MemoryType::DEVICE) {
-        return 0;
-    }
-    return received_.spill(br_, amount);
+    return received_.spill(br_, amount, mem_type);
 }
 
 detail::ChunkID Shuffler::get_new_cid() {

@@ -188,14 +188,17 @@ template <typename T>
 /**
  * @brief Generate a packed data object with the given number of elements and offset.
  *
- * Both metadata and GPU data contain the same integer sequence of type T.
+ * Both metadata and data contain the same integer sequence of type T.
  *
  * @tparam T Element type stored in the buffer (default: int).
  * @param n_elements Number of elements in the sequence.
  * @param offset Starting value of the sequence.
  * @param stream CUDA stream for device allocation.
  * @param br Buffer resource used for allocations.
- * @return A packed data object containing metadata and GPU data.
+ * @param mem_type Memory type of the data buffer. `MemoryType::DISK` requires a disk
+ * resource in @p br.
+ * @param allow_overbooking Whether the reservation of the data buffer may overbook.
+ * @return A packed data object containing metadata and data.
  */
 template <typename T = int>
 [[nodiscard]] inline rapidsmpf::PackedData generate_packed_data(
@@ -203,6 +206,7 @@ template <typename T = int>
     T offset,
     cuda::stream_ref stream,
     rapidsmpf::BufferResource& br,
+    rapidsmpf::MemoryType mem_type = rapidsmpf::MemoryType::DEVICE,
     rapidsmpf::AllowOverbooking allow_overbooking = rapidsmpf::AllowOverbooking::YES
 ) {
     auto const values = iota_vector<T>(n_elements, offset);
@@ -211,8 +215,10 @@ template <typename T = int>
     auto metadata = std::make_unique<std::vector<std::uint8_t>>(
         bytes, bytes + values.size() * sizeof(T)
     );
-    auto [reservation, _] =
-        br.reserve(rapidsmpf::MemoryType::DEVICE, metadata->size(), allow_overbooking);
+    // Disk buffers are not addressable, so fill a host buffer and move it to disk.
+    auto const fill_type =
+        mem_type == rapidsmpf::MemoryType::DISK ? rapidsmpf::MemoryType::HOST : mem_type;
+    auto [reservation, _] = br.reserve(fill_type, metadata->size(), allow_overbooking);
     auto data = br.make_buffer(stream, std::move(reservation));
 
     data->write_access([d_ptr = metadata->data(), m_size = metadata->size()](
@@ -222,6 +228,10 @@ template <typename T = int>
     });
     data->latest_write_event().host_wait();
 
+    if (mem_type == rapidsmpf::MemoryType::DISK) {
+        auto disk_res = br.reserve_or_fail(data->size, rapidsmpf::MemoryType::DISK);
+        data = br.move(std::move(data), disk_res);
+    }
     return {std::move(metadata), std::move(data)};
 }
 

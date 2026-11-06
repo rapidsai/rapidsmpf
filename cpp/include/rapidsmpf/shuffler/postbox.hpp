@@ -143,15 +143,23 @@ class ReceivedChunks {
     [[nodiscard]] std::string str() const;
 
     /**
-     * @brief Spill device data.
+     * @brief Spill data from @p mem_type to the lower memory types.
+     *
+     * Chunks are moved to the first memory type in `preference_lt(mem_type,
+     * MEMORY_TYPES)` that has room. Chunks for which no target has room are left where
+     * they are, so the spill may be partial.
      *
      * The spilling is stream ordered by the spilled buffers' CUDA streams.
      *
      * @param br The buffer resource for host and device allocations.
      * @param amount Requested amount of data to spill in bytes.
-     * @return Actual amount of data spilled in bytes.
+     * @param mem_type The memory type to spill from.
+     * @return Actual amount of data spilled in bytes. Zero if the container is locked
+     * by another thread (e.g. a concurrent spill), in which case nothing is spilled.
      */
-    [[nodiscard]] std::size_t spill(BufferResource* br, std::size_t amount);
+    [[nodiscard]] std::size_t spill(
+        BufferResource* br, std::size_t amount, MemoryType mem_type = MemoryType::DEVICE
+    );
 
   private:
     // TODO: more fine-grained locking e.g. by locking each partition individually.

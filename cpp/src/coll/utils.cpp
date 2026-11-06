@@ -216,14 +216,22 @@ bool PostBox::empty() const noexcept {
 }
 
 std::size_t PostBox::spill(
-    BufferResource* br, std::size_t amount, std::span<MemoryType const> spill_target_types
+    BufferResource* br,
+    std::size_t amount,
+    MemoryType mem_type,
+    std::span<MemoryType const> spill_target_types
 ) {
-    std::lock_guard lock(mutex_);
+    // Don't block behind another spill (or an insert/extract); a concurrent spill is
+    // already making progress, so report nothing spilled instead of queueing up.
+    std::unique_lock lock(mutex_, std::try_to_lock);
+    if (!lock.owns_lock()) {
+        return 0;
+    }
     std::vector<Chunk*> spillable_chunks;
     std::size_t max_spillable{0};
     std::size_t total_spilled{0};
     for (auto&& chunk : chunks_) {
-        if (chunk->memory_type() == MemoryType::DEVICE) {
+        if (chunk->memory_type() == mem_type) {
             spillable_chunks.push_back(chunk.get());
             max_spillable += chunk->data_size();
         }

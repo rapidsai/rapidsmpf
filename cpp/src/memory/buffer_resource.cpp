@@ -200,6 +200,10 @@ rmm::host_async_resource_ref BufferResource::host_mr() noexcept {
     return host_mr_;
 }
 
+HostMemoryResource& BufferResource::host_mr_adaptor() noexcept {
+    return host_mr_;
+}
+
 rmm::host_device_async_resource_ref BufferResource::pinned_mr() {
     RAPIDSMPF_EXPECTS(
         pinned_mr_, "no pinned memory resource is available", std::invalid_argument
@@ -279,7 +283,7 @@ MemoryReservation BufferResource::reserve_device_memory_and_spill(
         // With a headroom of zero, `deficit` is the overbooking still outstanding once
         // the spill lock is held. All of it is spilled, but this call is judged only on
         // its own share.
-        auto const [deficit, spilled] = spill_manager_.spill_to_make_headroom();
+        auto const [_, deficit, spilled] = spill_manager_.spill_to_make_headroom();
         RAPIDSMPF_EXPECTS(
             allow_overbooking == AllowOverbooking::YES
                 || spilled >= std::min(own_overbooking, deficit),
