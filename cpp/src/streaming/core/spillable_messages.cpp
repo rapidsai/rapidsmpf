@@ -98,7 +98,14 @@ std::size_t SpillableMessages::spill(MessageId mid, BufferResource* br) const {
     return old_cd.content_size(MemoryType::DEVICE);
 }
 
-std::size_t SpillableMessages::try_spill(BufferResource* br, std::size_t amount) const {
+std::size_t SpillableMessages::try_spill(
+    BufferResource* br, std::size_t amount, MemoryType mem_type
+) const {
+    // TODO(stage 3): spill from non-DEVICE memory types.
+    if (mem_type != MemoryType::DEVICE) {
+        return 0;
+    }
+
     // Recall that std::map is sorted by key, so iteration follows the order in which
     // messages were inserted.
     std::map<MessageId, ContentDescription> cds = get_content_descriptions();

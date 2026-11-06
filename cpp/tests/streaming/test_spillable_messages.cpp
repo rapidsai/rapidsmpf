@@ -275,7 +275,8 @@ TEST_F(StreamingSpillableMessages, SpillInFlightMessages) {
                 co_await ctx->executor()->schedule();
                 for (int j = 0; j < msgs_per_producer; ++j) {
                     spilled_expect.fetch_add(
-                        ctx->br()->spill_manager().spill(1024), std::memory_order_relaxed
+                        ctx->br()->spill_manager().spill(1024, MemoryType::DEVICE),
+                        std::memory_order_relaxed
                     );
 
                     auto msg = co_await ch_in->receive();
@@ -451,7 +452,7 @@ TEST_P(StreamingSpillableMessagesWithSpillOrder, Spill) {
     }
 
     // Spilling one message's worth must stop after a single message.
-    EXPECT_EQ(msgs.try_spill(br.get(), sizeof(int)), sizeof(int));
+    EXPECT_EQ(msgs.try_spill(br.get(), sizeof(int), MemoryType::DEVICE), sizeof(int));
 
     auto const cds = msgs.get_content_descriptions();
     bool const earliest = order == SpillableMessages::SpillOrder::EARLIEST_FIRST;
@@ -463,5 +464,8 @@ TEST_P(StreamingSpillableMessagesWithSpillOrder, Spill) {
     EXPECT_EQ(device_size(ids.back()), earliest ? sizeof(int) : 0);
 
     // Spilling more than what remains spills everything else.
-    EXPECT_EQ(msgs.try_spill(br.get(), 100 * sizeof(int)), (num_msgs - 1) * sizeof(int));
+    EXPECT_EQ(
+        msgs.try_spill(br.get(), 100 * sizeof(int), MemoryType::DEVICE),
+        (num_msgs - 1) * sizeof(int)
+    );
 }

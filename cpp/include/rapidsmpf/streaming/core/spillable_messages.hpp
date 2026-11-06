@@ -132,12 +132,16 @@ class SpillableMessages {
      *
      * @param br Buffer resource used for spill allocations.
      * @param amount Target number of bytes to spill.
+     * @param mem_type The memory type to spill from. Only `MemoryType::DEVICE` is
+     * supported for now, other types spill nothing.
      * @return The total number of bytes actually spilled.
      *
      * @todo Support additional spilling strategies (e.g., size-based or
      * priority-based).
      */
-    [[nodiscard]] std::size_t try_spill(BufferResource* br, std::size_t amount) const;
+    [[nodiscard]] std::size_t try_spill(
+        BufferResource* br, std::size_t amount, MemoryType mem_type
+    ) const;
 
     /**
      * @brief Get a snapshot of current messages' content descriptions.

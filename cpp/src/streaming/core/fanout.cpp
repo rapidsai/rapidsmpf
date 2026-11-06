@@ -158,8 +158,8 @@ struct UnboundedFanout {
           br{std::move(buf_res)},
           spillable_msgs{SpillableMessages::SpillOrder::LATEST_FIRST} {
         spill_function_id = br->spill_manager().add_spill_function(
-            [this](std::size_t amount) -> std::size_t {
-                return spillable_msgs.try_spill(br.get(), amount);
+            [this](std::size_t amount, MemoryType mem_type) -> std::size_t {
+                return spillable_msgs.try_spill(br.get(), amount, mem_type);
             },
             // Priority 0 (higher than the Context's -1), so staged fanout messages are
             // spilled before channel messages. They wait for the slowest consumer and are
