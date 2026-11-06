@@ -163,7 +163,7 @@ struct UnboundedFanout {
             },
             // Priority 0 (higher than the Context's -1), so staged fanout messages are
             // spilled before channel messages. They wait for the slowest consumer and are
-            // typically the coldest data. This matches cudf-polars' unbounded fanout.
+            // typically the coldest data.
             0
         );
     }
