@@ -12,13 +12,25 @@ class MemoryReserveOrWait:
     def __init__(self, options: Options, mem_type: MemoryType, ctx: Context): ...
     async def shutdown(self) -> None: ...
     async def reserve_or_wait(
-        self, size: int, *, net_memory_delta: int
+        self,
+        size: int,
+        *,
+        net_memory_delta: int,
+        reservation_context: int = 0,
     ) -> MemoryReservation: ...
     async def reserve_or_wait_or_overbook(
-        self, size: int, *, net_memory_delta: int
+        self,
+        size: int,
+        *,
+        net_memory_delta: int,
+        reservation_context: int = 0,
     ) -> tuple[MemoryReservation, int]: ...
     async def reserve_or_wait_or_fail(
-        self, size: int, *, net_memory_delta: int
+        self,
+        size: int,
+        *,
+        net_memory_delta: int,
+        reservation_context: int = 0,
     ) -> MemoryReservation: ...
     def size(self) -> int: ...
 
@@ -29,4 +41,5 @@ async def reserve_memory(
     net_memory_delta: int,
     mem_type: MemoryType = MemoryType.DEVICE,
     allow_overbooking: bool | None = None,
+    reservation_context: int = 0,
 ) -> MemoryReservation: ...

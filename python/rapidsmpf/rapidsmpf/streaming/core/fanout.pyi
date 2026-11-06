@@ -18,4 +18,6 @@ def fanout(
     ch_in: Channel,
     chs_out: list[Channel],
     policy: FanoutPolicy,
+    *,
+    reservation_context: int = 0,
 ) -> CppActor: ...

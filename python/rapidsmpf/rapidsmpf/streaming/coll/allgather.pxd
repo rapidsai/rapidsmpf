@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from libc.stdint cimport int32_t, uint64_t
@@ -22,11 +22,15 @@ cdef extern from "<rapidsmpf/streaming/coll/allgather.hpp>" nogil:
             shared_ptr[cpp_Channel] ch_out,
             int32_t op_id,
             cpp_Ordered ordered,
+            uint64_t reservation_context,
         ) except +ex_handler
 
     cdef cppclass cpp_AllGather"rapidsmpf::streaming::AllGather":
-        cpp_Allgather(
-            shared_ptr[cpp_Context] ctx, shared_ptr[cpp_Communicator], int32_t op_id
+        cpp_AllGather(
+            shared_ptr[cpp_Context] ctx,
+            shared_ptr[cpp_Communicator],
+            int32_t op_id,
+            uint64_t reservation_context,
         ) except +ex_handler
         void insert(uint64_t, cpp_PackedData) except +ex_handler
         void insert_finished() except +ex_handler

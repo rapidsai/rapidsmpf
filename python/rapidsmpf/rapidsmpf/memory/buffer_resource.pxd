@@ -2,12 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from libc.stddef cimport size_t
-from libc.stdint cimport int64_t
+from libc.stdint cimport int64_t, uint64_t
 from libcpp cimport bool as bool_t
 from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.optional cimport optional
 from libcpp.string cimport string
 from libcpp.unordered_map cimport unordered_map
+from libcpp.vector cimport vector
 from rmm.librmm.cuda_stream_pool cimport cuda_stream_pool
 from rmm.librmm.cuda_stream_ref cimport stream_ref
 from rmm.librmm.memory_resource cimport (any_resource, device_accessible,
@@ -41,6 +42,17 @@ cdef extern from "<rapidsmpf/disk/disk_resource.hpp>" nogil:
     cdef cppclass cpp_DiskResource "rapidsmpf::DiskResource":
         const cpp_path& directory() noexcept
 
+cdef extern from "<rapidsmpf/memory/reservation_events.hpp>" namespace "rapidsmpf":
+    cdef cppclass cpp_ReservationEvent "rapidsmpf::ReservationEvent":
+        int64_t timestamp_ns
+        uint64_t reservation_context
+        MemoryType memory_type
+        int64_t byte_delta
+
+    cdef cppclass cpp_ReservationEventBatch "rapidsmpf::ReservationEventBatch":
+        vector[cpp_ReservationEvent] events
+        uint64_t allocation_failure_count
+
 cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
     cdef enum class AllowOverbooking"rapidsmpf::AllowOverbooking"(bool_t):
         NO
@@ -68,7 +80,12 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
         ) except +ex_handler
         int64_t memory_available(MemoryType mem_type) except +ex_handler
         bool_t is_reservable(MemoryType mem_type) noexcept
+        int64_t memory_limit(MemoryType mem_type) noexcept
+        bool_t has_memory_resource(MemoryType mem_type) noexcept
         void set_memory_limit(MemoryType mem_type, int64_t limit) except +ex_handler
+        void start_reservation_event_recording() except +ex_handler
+        cpp_ReservationEventBatch drain_reservation_events() except +ex_handler
+        cpp_ReservationEventBatch stop_reservation_event_recording() except +ex_handler
         cpp_SpillManager &spill_manager() except +ex_handler
         size_t release(cpp_MemoryReservation&, size_t) except +ex_handler
         shared_ptr[cpp_Statistics] statistics() except +ex_handler

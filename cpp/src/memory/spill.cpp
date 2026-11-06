@@ -37,7 +37,8 @@ std::vector<PackedData> spill_partitions(
 std::vector<PackedData> unspill_partitions(
     std::vector<PackedData>&& partitions,
     BufferResource* br,
-    AllowOverbooking allow_overbooking
+    AllowOverbooking allow_overbooking,
+    std::uint64_t const& reservation_context
 ) {
     // Sum the total size of all packed data not in device memory already.
     std::size_t non_device_size{0};
@@ -48,8 +49,9 @@ std::vector<PackedData> unspill_partitions(
     }
 
     // Unspill non-device partitions.
-    auto reservation =
-        br->reserve_device_memory_and_spill(non_device_size, allow_overbooking);
+    auto reservation = br->reserve_device_memory_and_spill(
+        non_device_size, allow_overbooking, reservation_context ? reservation_context : 0
+    );
     for (auto& [_, data] : partitions) {
         if (data->mem_type() != MemoryType::DEVICE) {
             data = br->move(std::move(data), reservation);

@@ -14,6 +14,8 @@ class AllGather:
         comm: Communicator,
         op_id: int,
         br: BufferResource,
+        *,
+        reservation_context: int = 0,
     ) -> None: ...
     @property
     def comm(self) -> Communicator: ...

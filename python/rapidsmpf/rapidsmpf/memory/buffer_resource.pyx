@@ -6,7 +6,7 @@ import pathlib
 
 from cython cimport no_gc_clear
 from cython.operator cimport dereference as deref
-from libc.stdint cimport int64_t
+from libc.stdint cimport int64_t, uint64_t
 from libcpp cimport bool as bool_t
 from libcpp.memory cimport make_shared, shared_ptr, unique_ptr
 from libcpp.optional cimport optional
@@ -45,10 +45,12 @@ cdef extern from *:
             rmm::device_async_resource_ref(mr)
         );
     }
+
     """
     optional[device_async_resource_ref] cpp_make_device_async_resource_ref_from_any(
         any_resource[device_accessible]&
     ) except +ex_handler
+
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.host_memory_resource cimport (HostMemoryResource,
@@ -64,6 +66,8 @@ from rapidsmpf.statistics cimport Statistics
 
 cdef extern from * nogil:
     """
+    #include <type_traits>
+
     namespace {
     // Copy the `HostMemoryResource` behind `br->host_mr()`. The copy promotes the
     // resource's back-reference, so the result keeps `br` alive.
@@ -82,11 +86,12 @@ cdef extern from * nogil:
         std::shared_ptr<rapidsmpf::BufferResource> br,
         rapidsmpf::MemoryType mem_type,
         size_t size,
-        bool allow_overbooking
+        bool allow_overbooking,
+        std::uint64_t reservation_context
     ) {
         auto ab = allow_overbooking ? rapidsmpf::AllowOverbooking::YES
                                     :rapidsmpf::AllowOverbooking::NO;
-        auto [res, ob] = br->reserve(mem_type, size, ab);
+        auto [res, ob] = br->reserve(mem_type, size, ab, std::move(reservation_context));
         return {std::make_unique<rapidsmpf::MemoryReservation>(std::move(res)), ob};
     }
 
@@ -94,12 +99,13 @@ cdef extern from * nogil:
     cpp_br_reserve_device_memory_and_spill(
         std::shared_ptr<rapidsmpf::BufferResource> br,
         size_t size,
-        bool allow_overbooking
+        bool allow_overbooking,
+        std::uint64_t reservation_context
     ) {
         auto ab = allow_overbooking ? rapidsmpf::AllowOverbooking::YES
                                     :rapidsmpf::AllowOverbooking::NO;
         return std::make_unique<rapidsmpf::MemoryReservation>(
-            br->reserve_device_memory_and_spill(size, ab)
+            br->reserve_device_memory_and_spill(size, ab, std::move(reservation_context))
         );
     }
 
@@ -107,12 +113,14 @@ cdef extern from * nogil:
     cpp_br_reserve_or_fail(
         std::shared_ptr<rapidsmpf::BufferResource> br,
         size_t size,
-        std::vector<rapidsmpf::MemoryType> mem_types
+        std::vector<rapidsmpf::MemoryType> mem_types,
+        std::uint64_t reservation_context
     ) {
         return std::make_unique<rapidsmpf::MemoryReservation>(
-            br->reserve_or_fail(size, mem_types)
+            br->reserve_or_fail(size, mem_types, std::move(reservation_context))
         );
     }
+
     }  // namespace
     """
     optional[cpp_HostMemoryResource] cpp_br_host_mr(
@@ -123,17 +131,33 @@ cdef extern from * nogil:
         MemoryType,
         size_t,
         bool_t,
+        uint64_t,
     ) except +ex_handler
     unique_ptr[cpp_MemoryReservation] cpp_br_reserve_device_memory_and_spill(
         shared_ptr[cpp_BufferResource],
         size_t,
         bool_t,
+        uint64_t,
     ) except +ex_handler
     unique_ptr[cpp_MemoryReservation] cpp_br_reserve_or_fail(
         shared_ptr[cpp_BufferResource],
         size_t,
         vector[MemoryType],
+        uint64_t,
     ) except +ex_handler
+cdef tuple _reservation_event_batch_to_tuple(
+    const cpp_ReservationEventBatch& batch
+):
+    cdef list result = []
+    cdef size_t index
+    for index in range(batch.events.size()):
+        result.append((
+            batch.events[index].timestamp_ns,
+            batch.events[index].reservation_context,
+            <MemoryType>batch.events[index].memory_type,
+            batch.events[index].byte_delta,
+        ))
+    return result, batch.allocation_failure_count
 
 
 @no_gc_clear
@@ -544,6 +568,20 @@ cdef class BufferResource:
             ret = deref(self._handle).memory_available(mem_type)
         return ret
 
+    def memory_limit(self, MemoryType mem_type):
+        """Get the configured byte limit for the specified memory type."""
+        cdef int64_t ret
+        with nogil:
+            ret = deref(self._handle).memory_limit(mem_type)
+        return ret
+
+    def has_memory_resource(self, MemoryType mem_type):
+        """Return whether the specified memory type has a backing resource."""
+        cdef bool_t ret
+        with nogil:
+            ret = deref(self._handle).has_memory_resource(mem_type)
+        return ret
+
     def set_memory_limit(self, MemoryType mem_type, int64_t limit):
         """
         Set the byte limit for the specified memory type.
@@ -567,7 +605,38 @@ cdef class BufferResource:
         with nogil:
             deref(self._handle).set_memory_limit(mem_type, limit)
 
-    def reserve(self, MemoryType mem_type, size_t size, *, bool_t allow_overbooking):
+    def start_reservation_event_recording(self):
+        """Start a reservation event recording session."""
+        with nogil:
+            deref(self._handle).start_reservation_event_recording()
+
+    def drain_reservation_events(self):
+        """
+        Atomically return events recorded so far while keeping recording active.
+
+        Returns ``(events, allocation_failure_count)``. Each event is a
+        ``(timestamp_ns, reservation_context, memory_type, byte_delta)`` tuple.
+        """
+        cdef cpp_ReservationEventBatch batch
+        with nogil:
+            batch = deref(self._handle).drain_reservation_events()
+        return _reservation_event_batch_to_tuple(batch)
+
+    def stop_reservation_event_recording(self):
+        """Disable recording and return the final event batch."""
+        cdef cpp_ReservationEventBatch batch
+        with nogil:
+            batch = deref(self._handle).stop_reservation_event_recording()
+        return _reservation_event_batch_to_tuple(batch)
+
+    def reserve(
+        self,
+        MemoryType mem_type,
+        size_t size,
+        *,
+        bool_t allow_overbooking,
+        reservation_context=0,
+    ):
         """
         Reserve an amount of the specified memory type.
 
@@ -599,13 +668,21 @@ cdef class BufferResource:
               never fails).
         """
         check_reservation_size(size)
+        cdef uint64_t cpp_reservation_context = \
+            <uint64_t>reservation_context
         cdef pair[unique_ptr[cpp_MemoryReservation], size_t] ret
         with nogil:
-            ret = cpp_br_reserve(self._handle, mem_type, size, allow_overbooking)
+            ret = cpp_br_reserve(
+                self._handle,
+                mem_type,
+                size,
+                allow_overbooking,
+                move(cpp_reservation_context),
+            )
         return MemoryReservation.from_handle(move(ret.first), self), ret.second
 
     def reserve_device_memory_and_spill(
-        self, size_t size, *, bool_t allow_overbooking
+        self, size_t size, *, bool_t allow_overbooking, reservation_context=0
     ):
         """
         Reserve device memory and spill if necessary.
@@ -635,14 +712,16 @@ cdef class BufferResource:
             device memory through spilling to satisfy the request.
         """
         check_reservation_size(size)
+        cdef uint64_t cpp_reservation_context = \
+            <uint64_t>reservation_context
         cdef unique_ptr[cpp_MemoryReservation] ret
         with nogil:
             ret = cpp_br_reserve_device_memory_and_spill(
-                self._handle, size, allow_overbooking
+                self._handle, size, allow_overbooking, move(cpp_reservation_context)
             )
         return MemoryReservation.from_handle(move(ret), self)
 
-    def reserve_or_fail(self, size_t size, list mem_types):
+    def reserve_or_fail(self, size_t size, list mem_types, *, reservation_context=0):
         """
         Make a memory reservation or fail based on the given order of memory types.
 
@@ -673,9 +752,13 @@ cdef class BufferResource:
         cdef vector[MemoryType] cpp_mem_types
         for mt in mem_types:
             cpp_mem_types.push_back(<MemoryType?>mt)
+        cdef uint64_t cpp_reservation_context = \
+            <uint64_t>reservation_context
         cdef unique_ptr[cpp_MemoryReservation] ret
         with nogil:
-            ret = cpp_br_reserve_or_fail(self._handle, size, cpp_mem_types)
+            ret = cpp_br_reserve_or_fail(
+                self._handle, size, cpp_mem_types, move(cpp_reservation_context)
+            )
         return MemoryReservation.from_handle(move(ret), self)
 
     def release(self, MemoryReservation reservation not None, size_t size):

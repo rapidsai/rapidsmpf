@@ -1,8 +1,9 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Spill and unspill packed partitions between device and host memory."""
 
 from cython.operator cimport dereference as deref
+from libc.stdint cimport uint64_t
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
 
@@ -35,6 +36,7 @@ cdef extern from "<rapidsmpf/memory/spill.hpp>" nogil:
             vector[cpp_PackedData] partitions,
             cpp_BufferResource* br,
             AllowOverbooking allow_overbooking,
+            uint64_t reservation_context,
         ) except +ex_handler
 
 
@@ -86,6 +88,7 @@ cpdef object unspill_partitions(
     object partitions,
     BufferResource br,
     object allow_overbooking,
+    object reservation_context=0,
 ):
     """
     Move spilled partitions back to device memory.
@@ -110,6 +113,8 @@ cpdef object unspill_partitions(
     allow_overbooking
         If False, ensures enough memory is freed to satisfy the reservation;
         otherwise, allows overbooking even if spilling was insufficient.
+    reservation_context
+        Optional telemetry reservation_context for the unspill reservation.
 
     Returns
     -------
@@ -128,10 +133,14 @@ cpdef object unspill_partitions(
     cdef AllowOverbooking ab = (
         AllowOverbooking.YES if allow_overbooking else AllowOverbooking.NO
     )
+    cdef uint64_t cpp_reservation_context = (
+        <uint64_t>reservation_context
+    )
     with nogil:
         _ret = cpp_unspill_partitions(
             move(_partitions),
             _br,
             ab,
+            move(cpp_reservation_context),
         )
     return packed_data_vector_to_list(move(_ret), br)

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from cython cimport no_gc_clear
@@ -36,8 +36,12 @@ cdef class SpillableMessages:
     >>> msgs.spill(mid=mid, br=br)
     >>> recovered = msgs.extract(mid=mid)
     """
-    def __init__(self, BufferResource br not None):
-        self._handle = make_shared[cpp_SpillableMessages]()
+    def __init__(self, BufferResource br not None, *, reservation_context=0):
+        cdef uint64_t cpp_reservation_context
+        if reservation_context is None:
+            reservation_context = {"rapidsmpf.site": "spill"}
+        cpp_reservation_context = <uint64_t>reservation_context
+        self._handle = make_shared[cpp_SpillableMessages](move(cpp_reservation_context))
         self._br = br
 
     def __dealloc__(self):

@@ -11,7 +11,14 @@ from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.context import Context
 
 class AllGather:
-    def __init__(self, ctx: Context, comm: Communicator, op_id: int) -> None: ...
+    def __init__(
+        self,
+        ctx: Context,
+        comm: Communicator,
+        op_id: int,
+        *,
+        reservation_context: int = 0,
+    ) -> None: ...
     @property
     def comm(self) -> Communicator: ...
     def __enter__(self) -> AllGather: ...
@@ -33,4 +40,5 @@ def allgather(
     op_id: int,
     *,
     ordered: bool,
+    reservation_context: int = 0,
 ) -> CppActor: ...

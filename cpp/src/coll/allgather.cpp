@@ -122,7 +122,7 @@ std::size_t AllGather::spill(std::size_t amount, MemoryType mem_type) {
     // NB: the inserted postbox holds chunks waiting to be sent, so it must only
     // spill to sendable (addressable) memory types.
     std::size_t spilled = for_extraction_.spill(
-        br_, amount, preference_lt(MemoryType::DEVICE, MEMORY_TYPES)
+        br_, amount, preference_lt(MemoryType::DEVICE, MEMORY_TYPES), reservation_context_
     );
     if (spilled < amount) {
         spilled += inserted_.spill(
@@ -130,7 +130,8 @@ std::size_t AllGather::spill(std::size_t amount, MemoryType mem_type) {
             amount - spilled,
             preference_lt(
                 MemoryType::DEVICE, exchange_->sendable_memory_types(next_rank())
-            )
+            ),
+            reservation_context_
         );
     }
     return spilled;
@@ -149,9 +150,13 @@ AllGather::AllGather(
     std::shared_ptr<Communicator> comm,
     OpID op_id,
     BufferResource* br,
-    std::function<void(void)>&& finished_callback
+    std::function<void(void)>&& finished_callback,
+    std::uint64_t reservation_context
 )
-    : comm_{std::move(comm)}, br_{br}, finished_callback_{std::move(finished_callback)} {
+    : comm_{std::move(comm)},
+      br_{br},
+      reservation_context_{reservation_context},
+      finished_callback_{std::move(finished_callback)} {
     RAPIDSMPF_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be null");
     RAPIDSMPF_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be null");
     finish_counter_.store(comm_->nranks(), std::memory_order_relaxed);
@@ -166,7 +171,38 @@ AllGather::AllGather(
         comm_,
         op_id,
         std::vector<Rank>(peers.begin(), peers.end()),
-        communicator::default_allocate_buffer,
+        [reservation_context](
+            BufferResource* resource,
+            std::size_t size,
+            communicator::MetadataPayloadExchange::AllocationMode mode
+        ) {
+            auto reservation = resource->try_reserve(
+                size, ADDRESSABLE_MEMORY_TYPES, reservation_context
+            );
+            if (!reservation) {
+                if (mode
+                    == communicator::MetadataPayloadExchange::AllocationMode::MAY_FAIL) {
+                    return std::unique_ptr<Buffer>{};
+                }
+                RAPIDSMPF_EXPECTS(
+                    resource->allow_overbooking_by_default() == AllowOverbooking::YES,
+                    "receive buffer allocation made no progress within the allocation "
+                    "timeout and overbooking is not allowed",
+                    std::runtime_error
+                );
+                reservation = resource
+                                  ->reserve(
+                                      MemoryType::HOST,
+                                      size,
+                                      AllowOverbooking::YES,
+                                      reservation_context
+                                  )
+                                  .first;
+            }
+            return resource->make_buffer(
+                resource->stream_pool()->get_stream(), std::move(*reservation)
+            );
+        },
         br_->memory_reserve_timeout(),
         br_,
         communicator::TagMetadataPayloadExchange::ForcedReceive::KEEP_IN_MEMORY
@@ -264,14 +300,17 @@ ProgressThread::ProgressState AllGather::event_loop() {
         for (auto&& msg : exchange_->release_sent()) {
             for_extraction_.insert(
                 detail::Chunk::deserialize(
-                    msg->release_metadata(), msg->release_data(), br_
+                    msg->release_metadata(),
+                    msg->release_data(),
+                    br_,
+                    reservation_context_
                 )
             );
         }
 
         for (auto&& msg : exchange_->recv()) {
             auto chunk = detail::Chunk::deserialize(
-                msg->release_metadata(), msg->release_data(), br_
+                msg->release_metadata(), msg->release_data(), br_, reservation_context_
             );
             if (chunk->is_finish()) {
                 num_expected_messages_ += chunk->sequence();

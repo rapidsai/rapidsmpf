@@ -89,6 +89,61 @@ def test_memory_reservation(mem_type: MemoryType) -> None:
         br.release(res1, KiB(10))
 
 
+def test_reservation_event_recording_lifecycle() -> None:
+    br = BufferResource(rmm.mr.CudaMemoryResource())
+    br.set_memory_limit(MemoryType.DEVICE, 10)
+    assert br.drain_reservation_events() == ([], 0)
+    assert br.stop_reservation_event_recording() == ([], 0)
+
+    br.start_reservation_event_recording()
+    with pytest.raises(RuntimeError, match="already active"):
+        br.start_reservation_event_recording()
+    reservation, _ = br.reserve(
+        MemoryType.DEVICE,
+        4,
+        allow_overbooking=False,
+        reservation_context=42,
+    )
+    assert reservation.reservation_context == 42
+    first, failures = br.drain_reservation_events()
+    assert failures == 0
+    assert len(first) == 1
+    timestamp_ns, context, memory_type, delta = first[0]
+    assert timestamp_ns > 0
+    assert (context, memory_type, delta) == (42, MemoryType.DEVICE, 4)
+    assert br.drain_reservation_events() == ([], 0)
+
+    assert br.release(reservation, 1) == 3
+    reservation.clear()
+    br.set_memory_limit(MemoryType.DEVICE, -7)
+    empty, _ = br.reserve(
+        MemoryType.DEVICE,
+        1,
+        allow_overbooking=False,
+    )
+    assert empty.size == 0
+    final, failures = br.stop_reservation_event_recording()
+    assert failures == 0
+    assert [(event[1], event[2], event[3]) for event in final] == [
+        (42, MemoryType.DEVICE, -1),
+        (42, MemoryType.DEVICE, -3),
+    ]
+    assert br.stop_reservation_event_recording() == ([], 0)
+
+
+def test_memory_resource_introspection() -> None:
+    br = BufferResource(
+        rmm.mr.CudaMemoryResource(),
+        memory_limits={MemoryType.HOST: 123},
+        periodic_spill_check=None,
+    )
+    assert br.memory_limit(MemoryType.HOST) == 123
+    assert br.has_memory_resource(MemoryType.DEVICE)
+    assert br.has_memory_resource(MemoryType.HOST)
+    assert not br.has_memory_resource(MemoryType.PINNED_HOST)
+    assert not br.has_memory_resource(MemoryType.DISK)
+
+
 def test_host_memory_availability_tracks_live_allocations() -> None:
     br = BufferResource(
         rmm.mr.CudaMemoryResource(),

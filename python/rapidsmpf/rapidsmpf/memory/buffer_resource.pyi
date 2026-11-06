@@ -22,6 +22,9 @@ from rapidsmpf.memory.spill_manager import SpillManager
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.statistics import Statistics
 
+ReservationEvent = tuple[int, int, MemoryType, int]
+ReservationEventBatch = tuple[list[ReservationEvent], int]
+
 class BufferResource:
     def __init__(
         self,
@@ -59,19 +62,37 @@ class BufferResource:
     def is_reservable(self, mem_type: MemoryType) -> bool: ...
     def memory_available(self, mem_type: MemoryType) -> int: ...
     def memory_available_for_reservation(self, mem_type: MemoryType) -> int: ...
+    def memory_limit(self, mem_type: MemoryType) -> int: ...
+    def has_memory_resource(self, mem_type: MemoryType) -> bool: ...
     def set_memory_limit(self, mem_type: MemoryType, limit: int) -> None: ...
+    def start_reservation_event_recording(self) -> None: ...
+    def drain_reservation_events(self) -> ReservationEventBatch: ...
+    def stop_reservation_event_recording(self) -> ReservationEventBatch: ...
     @property
     def spill_manager(self) -> SpillManager: ...
     @property
     def statistics(self) -> Statistics: ...
     def reserve(
-        self, mem_type: MemoryType, size: int, *, allow_overbooking: bool
+        self,
+        mem_type: MemoryType,
+        size: int,
+        *,
+        allow_overbooking: bool,
+        reservation_context: int = 0,
     ) -> tuple[MemoryReservation, int]: ...
     def reserve_device_memory_and_spill(
-        self, size: int, *, allow_overbooking: bool
+        self,
+        size: int,
+        *,
+        allow_overbooking: bool,
+        reservation_context: int = 0,
     ) -> MemoryReservation: ...
     def reserve_or_fail(
-        self, size: int, mem_types: list[MemoryType]
+        self,
+        size: int,
+        mem_types: list[MemoryType],
+        *,
+        reservation_context: int = 0,
     ) -> MemoryReservation: ...
     def release(self, reservation: MemoryReservation, size: int) -> int: ...
     def make_buffer(

@@ -51,6 +51,8 @@ enum class FanoutPolicy : std::uint8_t {
  * @param ch_in Input channel from which messages are received.
  * @param chs_out Output channels to which messages are broadcast. Must be at least 2.
  * @param policy The fanout strategy to use (see ::FanoutPolicy).
+ * @param reservation_context Immutable telemetry reservation_context for copy
+ * reservations.
  *
  * @return Streaming actor representing the fanout operation.
  *
@@ -61,7 +63,8 @@ Actor fanout(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_in,
     std::vector<std::shared_ptr<Channel>> chs_out,
-    FanoutPolicy policy
+    FanoutPolicy policy,
+    std::uint64_t reservation_context = {}
 );
 
 }  // namespace rapidsmpf::streaming::actor

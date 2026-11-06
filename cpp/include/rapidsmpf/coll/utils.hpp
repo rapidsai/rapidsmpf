@@ -219,6 +219,8 @@ class Chunk {
      * chunk without data.
      * @param br Buffer resource used to allocate an empty data buffer for a data chunk
      * without data.
+     * @param reservation_context Immutable telemetry reservation context for an empty
+     * data buffer allocation.
      * @return A unique pointer to the deserialized chunk.
      *
      * @throws std::invalid_argument If the size of @p data does not match the
@@ -227,7 +229,8 @@ class Chunk {
     [[nodiscard]] static std::unique_ptr<Chunk> deserialize(
         std::vector<std::uint8_t>&& metadata,
         std::unique_ptr<Buffer> data,
-        BufferResource* br
+        BufferResource* br,
+        std::uint64_t reservation_context = {}
     );
 
     /**
@@ -336,6 +339,8 @@ class PostBox {
      *
      * @param br The buffer resource for host and device allocations.
      * @param amount Requested amount of data to spill in bytes.
+     * @param reservation_context Immutable telemetry reservation_context for the spill
+     * reservation.
      * @param spill_target_types Memory types to spill to, in decreasing order of
      * preference. Types without a backing resource are skipped.
      * @return Actual amount of data spilled in bytes.
@@ -346,7 +351,8 @@ class PostBox {
     [[nodiscard]] std::size_t spill(
         BufferResource* br,
         std::size_t amount,
-        std::span<MemoryType const> spill_target_types
+        std::span<MemoryType const> spill_target_types,
+        std::uint64_t reservation_context = 0
     );
 
   private:

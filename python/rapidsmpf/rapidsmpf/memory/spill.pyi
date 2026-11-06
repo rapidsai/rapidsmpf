@@ -17,4 +17,5 @@ def unspill_partitions(
     *,
     br: BufferResource,
     allow_overbooking: bool,
+    reservation_context: int = 0,
 ) -> list[PackedData]: ...

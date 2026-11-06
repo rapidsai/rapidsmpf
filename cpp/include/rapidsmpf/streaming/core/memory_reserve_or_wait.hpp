@@ -124,6 +124,7 @@ class MemoryReserveOrWait {
      * @param net_memory_delta Estimated net change in memory usage after the
      * reservation is allocated and the dependent operation completes. Smaller
      * values have higher priority.
+     * @param reservation_context Opaque telemetry attribution token.
      * @return A `MemoryReservation` representing the allocated memory, or an empty
      * reservation if progress could not be made.
      *
@@ -131,7 +132,9 @@ class MemoryReserveOrWait {
      * processed.
      */
     coro::task<MemoryReservation> reserve_or_wait(
-        std::size_t size, std::int64_t net_memory_delta
+        std::size_t size,
+        std::int64_t net_memory_delta,
+        std::uint64_t reservation_context = 0
     );
 
     /**
@@ -148,6 +151,7 @@ class MemoryReserveOrWait {
      * @param size Number of bytes to reserve.
      * @param net_memory_delta Heuristic used to prioritize eligible requests. See
      * `reserve_or_wait()` for details and semantics.
+     * @param reservation_context Opaque telemetry attribution token.
      * @return A pair consisting of:
      *   - A `MemoryReservation` representing the allocated memory.
      *   - The number of bytes by which the reservation overbooked the available
@@ -159,7 +163,9 @@ class MemoryReserveOrWait {
      * @see reserve_or_wait()
      */
     coro::task<std::pair<MemoryReservation, std::size_t>> reserve_or_wait_or_overbook(
-        std::size_t size, std::int64_t net_memory_delta
+        std::size_t size,
+        std::int64_t net_memory_delta,
+        std::uint64_t reservation_context = 0
     );
 
     /**
@@ -176,6 +182,7 @@ class MemoryReserveOrWait {
      * @param size Number of bytes to reserve.
      * @param net_memory_delta Heuristic used to prioritize eligible requests. See
      * `reserve_or_wait()` for details and semantics.
+     * @param reservation_context Opaque telemetry attribution token.
      * @return A `MemoryReservation` representing the allocated memory.
      *
      * @throws rapidsmpf::reservation_error If no progress is possible within the timeout.
@@ -185,7 +192,9 @@ class MemoryReserveOrWait {
      * @see reserve_or_wait()
      */
     coro::task<MemoryReservation> reserve_or_wait_or_fail(
-        std::size_t size, std::int64_t net_memory_delta
+        std::size_t size,
+        std::int64_t net_memory_delta,
+        std::uint64_t reservation_context = 0
     );
 
     /**
@@ -248,7 +257,10 @@ class MemoryReserveOrWait {
         std::uint64_t sequence_number;
 
         /// @brief Queue into which a reservation is pushed once the request is satisfied.
-        coro::queue<MemoryReservation>& queue;
+        coro::queue<detail::ReserveResult>& queue;
+
+        /// @brief Opaque telemetry token retained while this request is queued.
+        std::uint64_t reservation_context;
 
         /// @brief When the request was submitted, used to measure how long it waited.
         Clock::time_point submitted_at;
@@ -291,6 +303,9 @@ class MemoryReserveOrWait {
      * extracted and all in-flight work has finished.
      */
     coro::task<void> periodic_memory_check();
+    coro::task<detail::ReserveResult> reserve_or_wait_impl(
+        std::size_t size, std::int64_t net_memory_delta, std::uint64_t reservation_context
+    );
 
     /**
      * @brief Adds a value to one of this instance's statistics.
@@ -351,6 +366,7 @@ class MemoryReserveOrWait {
  * - If set to `AllowOverbooking::NO`, the call fails if no progress is possible.
  * - If not provided, the default behavior is determined by the configuration option
  *   `"allow_overbooking_by_default"`.
+ * @param reservation_context Immutable telemetry reservation_context for the request.
  * @return The allocated memory reservation.
  *
  * @throws std::runtime_error If shutdown occurs before the request can be processed.
@@ -381,6 +397,25 @@ class MemoryReserveOrWait {
  * @see MemoryReserveOrWait::reserve_or_wait()
  * @see MemoryReserveOrWait::reserve_or_wait_or_overbook()
  * @see MemoryReserveOrWait::reserve_or_wait_or_fail()
+ */
+coro::task<MemoryReservation> reserve_memory(
+    std::shared_ptr<Context> ctx,
+    std::size_t size,
+    std::int64_t net_memory_delta,
+    MemoryType mem_type,
+    std::optional<AllowOverbooking> allow_overbooking,
+    std::uint64_t reservation_context
+);
+
+/**
+ * @brief Reserve memory with default empty telemetry reservation_context.
+ *
+ * @param ctx Actor context used to obtain the memory reservation handle.
+ * @param size Number of bytes to reserve.
+ * @param net_memory_delta Estimated net memory change used for priority.
+ * @param mem_type Memory type to reserve.
+ * @param allow_overbooking Optional timeout policy override.
+ * @return The allocated memory reservation.
  */
 coro::task<MemoryReservation> reserve_memory(
     std::shared_ptr<Context> ctx,

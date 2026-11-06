@@ -1,6 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-
+from libc.stdint cimport uint64_t
 from libcpp.memory cimport make_unique
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
@@ -10,8 +8,18 @@ from rapidsmpf.streaming.core.channel cimport Channel
 from rapidsmpf.streaming.core.context cimport Context
 from rapidsmpf.streaming.core.fanout cimport FanoutPolicy
 
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 
-def fanout(Context ctx, Channel ch_in, chs_out, FanoutPolicy policy):
+
+def fanout(
+    Context ctx,
+    Channel ch_in,
+    chs_out,
+    FanoutPolicy policy,
+    *,
+    reservation_context=0,
+):
     """
     Broadcast messages from one input channel to multiple output channels.
 
@@ -63,6 +71,8 @@ def fanout(Context ctx, Channel ch_in, chs_out, FanoutPolicy policy):
     ...     )
     """
     cdef vector[shared_ptr[cpp_Channel]] _chs_out
+    cdef uint64_t cpp_reservation_context = \
+        <uint64_t>reservation_context
     if len(chs_out) == 0:
         raise ValueError("output channels cannot be empty")
     owner = []
@@ -75,6 +85,10 @@ def fanout(Context ctx, Channel ch_in, chs_out, FanoutPolicy policy):
     cdef cpp_Actor _ret
     with nogil:
         _ret = cpp_fanout(
-            ctx._handle, ch_in._handle, move(_chs_out), policy
+            ctx._handle,
+            ch_in._handle,
+            move(_chs_out),
+            policy,
+            move(cpp_reservation_context),
         )
     return CppActor.from_handle(make_unique[cpp_Actor](move(_ret)), owner)

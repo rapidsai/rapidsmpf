@@ -12,6 +12,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <utility>
 #include <vector>
 
 #include <rapidsmpf/coll/utils.hpp>
@@ -111,6 +112,8 @@ class AllGather {
      * @param finished_callback Optional callback run when partitions are locally
      * finished. The callback is guaranteed to be called by the progress thread exactly
      * once when the allgather is locally ready.
+     * @param reservation_context Immutable telemetry reservation_context for internal
+     * reservations.
      *
      * @note It is safe to reuse the `op_id` as soon as `wait_and_extract` has completed
      * locally.
@@ -123,7 +126,8 @@ class AllGather {
         std::shared_ptr<Communicator> comm,
         OpID op_id,
         BufferResource* br,
-        std::function<void(void)>&& finished_callback = nullptr
+        std::function<void(void)>&& finished_callback = nullptr,
+        std::uint64_t reservation_context = {}
     );
 
     /// @brief Deleted copy constructor.
@@ -215,6 +219,7 @@ class AllGather {
 
     std::shared_ptr<Communicator> comm_;  ///< Communicator
     BufferResource* br_;  ///< Buffer resource for memory allocation
+    std::uint64_t reservation_context_;
     std::function<void(void)> finished_callback_{
         nullptr
     };  ///< Optional callback to run when allgather is finished and ready for extraction.

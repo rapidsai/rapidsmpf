@@ -76,8 +76,11 @@ std::size_t SpillableMessages::spill(MessageId mid, BufferResource* br) const {
     }
 
     // Spill item in-place.
-    auto res =
-        br->try_reserve(msg.copy_cost(), preference_lt(MemoryType::DEVICE, MEMORY_TYPES));
+    auto res = br->try_reserve(
+        msg.copy_cost(),
+        preference_lt(MemoryType::DEVICE, MEMORY_TYPES),
+        reservation_context_
+    );
     if (!res) {
         return 0;  // No target has room, leave the message where it is.
     }

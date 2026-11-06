@@ -18,7 +18,8 @@ ShufflerAsync::ShufflerAsync(
     std::shared_ptr<Communicator> comm,
     OpID op_id,
     shuffler::PartID total_num_partitions,
-    shuffler::Shuffler::PartitionOwner partition_owner
+    shuffler::Shuffler::PartitionOwner partition_owner,
+    std::uint64_t reservation_context
 )
     : ctx_(std::move(ctx)),
       shuffler_(
@@ -32,7 +33,9 @@ ShufflerAsync::ShufflerAsync(
               // completion of this callback with a task_group.
               event_.set(ctx_->executor()->get());
           },
-          std::move(partition_owner)
+          std::move(partition_owner),
+          nullptr,
+          std::move(reservation_context)
       ) {}
 
 ShufflerAsync::~ShufflerAsync() noexcept {
@@ -69,12 +72,18 @@ Actor shuffler(
     std::shared_ptr<Channel> ch_out,
     OpID op_id,
     shuffler::PartID total_num_partitions,
-    shuffler::Shuffler::PartitionOwner partition_owner
+    shuffler::Shuffler::PartitionOwner partition_owner,
+    std::uint64_t reservation_context
 ) {
     co_await ctx->executor()->schedule();
     ShutdownAtExit c{ch_in, ch_out};
     ShufflerAsync shuffler_async(
-        ctx, std::move(comm), op_id, total_num_partitions, std::move(partition_owner)
+        ctx,
+        std::move(comm),
+        op_id,
+        total_num_partitions,
+        std::move(partition_owner),
+        std::move(reservation_context)
     );
 
     while (true) {

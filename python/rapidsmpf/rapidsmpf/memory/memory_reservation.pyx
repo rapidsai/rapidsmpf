@@ -92,6 +92,11 @@ cdef class MemoryReservation:
         return deref(self._handle).mem_type()
 
     @property
+    def reservation_context(self):
+        """Return the opaque telemetry attribution token."""
+        return deref(self._handle).reservation_context()
+
+    @property
     def br(self):
         """
         Get the buffer resource associated with this reservation.

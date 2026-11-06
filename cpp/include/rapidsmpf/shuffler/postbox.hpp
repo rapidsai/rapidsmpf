@@ -149,9 +149,13 @@ class ReceivedChunks {
      *
      * @param br The buffer resource for host and device allocations.
      * @param amount Requested amount of data to spill in bytes.
+     * @param reservation_context Immutable telemetry reservation_context for the spill
+     * reservation.
      * @return Actual amount of data spilled in bytes.
      */
-    [[nodiscard]] std::size_t spill(BufferResource* br, std::size_t amount);
+    [[nodiscard]] std::size_t spill(
+        BufferResource* br, std::size_t amount, std::uint64_t reservation_context = 0
+    );
 
   private:
     // TODO: more fine-grained locking e.g. by locking each partition individually.

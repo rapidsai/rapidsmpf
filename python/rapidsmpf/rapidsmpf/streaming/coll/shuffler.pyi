@@ -19,6 +19,8 @@ def shuffler(
     op_id: int,
     total_num_partitions: int,
     partition_assignment: PartitionAssignment = ...,
+    *,
+    reservation_context: int = 0,
 ) -> CppActor: ...
 
 class ShufflerAsync:
@@ -29,6 +31,8 @@ class ShufflerAsync:
         op_id: int,
         total_num_partitions: int,
         partition_assignment: PartitionAssignment = ...,
+        *,
+        reservation_context: int = 0,
     ) -> None: ...
     @property
     def comm(self) -> Communicator: ...

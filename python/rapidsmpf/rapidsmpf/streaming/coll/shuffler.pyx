@@ -1,10 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-
 from cpython.object cimport PyObject
 from cpython.ref cimport Py_INCREF
 from cython.operator cimport dereference as deref
-from libc.stdint cimport int32_t, uint32_t
+from libc.stdint cimport int32_t, uint32_t, uint64_t
 from libcpp.memory cimport make_unique, shared_ptr
 from libcpp.span cimport span
 from libcpp.unordered_map cimport unordered_map
@@ -74,7 +73,9 @@ def shuffler(
     Channel ch_out not None,
     int32_t op_id,
     uint32_t total_num_partitions,
-    PartitionAssignment partition_assignment = PartitionAssignment.ROUND_ROBIN
+    PartitionAssignment partition_assignment = PartitionAssignment.ROUND_ROBIN,
+    *,
+    reservation_context=0,
 ):
     """
     Launch a shuffler actor for a single shuffle operation.
@@ -111,6 +112,8 @@ def shuffler(
     been drained.
     """
 
+    cdef uint64_t cpp_reservation_context = \
+        <uint64_t>reservation_context
     with nogil:
         _ret = cpp_shuffler(
             ctx._handle,
@@ -122,6 +125,7 @@ def shuffler(
             cpp_Shuffler.round_robin
             if partition_assignment == PartitionAssignment.ROUND_ROBIN
             else cpp_Shuffler.contiguous,
+            move(cpp_reservation_context),
         )
     return CppActor.from_handle(make_unique[cpp_Actor](move(_ret)), owner=None)
 
@@ -155,15 +159,20 @@ cdef class ShufflerAsync:
         int32_t op_id,
         uint32_t total_num_partitions,
         PartitionAssignment partition_assignment = PartitionAssignment.ROUND_ROBIN,
+        *,
+        reservation_context=0,
     ):
         self._comm = comm
         self._br = ctx.br()
+        cdef uint64_t cpp_reservation_context = \
+            <uint64_t>reservation_context
         with nogil:
             self._handle = make_unique[cpp_ShufflerAsync](
                 ctx._handle, comm._handle, op_id, total_num_partitions,
                 cpp_Shuffler.round_robin
                 if partition_assignment == PartitionAssignment.ROUND_ROBIN
                 else cpp_Shuffler.contiguous,
+                move(cpp_reservation_context),
             )
 
     def __dealloc__(self):

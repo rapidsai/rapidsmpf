@@ -1,10 +1,10 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 """The Shuffler interface for RapidsMPF."""
 
 from cython.operator cimport dereference as deref
-from libc.stdint cimport uint32_t
-from libcpp.memory cimport make_unique
+from libc.stdint cimport uint32_t, uint64_t
+from libcpp.memory cimport make_unique, unique_ptr
 from libcpp.span cimport span
 from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move
@@ -12,6 +12,7 @@ from libcpp.vector cimport vector
 
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
+from rapidsmpf.shuffler cimport cpp_MetadataPayloadExchange
 
 
 cdef class Shuffler:
@@ -65,10 +66,14 @@ cdef class Shuffler:
         uint32_t total_num_partitions,
         BufferResource br not None,
         PartitionAssignment partition_assignment = PartitionAssignment.ROUND_ROBIN,
+        *,
+        reservation_context=0,
     ):
         self._br = br
         self._comm = comm
         cdef cpp_BufferResource* br_ = br.ptr()
+        cdef uint64_t cpp_reservation_context = \
+            <uint64_t>reservation_context
         with nogil:
             self._handle = make_unique[cpp_Shuffler](
                 comm._handle,
@@ -78,6 +83,8 @@ cdef class Shuffler:
                 cpp_Shuffler.round_robin
                 if partition_assignment == PartitionAssignment.ROUND_ROBIN
                 else cpp_Shuffler.contiguous,
+                unique_ptr[cpp_MetadataPayloadExchange](),
+                move(cpp_reservation_context),
             )
 
     def __dealloc__(self):

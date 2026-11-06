@@ -38,9 +38,14 @@ class AllGather {
      * @param ctx Streaming context
      * @param comm Communicator for the collective operation.
      * @param op_id Unique identifier for the allgather.
+     * @param reservation_context Immutable telemetry reservation_context for internal
+     * reservations.
      */
     AllGather(
-        std::shared_ptr<Context> ctx, std::shared_ptr<Communicator> comm, OpID op_id
+        std::shared_ptr<Context> ctx,
+        std::shared_ptr<Communicator> comm,
+        OpID op_id,
+        std::uint64_t reservation_context = {}
     );
 
     AllGather(AllGather const&) = delete;
@@ -112,6 +117,8 @@ namespace actor {
  * sequence numbers of the extracted data will be ordered first by rank and then by input
  * sequence number. If no, the sequence number of the extracted chunks will have no
  * relation to any input sequence order.
+ * @param reservation_context Immutable telemetry reservation_context for internal
+ * reservations.
  *
  * @return A streaming actor that completes when the allgather is finished and the output
  * channel is drained.
@@ -122,7 +129,8 @@ Actor allgather(
     std::shared_ptr<Channel> ch_in,
     std::shared_ptr<Channel> ch_out,
     OpID op_id,
-    AllGather::Ordered ordered = AllGather::Ordered::YES
+    AllGather::Ordered ordered = AllGather::Ordered::YES,
+    std::uint64_t reservation_context = {}
 );
 }  // namespace actor
 }  // namespace rapidsmpf::streaming

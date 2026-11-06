@@ -234,6 +234,8 @@ class Chunk {
      * @param data Optional pre-existing data buffer to use instead of allocating a new
      * one. When non-null, the buffer resource allocation is skipped entirely, avoiding
      * unnecessary memory pressure from a temporary allocation.
+     * @param reservation_context Immutable telemetry reservation_context for any
+     * allocation.
      * @return The chunk.
      *
      * @throws std::logic_error if the chunk is not a control message and neither @p data
@@ -245,7 +247,8 @@ class Chunk {
         std::vector<std::uint8_t> const& msg,
         BufferResource* br,
         bool validate = true,
-        std::unique_ptr<Buffer> data = nullptr
+        std::unique_ptr<Buffer> data = nullptr,
+        std::uint64_t reservation_context = {}
     );
 
     /**
