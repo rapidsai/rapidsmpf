@@ -75,30 +75,31 @@ TEST(SpillManager, SpillFunction) {
 
     // Spill function that increases the available memory perfectly.
     SpillManager::SpillFunction func1 =
-        [&br, &mem_available](std::size_t amount) -> std::size_t {
+        [&br, &mem_available](std::size_t amount, MemoryType) -> std::size_t {
         mem_available += safe_cast<std::int64_t>(amount);
         br->set_memory_limit(MemoryType::DEVICE, mem_available);
         return amount;
     };
     br->spill_manager().add_spill_function(func1, /* priority = */ 1);
-    EXPECT_EQ(br->spill_manager().spill(10_KiB), 10_KiB);
+    EXPECT_EQ(br->spill_manager().spill(10_KiB, MemoryType::DEVICE), 10_KiB);
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 20_KiB);
 
     // Spill function that never spill any memory but has a higher priority.
     bool func2_called = false;
-    SpillManager::SpillFunction func2 = [&func2_called](std::size_t) -> std::size_t {
+    SpillManager::SpillFunction func2 =
+        [&func2_called](std::size_t, MemoryType) -> std::size_t {
         func2_called = true;
         return 0;
     };
     auto fid2 = br->spill_manager().add_spill_function(func2, /* priority = */ 2);
-    EXPECT_EQ(br->spill_manager().spill(10_KiB), 10_KiB);
+    EXPECT_EQ(br->spill_manager().spill(10_KiB, MemoryType::DEVICE), 10_KiB);
     EXPECT_TRUE(func2_called);
     func2_called = false;
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 30_KiB);
 
     // Removing `func2` means it shouldn't run.
     br->spill_manager().remove_spill_function(fid2);
-    EXPECT_EQ(br->spill_manager().spill(10_KiB), 10_KiB);
+    EXPECT_EQ(br->spill_manager().spill(10_KiB, MemoryType::DEVICE), 10_KiB);
     EXPECT_FALSE(func2_called);
     EXPECT_EQ(br->memory_available(MemoryType::DEVICE), 40_KiB);
 
@@ -128,7 +129,7 @@ TEST(SpillManager, HeadroomAccountsForReservations) {
         {{MemoryType::DEVICE, mem_available}}
     );
     SpillManager::SpillFunction func =
-        [&br, &mem_available](std::size_t amount) -> std::size_t {
+        [&br, &mem_available](std::size_t amount, MemoryType) -> std::size_t {
         mem_available += safe_cast<std::int64_t>(amount);
         br->set_memory_limit(MemoryType::DEVICE, mem_available);
         return amount;
@@ -156,7 +157,7 @@ TEST(SpillManager, HeadroomReportsTheShortfallNotWhatWasSpilled) {
 
     // Frees 1 KiB however much it is asked for.
     auto const fid = br->spill_manager().add_spill_function(
-        [&](std::size_t) -> std::size_t {
+        [&](std::size_t, MemoryType) -> std::size_t {
             limit += 1_KiB;
             br->set_memory_limit(MemoryType::DEVICE, limit);
             return 1_KiB;
@@ -182,7 +183,7 @@ TEST(SpillManager, ReserveAndSpillCreditsAConcurrentSpill) {
     // whole buffers looks like. The first call blocks so the test can overlap it.
     std::vector<std::size_t> asks;
     auto const fid = br->spill_manager().add_spill_function(
-        [&](std::size_t amount) -> std::size_t {
+        [&](std::size_t amount, MemoryType) -> std::size_t {
             {
                 std::unique_lock lock(mutex);
                 asks.push_back(amount);
@@ -200,7 +201,9 @@ TEST(SpillManager, ReserveAndSpillCreditsAConcurrentSpill) {
     );
 
     // Hold a spill open, so the reservation below has to queue behind it.
-    std::thread spiller{[&] { std::ignore = br->spill_manager().spill(1_KiB); }};
+    std::thread spiller{[&] {
+        std::ignore = br->spill_manager().spill(1_KiB, MemoryType::DEVICE);
+    }};
     {
         std::unique_lock lock(mutex);
         cv.wait(lock, [&] { return entered; });
@@ -237,7 +240,7 @@ TEST(SpillManager, ReserveAndSpillIgnoresAConcurrentCallersOverbooking) {
     // lands, after this call's spill and before it judges whether the spill was enough.
     std::optional<MemoryReservation> other;
     auto const fid = br->spill_manager().add_spill_function(
-        [&](std::size_t amount) -> std::size_t {
+        [&](std::size_t amount, MemoryType) -> std::size_t {
             limit += safe_cast<std::int64_t>(amount);
             br->set_memory_limit(MemoryType::DEVICE, limit);
             if (!other.has_value()) {
@@ -265,7 +268,7 @@ TEST(SpillManager, ReserveAndSpillIgnoresAnEarlierCallersOverbooking) {
     // Only 4 KiB is spillable, enough for one caller's overbooking and not two.
     std::size_t spillable{4_KiB};
     auto const fid = br->spill_manager().add_spill_function(
-        [&](std::size_t amount) -> std::size_t {
+        [&](std::size_t amount, MemoryType) -> std::size_t {
             auto const freed = std::min(amount, spillable);
             spillable -= freed;
             limit += safe_cast<std::int64_t>(freed);
@@ -297,7 +300,7 @@ TEST(SpillManager, ProgressCountersTrackSpillExecution) {
     bool seen_in_flight{false};
     std::uint64_t seen_generation{0};
     auto const fid = manager.add_spill_function(
-        [&](std::size_t) -> std::size_t {
+        [&](std::size_t, MemoryType) -> std::size_t {
             seen_in_flight = manager.spilling_now();
             seen_generation = manager.spill_generation();
             return 0;
@@ -305,7 +308,7 @@ TEST(SpillManager, ProgressCountersTrackSpillExecution) {
         /* priority = */ 0
     );
 
-    std::ignore = manager.spill(1_KiB);
+    std::ignore = manager.spill(1_KiB, MemoryType::DEVICE);
     EXPECT_TRUE(seen_in_flight);
     EXPECT_EQ(seen_generation, 0u);
     EXPECT_FALSE(manager.spilling_now());
@@ -314,7 +317,7 @@ TEST(SpillManager, ProgressCountersTrackSpillExecution) {
     // A zero-byte ask runs no spill function, so there is nothing for a waiter to wait
     // for and the generation must not move.
     seen_in_flight = false;
-    std::ignore = manager.spill(0);
+    std::ignore = manager.spill(0, MemoryType::DEVICE);
     EXPECT_FALSE(seen_in_flight);
     EXPECT_EQ(manager.spill_generation(), 1u);
 
@@ -331,16 +334,64 @@ TEST(SpillManager, ProgressCountersSurviveAThrowingSpillFunction) {
     auto& manager = br->spill_manager();
 
     auto const fid = manager.add_spill_function(
-        [](std::size_t) -> std::size_t { throw std::runtime_error("boom"); },
+        [](std::size_t, MemoryType) -> std::size_t { throw std::runtime_error("boom"); },
         /* priority = */ 0
     );
 
-    EXPECT_THROW(std::ignore = manager.spill(1_KiB), std::runtime_error);
+    EXPECT_THROW(
+        std::ignore = manager.spill(1_KiB, MemoryType::DEVICE), std::runtime_error
+    );
 
     // A throwing spill function must not leave the manager looking permanently busy,
     // which would make every waiter extend its deadline forever.
     EXPECT_FALSE(manager.spilling_now());
     EXPECT_EQ(manager.spill_generation(), 1u);
+
+    manager.remove_spill_function(fid);
+}
+
+TEST(SpillManager, SpillFunctionReceivesRequestedMemoryType) {
+    auto br = br_at_device_limit().first;
+    auto& manager = br->spill_manager();
+
+    std::vector<std::pair<std::size_t, MemoryType>> calls;
+    auto const fid = manager.add_spill_function(
+        [&](std::size_t amount, MemoryType mem_type) -> std::size_t {
+            calls.emplace_back(amount, mem_type);
+            return amount;
+        },
+        /* priority = */ 0
+    );
+
+    EXPECT_EQ(manager.spill(1_KiB, MemoryType::DEVICE), 1_KiB);
+    EXPECT_EQ(manager.spill(2_KiB, MemoryType::HOST), 2_KiB);
+    EXPECT_EQ(
+        calls,
+        (std::vector<std::pair<std::size_t, MemoryType>>{
+            {1_KiB, MemoryType::DEVICE}, {2_KiB, MemoryType::HOST}
+        })
+    );
+
+    manager.remove_spill_function(fid);
+}
+
+TEST(SpillManager, SpillRejectsDisk) {
+    auto br = br_at_device_limit().first;
+    auto& manager = br->spill_manager();
+
+    bool called = false;
+    auto const fid = manager.add_spill_function(
+        [&](std::size_t amount, MemoryType) -> std::size_t {
+            called = true;
+            return amount;
+        },
+        /* priority = */ 0
+    );
+
+    EXPECT_THROW(
+        std::ignore = manager.spill(1_KiB, MemoryType::DISK), std::invalid_argument
+    );
+    EXPECT_FALSE(called);
 
     manager.remove_spill_function(fid);
 }

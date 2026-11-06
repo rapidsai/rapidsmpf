@@ -16,7 +16,7 @@
 #include <vector>
 
 #include <rapidsmpf/communicator/communicator.hpp>
-#include <rapidsmpf/communicator/metadata_payload_exchange/tag.hpp>
+#include <rapidsmpf/communicator/metadata_payload_exchange/core.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
@@ -119,8 +119,6 @@ class Shuffler {
      * @param br Buffer resource used to allocate temporary and the shuffle result.
      * @param finished_callback Callback to notify when all partitions are finished.
      * @param partition_owner Function to determine partition ownership.
-     * @param mpe Optional custom metadata payload exchange. If not provided,
-     * uses the default tag-based implementation.
      *
      * @note It is safe to reuse the `op_id` as soon as `wait` has completed
      * locally.
@@ -135,8 +133,7 @@ class Shuffler {
         PartID total_num_partitions,
         BufferResource* br,
         FinishedCallback&& finished_callback,
-        PartitionOwner partition_owner = round_robin,
-        std::unique_ptr<communicator::MetadataPayloadExchange> mpe = nullptr
+        PartitionOwner partition_owner = round_robin
     );
 
     /**
@@ -148,8 +145,6 @@ class Shuffler {
      * @param total_num_partitions Total number of partitions in the shuffle.
      * @param br Buffer resource used to allocate temporary and the shuffle result.
      * @param partition_owner Function to determine partition ownership.
-     * @param mpe Optional custom metadata payload exchange. If not provided,
-     * uses the default tag-based implementation.
      *
      * @note The caller promises that inserted buffers are stream-ordered with respect
      * to their own stream, and extracted buffers are likewise guaranteed to be stream-
@@ -160,18 +155,9 @@ class Shuffler {
         OpID op_id,
         PartID total_num_partitions,
         BufferResource* br,
-        PartitionOwner partition_owner = round_robin,
-        std::unique_ptr<communicator::MetadataPayloadExchange> mpe = nullptr
+        PartitionOwner partition_owner = round_robin
     )
-        : Shuffler(
-              comm,
-              op_id,
-              total_num_partitions,
-              br,
-              nullptr,
-              partition_owner,
-              std::move(mpe)
-          ) {}
+        : Shuffler(comm, op_id, total_num_partitions, br, nullptr, partition_owner) {}
 
     ~Shuffler();
 
@@ -258,19 +244,14 @@ class Shuffler {
     void wait(std::optional<std::chrono::milliseconds> timeout = {});
 
     /**
-     * @brief Spills data to device if necessary.
+     * @brief Spills at least `amount` bytes from the given memory type, if possible.
      *
-     * This function has two modes:
-     *  - If `amount` is specified, it tries to spill at least `amount` bytes of
-     *    device memory.
-     *  - If `amount` is not specified (the default case), it spills based on the
-     *    current available device memory returned by the buffer resource.
-     *
-     * @param amount An optional amount of memory to spill. If not provided, the
-     * function will check the current available device memory.
+     * @param mem_type The memory type to spill from. Only `MemoryType::DEVICE` is
+     * supported for now, other types spill nothing.
+     * @param amount The amount of memory to spill, in bytes.
      * @return The amount of memory actually spilled.
      */
-    std::size_t spill(std::optional<std::size_t> amount = std::nullopt);
+    std::size_t spill(std::size_t amount, MemoryType mem_type);
 
     /**
      * @brief Returns a description of this instance.
