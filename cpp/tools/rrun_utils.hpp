@@ -53,7 +53,21 @@ pid_t fork_with_piped_stdio(
 );
 
 /**
+ * @brief Block the signals rrun forwards to its ranks (SIGINT and SIGTERM).
+ *
+ * Must be called at the start of `main()`, before any thread is created, so
+ * that every thread inherits the blocked mask and only the forwarding thread
+ * receives these signals. The original mask is saved and restored by
+ * `exec_application()`.
+ */
+void block_forwarded_signals();
+
+/**
  * @brief Execute application via execvp (never returns).
+ *
+ * Restores the signal mask saved by `block_forwarded_signals()` first, so the
+ * application starts with the signal mask rrun was started with.
+ *
  * @param cfg Configuration containing application binary and arguments.
  */
 [[noreturn]] void exec_application(Config const& cfg);
