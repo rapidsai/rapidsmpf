@@ -169,10 +169,6 @@ std::vector<PackedData> SparseAlltoall::extract(Rank src) {
 }
 
 std::size_t SparseAlltoall::spill(std::size_t amount, MemoryType mem_type) {
-    // TODO(stage 3): spill from non-DEVICE memory types.
-    if (mem_type != MemoryType::DEVICE) {
-        return 0;
-    }
     std::size_t spilled{0};
     // Only spill from the ready (fully received) chunks.
     for (auto& chunks : std::views::values(received_)) {
@@ -181,7 +177,7 @@ std::size_t SparseAlltoall::spill(std::size_t amount, MemoryType mem_type) {
         }
         // Ready chunks are at rest, so they may spill all the way to disk.
         spilled += chunks.spill(
-            br_, amount - spilled, preference_lt(MemoryType::DEVICE, MEMORY_TYPES)
+            br_, amount - spilled, mem_type, preference_lt(mem_type, MEMORY_TYPES)
         );
     }
     return spilled;

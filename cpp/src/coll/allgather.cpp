@@ -114,23 +114,18 @@ void AllGather::wait(std::chrono::milliseconds timeout) {
 }
 
 std::size_t AllGather::spill(std::size_t amount, MemoryType mem_type) {
-    // TODO(stage 3): spill from non-DEVICE memory types.
-    if (mem_type != MemoryType::DEVICE) {
-        return 0;
-    }
     // Spill from ready post box then inserted postbox.
     // NB: the inserted postbox holds chunks waiting to be sent, so it must only
     // spill to sendable (addressable) memory types.
     std::size_t spilled = for_extraction_.spill(
-        br_, amount, preference_lt(MemoryType::DEVICE, MEMORY_TYPES)
+        br_, amount, mem_type, preference_lt(mem_type, MEMORY_TYPES)
     );
     if (spilled < amount) {
         spilled += inserted_.spill(
             br_,
             amount - spilled,
-            preference_lt(
-                MemoryType::DEVICE, exchange_->sendable_memory_types(next_rank())
-            )
+            mem_type,
+            preference_lt(mem_type, exchange_->sendable_memory_types(next_rank()))
         );
     }
     return spilled;

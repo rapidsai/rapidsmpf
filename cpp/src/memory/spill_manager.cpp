@@ -13,10 +13,23 @@
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/spill_manager.hpp>
 #include <rapidsmpf/nvtx.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
 namespace rapidsmpf {
 
+namespace {
+
+/// @brief Throw if data in @p mem_type cannot be spilled, i.e. it isn't addressable.
+void expect_spillable(MemoryType mem_type) {
+    RAPIDSMPF_EXPECTS(
+        contains(ADDRESSABLE_MEMORY_TYPES, mem_type),
+        "cannot spill from " + std::string{to_string(mem_type)},
+        std::invalid_argument
+    );
+}
+
+}  // namespace
 
 SpillManager::SpillManager(
     BufferResource* br, std::optional<Duration> periodic_spill_check
@@ -24,7 +37,12 @@ SpillManager::SpillManager(
     : br_{br} {
     if (periodic_spill_check.has_value()) {
         periodic_spill_thread_.emplace(
-            [this]() { spill_to_make_headroom(0); }, *periodic_spill_check
+            [this]() {
+                for (auto const mem_type : ADDRESSABLE_MEMORY_TYPES) {
+                    spill_to_make_headroom(0, mem_type);
+                }
+            },
+            *periodic_spill_check
         );
     }
 }
@@ -110,26 +128,23 @@ std::uint64_t SpillManager::spill_generation() const noexcept {
 
 std::size_t SpillManager::spill(std::size_t amount, MemoryType mem_type) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    RAPIDSMPF_EXPECTS(
-        !preference_lt(mem_type, MEMORY_TYPES).empty(),
-        "cannot spill from " + std::string{to_string(mem_type)},
-        std::invalid_argument
-    );
+    expect_spillable(mem_type);
     std::lock_guard<std::mutex> lock(mutex_);
     return spill_unsafe(amount, mem_type);
 }
 
-SpillManager::HeadroomResult SpillManager::spill_to_make_headroom(std::int64_t headroom) {
+SpillManager::HeadroomResult SpillManager::spill_to_make_headroom(
+    std::int64_t headroom, MemoryType mem_type
+) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
+    expect_spillable(mem_type);
     std::lock_guard<std::mutex> lock(mutex_);
-    // TODO: check other memory types.
-    std::int64_t const available =
-        br_->memory_available_for_reservation(MemoryType::DEVICE);
+    std::int64_t const available = br_->memory_available_for_reservation(mem_type);
     if (headroom <= available) {
-        return {.deficit = 0, .spilled = 0};
+        return {mem_type, 0, 0};
     }
     auto const deficit = safe_cast<std::size_t>(headroom - available);
-    return {.deficit = deficit, .spilled = spill_unsafe(deficit, MemoryType::DEVICE)};
+    return {mem_type, deficit, spill_unsafe(deficit, mem_type)};
 }
 
 }  // namespace rapidsmpf
