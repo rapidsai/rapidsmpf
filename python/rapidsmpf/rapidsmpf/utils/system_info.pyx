@@ -94,7 +94,10 @@ def get_host_memory_per_gpu():
     Get the amount of host memory per GPU.
 
     This is calculated as the total host memory available for the current NUMA
-    node divided by the number of GPUs bound to that NUMA node.
+    node divided by the number of visible GPUs bound to that NUMA node. GPUs with
+    unknown NUMA affinity count as local. If there are no local GPUs, it is
+    divided by the number of visible GPUs across all nodes instead. The result is
+    computed once and cached.
 
     Returns
     -------
@@ -103,6 +106,6 @@ def get_host_memory_per_gpu():
     Raises
     ------
     RuntimeError
-        If no GPUs are found on the current NUMA node.
+        If no GPUs are found in the topology.
     """
     return cpp_get_host_memory_per_gpu()

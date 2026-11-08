@@ -33,19 +33,19 @@ struct TestGpu {
 
 TEST(HostMemoryPerGpuTest, CountsLocalAndUnknownAffinity) {
     std::array gpus{TestGpu{0}, TestGpu{0}, TestGpu{1}, TestGpu{-1}};
-    EXPECT_EQ(detail::gpu_count_for_host_memory(gpus, 0), 3);
-    EXPECT_EQ(detail::gpu_count_for_host_memory(gpus, 1), 2);
-    EXPECT_EQ(detail::gpu_count_for_host_memory(gpus, 2), 1);
+    EXPECT_EQ(detail::gpu_count_for_host_memory(gpus, 0), 3u);
+    EXPECT_EQ(detail::gpu_count_for_host_memory(gpus, 1), 2u);
+    EXPECT_EQ(detail::gpu_count_for_host_memory(gpus, 2), 1u);
 }
 
 TEST(HostMemoryPerGpuTest, FallsBackToVisibleGpusWhenNoneAreLocal) {
     std::array gpus{TestGpu{2}, TestGpu{3}, TestGpu{3}};
-    EXPECT_EQ(detail::gpu_count_for_host_memory(gpus, 0), 3);
-    EXPECT_EQ(detail::gpu_count_for_host_memory(gpus, 2), 1);
-    EXPECT_EQ(detail::gpu_count_for_host_memory(gpus, 3), 2);
+    EXPECT_EQ(detail::gpu_count_for_host_memory(gpus, 0), 3u);
+    EXPECT_EQ(detail::gpu_count_for_host_memory(gpus, 2), 1u);
+    EXPECT_EQ(detail::gpu_count_for_host_memory(gpus, 3), 2u);
 }
 
 TEST(HostMemoryPerGpuTest, ReportsZeroWhenNoGpusAreVisible) {
     std::array<TestGpu, 0> gpus{};
-    EXPECT_EQ(detail::gpu_count_for_host_memory(gpus, 0), 0);
+    EXPECT_EQ(detail::gpu_count_for_host_memory(gpus, 0), 0u);
 }

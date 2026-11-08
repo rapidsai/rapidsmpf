@@ -121,8 +121,10 @@ std::uint64_t get_host_memory_per_gpu() {
     static const std::uint64_t ret = [] {
         auto const current_numa_node = get_current_numa_node();
         auto const& gpus = get_topology().gpus;
-        // Treat GPUs with unknown affinity as local. If none are local, an
-        // unbound process can still use GPUs attached to other NUMA nodes.
+        // gpu.numa_node == -1 means the kernel has no NUMA affinity info for the
+        // device (common in VMs and single-socket machines without ACPI SRAT/SLIT
+        // entries for PCIe). Those GPUs count as local to every NUMA node. If none
+        // are local, an unbound process can still use GPUs on other NUMA nodes.
         auto const gpu_count = detail::gpu_count_for_host_memory(gpus, current_numa_node);
         RAPIDSMPF_EXPECTS(gpu_count > 0, "No GPUs found in topology", std::runtime_error);
         return get_numa_node_host_memory(current_numa_node)
