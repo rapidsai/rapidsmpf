@@ -33,4 +33,23 @@ struct ReservationEventBatch {
     std::uint64_t dropped_event_count{0};  ///< Events dropped after append failures.
 };
 
+namespace detail {
+
+/**
+ * @brief State of an active reservation event recording session.
+ *
+ * Defined at namespace scope rather than nested in `BufferResource`: clang 20 rejects
+ * default-constructing a nested class with default member initializers inside
+ * `std::optional` of the enclosing class.
+ */
+struct RecordingSession {
+    std::vector<ReservationEvent> events;  ///< Events recorded since the last drain.
+    std::uint64_t dropped_event_count{0};  ///< Events dropped after append failures.
+    std::uint64_t id{0};  ///< Session identifier, never zero for an active session.
+    std::int64_t unix_time_anchor_ns{0};  ///< `system_clock` time at session start.
+    std::int64_t steady_time_anchor_ns{0};  ///< `steady_clock` time at session start.
+};
+
+}  // namespace detail
+
 }  // namespace rapidsmpf

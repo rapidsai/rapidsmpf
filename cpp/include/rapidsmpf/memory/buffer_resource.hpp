@@ -836,15 +836,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     Duration memory_reserve_timeout_;
     AllowOverbooking allow_overbooking_by_default_;
 
-    struct RecordingSession {
-        std::vector<ReservationEvent> events;
-        std::uint64_t dropped_event_count{0};
-        std::uint64_t id{0};
-        std::int64_t unix_time_anchor_ns{0};
-        std::int64_t steady_time_anchor_ns{0};
-    };
-
-    std::optional<RecordingSession> recording_;
+    std::optional<detail::RecordingSession> recording_;
     std::mutex recording_mutex_;
     std::atomic<bool> recording_enabled_{false};
     std::uint64_t next_recording_session_id_{1};
