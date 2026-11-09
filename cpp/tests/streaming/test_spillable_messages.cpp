@@ -128,6 +128,26 @@ TEST_F(StreamingSpillableMessages, InsertSpillExtract) {
     EXPECT_TRUE(msgs.get_content_descriptions().empty());
 }
 
+TEST_F(StreamingSpillableMessages, SpillUsesMessageReservationContext) {
+    SpillableMessages msgs;
+    auto mid = msgs.insert(
+        create_int_msg(1, 2, MemoryType::DEVICE, ContentDescription::Spillable::YES), 42
+    );
+
+    br->start_reservation_event_recording();
+    EXPECT_EQ(msgs.spill(mid, br.get()), sizeof(int));
+    auto batch = br->stop_reservation_event_recording();
+
+    ASSERT_FALSE(batch.events.empty());
+    EXPECT_EQ(batch.dropped_event_count, 0);
+    std::int64_t delta_sum = 0;
+    for (auto const& event : batch.events) {
+        EXPECT_EQ(event.reservation_context, 42);
+        delta_sum += event.byte_delta;
+    }
+    EXPECT_EQ(delta_sum, 0);
+}
+
 TEST_F(StreamingSpillableMessages, SpillWithoutReservation) {
     SpillableMessages msgs;
     auto mid = msgs.insert(

@@ -335,9 +335,12 @@ struct UnboundedFanout {
      *
      * @param ctx The context to use.
      * @param ch_in The input channel to receive messages from.
+     * @param reservation_context Opaque telemetry attribution token for staged messages.
      * @return A coroutine representing the task.
      */
-    Actor recv_task(Context& ctx, std::shared_ptr<Channel> ch_in) {
+    Actor recv_task(
+        Context& ctx, std::shared_ptr<Channel> ch_in, std::uint64_t reservation_context
+    ) {
         ShutdownAtExit ch_in_shutdown{ch_in};
         SetInputDoneAtExit set_input_done{.fanout = this};
         co_await ctx.executor()->schedule();
@@ -366,7 +369,9 @@ struct UnboundedFanout {
                 if (msg.empty()) {
                     no_more_input = true;
                 } else {
-                    recv_msg_ids.emplace_back(spillable_messages->insert(std::move(msg)));
+                    recv_msg_ids.emplace_back(
+                        spillable_messages->insert(std::move(msg), reservation_context)
+                    );
                 }
             }
 
@@ -438,7 +443,9 @@ Actor unbounded_fanout(
             *ctx, fanout.per_ch_processed[i], std::move(chs_out[i]), reservation_context
         )));
     }
-    tasks.emplace_back(executor.schedule(fanout.recv_task(*ctx, std::move(ch_in))));
+    tasks.emplace_back(
+        executor.schedule(fanout.recv_task(*ctx, std::move(ch_in), reservation_context))
+    );
 
     coro_results(co_await coro::when_all(std::move(tasks)));
 }

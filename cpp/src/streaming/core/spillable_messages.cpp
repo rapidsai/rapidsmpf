@@ -8,9 +8,17 @@
 namespace rapidsmpf::streaming {
 
 SpillableMessages::MessageId SpillableMessages::insert(Message&& message) {
+    return insert(std::move(message), default_reservation_context_);
+}
+
+SpillableMessages::MessageId SpillableMessages::insert(
+    Message&& message, std::uint64_t reservation_context
+) {
     std::lock_guard<std::mutex> lock(global_mutex_);
     content_descriptions_.insert({counter_, message.content_description()});
-    items_.insert({counter_, std::make_shared<Item>(std::move(message))});
+    items_.insert(
+        {counter_, std::make_shared<Item>(std::move(message), reservation_context)}
+    );
     return counter_++;
 }
 
@@ -79,7 +87,7 @@ std::size_t SpillableMessages::spill(MessageId mid, BufferResource* br) const {
     auto res = br->try_reserve(
         msg.copy_cost(),
         preference_lt(MemoryType::DEVICE, MEMORY_TYPES),
-        reservation_context_
+        item->reservation_context
     );
     if (!res) {
         return 0;  // No target has room, leave the message where it is.
