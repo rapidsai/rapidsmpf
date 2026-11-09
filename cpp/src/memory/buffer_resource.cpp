@@ -5,7 +5,6 @@
 
 #include <algorithm>
 #include <cassert>
-#include <chrono>
 #include <limits>
 #include <optional>
 #include <ranges>
@@ -32,47 +31,6 @@
 #include <rapidsmpf/utils/string.hpp>
 
 namespace rapidsmpf {
-
-namespace {
-
-template <typename Clock>
-std::int64_t clock_now_ns() {
-    return std::chrono::duration_cast<std::chrono::nanoseconds>(
-               Clock::now().time_since_epoch()
-    )
-        .count();
-}
-
-}  // namespace
-
-std::uint64_t BufferResource::record_reservation_event(
-    std::uint64_t reservation_context,
-    MemoryType memory_type,
-    std::int64_t byte_delta,
-    std::uint64_t expected_session
-) noexcept {
-    if (!recording_enabled_.load(std::memory_order_acquire)) {
-        return 0;
-    }
-    std::lock_guard lock(recording_mutex_);
-    if (!recording_ || (expected_session != 0 && recording_->id != expected_session)) {
-        return 0;
-    }
-    try {
-        auto const elapsed =
-            clock_now_ns<std::chrono::steady_clock>() - recording_->steady_time_anchor_ns;
-        auto const anchored_timestamp = recording_->unix_time_anchor_ns + elapsed;
-        auto const timestamp =
-            std::max(anchored_timestamp, recording_->last_timestamp_ns + 1);
-        recording_->events.push_back(
-            {timestamp, reservation_context, memory_type, byte_delta}
-        );
-        recording_->last_timestamp_ns = timestamp;
-    } catch (...) {
-        ++recording_->dropped_event_count;
-    }
-    return recording_->id;
-}
 
 BufferResource::BufferResource(
     cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
@@ -247,42 +205,6 @@ void BufferResource::set_memory_limit(MemoryType mem_type, std::int64_t limit) n
     memory_limits_[static_cast<std::size_t>(mem_type)].store(
         limit, std::memory_order_release
     );
-}
-
-void BufferResource::start_reservation_event_recording() {
-    std::lock_guard lock(recording_mutex_);
-    RAPIDSMPF_EXPECTS(
-        !recording_.has_value(),
-        "reservation event recording is already active",
-        std::logic_error
-    );
-    recording_.emplace();
-    recording_->id = next_recording_session_id_++;
-    recording_->unix_time_anchor_ns = clock_now_ns<std::chrono::system_clock>();
-    recording_->steady_time_anchor_ns = clock_now_ns<std::chrono::steady_clock>();
-    recording_enabled_.store(true, std::memory_order_release);
-}
-
-ReservationEventBatch BufferResource::drain_reservation_events() {
-    ReservationEventBatch result;
-    std::lock_guard lock(recording_mutex_);
-    if (recording_) {
-        result.events.swap(recording_->events);
-        result.dropped_event_count = std::exchange(recording_->dropped_event_count, 0);
-    }
-    return result;
-}
-
-ReservationEventBatch BufferResource::stop_reservation_event_recording() {
-    ReservationEventBatch result;
-    std::lock_guard lock(recording_mutex_);
-    recording_enabled_.store(false, std::memory_order_release);
-    if (recording_) {
-        result.events.swap(recording_->events);
-        result.dropped_event_count = recording_->dropped_event_count;
-        recording_.reset();
-    }
-    return result;
 }
 
 rmm::device_async_resource_ref BufferResource::device_mr() noexcept {

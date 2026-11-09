@@ -200,6 +200,7 @@ add_library(
   src/memory/memory_reservation.cpp
   src/memory/memory_type.cpp
   src/memory/pinned_memory_resource.cpp
+  src/memory/reservation_events.cpp
   src/memory/scoped_memory_record.cpp
   src/memory/spill.cpp
   src/memory/spill_manager.cpp
