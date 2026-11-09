@@ -363,7 +363,6 @@ class MemoryReserveOrWait {
  * - If set to `AllowOverbooking::NO`, the call fails if no progress is possible.
  * - If not provided, the default behavior is determined by the configuration option
  *   `"allow_overbooking_by_default"`.
- * @param reservation_context Immutable telemetry reservation_context for the request.
  * @return The allocated memory reservation.
  *
  * @throws std::runtime_error If shutdown occurs before the request can be processed.
@@ -399,27 +398,30 @@ coro::task<MemoryReservation> reserve_memory(
     std::shared_ptr<Context> ctx,
     std::size_t size,
     std::int64_t net_memory_delta,
-    MemoryType mem_type,
-    std::optional<AllowOverbooking> allow_overbooking,
-    std::uint64_t reservation_context
+    MemoryType mem_type = MemoryType::DEVICE,
+    std::optional<AllowOverbooking> allow_overbooking = std::nullopt
 );
 
 /**
- * @brief Reserve memory with default empty telemetry reservation_context.
+ * @brief Reserve memory using the context memory reservation mechanism and attribute it
+ * to a telemetry context.
  *
  * @param ctx Actor context used to obtain the memory reservation handle.
  * @param size Number of bytes to reserve.
- * @param net_memory_delta Estimated net memory change used for priority.
- * @param mem_type Memory type to reserve.
- * @param allow_overbooking Optional timeout policy override.
+ * @param net_memory_delta Estimated net change in memory usage after the reservation is
+ * allocated and the dependent operation completes.
+ * @param mem_type Memory type for which to reserve memory.
+ * @param allow_overbooking Controls whether the request may overbook memory.
+ * @param reservation_context Immutable telemetry context for the request.
  * @return The allocated memory reservation.
  */
 coro::task<MemoryReservation> reserve_memory(
     std::shared_ptr<Context> ctx,
     std::size_t size,
     std::int64_t net_memory_delta,
-    MemoryType mem_type = MemoryType::DEVICE,
-    std::optional<AllowOverbooking> allow_overbooking = std::nullopt
+    MemoryType mem_type,
+    std::optional<AllowOverbooking> allow_overbooking,
+    std::uint64_t reservation_context
 );
 
 }  // namespace rapidsmpf::streaming

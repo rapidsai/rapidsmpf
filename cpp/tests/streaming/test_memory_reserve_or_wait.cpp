@@ -127,7 +127,7 @@ TEST_P(StreamingMemoryReserveOrWait, ShutdownEarly) {
     std::vector<Actor> actors;
     actors.push_back([](MemoryReserveOrWait& mrow) -> Actor {
         EXPECT_THROW(
-            std::ignore = co_await mrow.reserve_or_wait(10, 0, 42), std::runtime_error
+            std::ignore = co_await mrow.reserve_or_wait(10, 0), std::runtime_error
         );
     }(mrow));
 
