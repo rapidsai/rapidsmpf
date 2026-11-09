@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <algorithm>
 #include <chrono>
 #include <utility>
 
@@ -40,13 +39,12 @@ std::uint64_t BufferResource::record_reservation_event(
     try {
         auto const elapsed =
             clock_now_ns<std::chrono::steady_clock>() - recording_->steady_time_anchor_ns;
-        auto const anchored_timestamp = recording_->unix_time_anchor_ns + elapsed;
-        auto const timestamp =
-            std::max(anchored_timestamp, recording_->last_timestamp_ns + 1);
         recording_->events.push_back(
-            {timestamp, reservation_context, memory_type, byte_delta}
+            {recording_->unix_time_anchor_ns + elapsed,
+             reservation_context,
+             memory_type,
+             byte_delta}
         );
-        recording_->last_timestamp_ns = timestamp;
     } catch (...) {
         ++recording_->dropped_event_count;
     }

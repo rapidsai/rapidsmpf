@@ -15,13 +15,13 @@ namespace rapidsmpf {
 /**
  * @brief A change in reserved-but-not-yet-consumed bytes.
  *
- * Timestamps are derived from a steady-clock offset from a Unix-time anchor and are
- * nudged forward when necessary so events in one recording session have strictly
- * increasing timestamps. Events are appended after the reserved-byte counter changes,
- * so concurrent event order may differ from counter-update order.
+ * Timestamps are derived from a steady-clock offset from a Unix-time anchor, so events
+ * in one recording session have non-decreasing timestamps; consecutive events may
+ * share a timestamp. Events are appended after the reserved-byte counter changes, so
+ * concurrent event order may differ from counter-update order.
  */
 struct ReservationEvent {
-    std::int64_t timestamp_ns;  ///< Strictly increasing Unix timestamp in nanoseconds.
+    std::int64_t timestamp_ns;  ///< Non-decreasing Unix timestamp in nanoseconds.
     std::uint64_t reservation_context;  ///< Opaque caller-provided attribution token.
     MemoryType memory_type;  ///< Type of memory whose occupancy changed.
     std::int64_t byte_delta;  ///< Signed change in reserved bytes.

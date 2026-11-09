@@ -842,7 +842,6 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         std::uint64_t id{0};
         std::int64_t unix_time_anchor_ns{0};
         std::int64_t steady_time_anchor_ns{0};
-        std::int64_t last_timestamp_ns{-1};
     };
 
     std::optional<RecordingSession> recording_;

@@ -48,7 +48,7 @@ TEST(ReservationEventBuffer, RecordingLifecycleAndExactDeltas) {
     for (std::size_t i = 0; i < batch.events.size(); ++i) {
         EXPECT_GT(batch.events[i].timestamp_ns, 0);
         if (i > 0) {
-            EXPECT_GT(batch.events[i].timestamp_ns, batch.events[i - 1].timestamp_ns);
+            EXPECT_GE(batch.events[i].timestamp_ns, batch.events[i - 1].timestamp_ns);
         }
     }
 }
@@ -139,7 +139,7 @@ TEST(ReservationEventBuffer, ConcurrentProducersAndDrainsLoseNoEvents) {
 
     ASSERT_EQ(events.size(), 2 * producer_count * events_per_producer);
     for (std::size_t i = 1; i < events.size(); ++i) {
-        EXPECT_GT(events[i].timestamp_ns, events[i - 1].timestamp_ns);
+        EXPECT_GE(events[i].timestamp_ns, events[i - 1].timestamp_ns);
     }
 }
 
