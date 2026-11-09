@@ -31,23 +31,26 @@ State LoopState::state() const noexcept {
 
 bool LoopState::is_running() const noexcept {
     std::lock_guard lock(mutex_);
-    return state_ == State::Running || state_ == State::Pausing
-           || state_ == State::Stopping;
+    return state_ == State::Running || state_ == State::SkipSleep
+           || state_ == State::Pausing || state_ == State::Stopping;
 }
 
 bool LoopState::resume() noexcept {
     std::lock_guard lock(mutex_);
-    if (state_ != State::Paused && state_ != State::Pausing) {
+    if (state_ == State::Stopping || state_ == State::Stopped || state_ == State::Failed
+        || state_ == State::SkipSleep)
+    {
         return false;
     }
-    state_ = State::Running;
+    bool const was_paused = state_ == State::Paused || state_ == State::Pausing;
+    state_ = State::SkipSleep;
     cv_.notify_all();
-    return true;
+    return was_paused;
 }
 
 bool LoopState::pause_nb() noexcept {
     std::lock_guard lock(mutex_);
-    if (state_ != State::Running) {
+    if (state_ != State::Running && state_ != State::SkipSleep) {
         return false;
     }
     state_ = State::Pausing;
@@ -57,7 +60,7 @@ bool LoopState::pause_nb() noexcept {
 
 void LoopState::pause() noexcept {
     std::unique_lock lock(mutex_);
-    if (state_ == State::Running) {
+    if (state_ == State::Running || state_ == State::SkipSleep) {
         state_ = State::Pausing;
         cv_.notify_all();
     }
@@ -68,6 +71,7 @@ bool LoopState::stop() noexcept {
     std::lock_guard lock(mutex_);
     switch (state_) {
     case State::Running:
+    case State::SkipSleep:
     case State::Pausing:
     case State::Paused:
         state_ = State::Stopping;
@@ -86,7 +90,8 @@ bool LoopState::stop() noexcept {
 void LoopState::fail(std::exception_ptr error) noexcept {
     std::lock_guard lock(mutex_);
     error_ = std::move(error);
-    // While the loop function runs, the state is RUNNING, PAUSING or STOPPING.
+    // While the loop function runs, the state is RUNNING, SKIP_SLEEP, PAUSING or
+    // STOPPING.
     if (state_ == State::Stopping) {
         // Complete the stop, the `stop()` that moved the state to STOPPING joins.
         state_ = State::Stopped;
@@ -107,6 +112,9 @@ LoopState::Step LoopState::next_step() noexcept {
         switch (state_) {
         case State::Running:
             return Step::Run;
+        case State::SkipSleep:
+            state_ = State::Running;
+            return Step::Run;
         case State::Pausing:
             state_ = State::Paused;
             cv_.notify_all();
@@ -125,6 +133,12 @@ LoopState::Step LoopState::next_step() noexcept {
     }
 }
 
+void LoopState::wait_for(std::chrono::steady_clock::duration duration) noexcept {
+    std::unique_lock lock(mutex_);
+    auto const deadline = std::chrono::steady_clock::now() + duration;
+    cv_.wait_until(lock, deadline, [this] { return state_ != State::Running; });
+}
+
 PausableThreadLoop::PausableThreadLoop(
     std::function<void()> func, Duration sleep, ErrorHandler on_error
 )
@@ -132,6 +146,8 @@ PausableThreadLoop::PausableThreadLoop(
     thread_ = std::thread([this, f = std::move(func), sleep]() {
         current_loop = this;
         bool is_thread_initialized = false;
+        auto const sleep_dur =
+            std::chrono::duration_cast<std::chrono::steady_clock::duration>(sleep);
 
         while (true) {
             if (state_->next_step() == LoopState::Step::Exit) {
@@ -158,15 +174,15 @@ PausableThreadLoop::PausableThreadLoop(
                 continue;
             }
 
-            // Skip the sleep if the loop was paused or stopped during the iteration, for
-            // example by the loop function itself.
-            if (state_->state() != LoopState::State::Running) {
-                continue;
-            }
-            if (sleep > std::chrono::seconds{0}) {
-                std::this_thread::sleep_for(sleep);
+            if (sleep_dur > std::chrono::steady_clock::duration::zero()) {
+                state_->wait_for(sleep_dur);
             } else {
                 std::this_thread::yield();
+            }
+            // Skip the Valgrind sleep if the loop was resumed, paused, or stopped during
+            // the iteration or the sleep.
+            if (state_->state() != LoopState::State::Running) {
+                continue;
             }
             // Add a short sleep to avoid other threads starving under Valgrind.
             if (is_running_under_valgrind()) {

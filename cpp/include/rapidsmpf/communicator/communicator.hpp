@@ -349,13 +349,12 @@ class Communicator {
     /**
      * @brief Tests for completion of multiple futures in a map.
      *
-     * @param future_map Map of futures identified by keys.
-     * @return Keys of completed futures.
+     * @param[inout] future_map Map of futures identified by keys. Completed futures are
+     * erased from the map.
+     * @return Map of the completed futures, identified by their keys.
      */
-    std::vector<std::size_t> virtual test_some(
-        std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> const&
-            future_map
-    ) = 0;
+    [[nodiscard]] virtual std::unordered_map<std::size_t, std::unique_ptr<Future>>
+    test_some(std::unordered_map<std::size_t, std::unique_ptr<Future>>& future_map) = 0;
 
     /**
      * @brief Test for completion of a single future.
@@ -447,6 +446,14 @@ constexpr bool COMM_HAVE_MPI = true;
 #else
 constexpr bool COMM_HAVE_MPI = false;
 #endif
+
+/**
+ * @brief Get all ranks of a communicator except the calling rank.
+ *
+ * @param comm The communicator.
+ * @return The ranks in increasing order, excluding `comm.rank()`.
+ */
+[[nodiscard]] std::vector<Rank> all_remote_ranks(Communicator const& comm);
 
 /**
  * @brief Overloads the stream insertion operator for the Communicator class.

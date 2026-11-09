@@ -254,6 +254,7 @@ class Buffer {
      * @param new_stream The new CUDA stream.
      *
      * @throws std::logic_error If the buffer is locked.
+     * @throws std::invalid_argument If @p new_stream is `cuda::invalid_stream`.
      *
      * @code{.cpp}
      * // Example: merge buffers from different streams onto a single stream.

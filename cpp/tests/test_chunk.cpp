@@ -7,6 +7,7 @@
 #include <numeric>
 
 #include <driver_types.h>
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include <cuda/stream>
@@ -102,3 +103,15 @@ TEST_P(ChunkFromPackedDataTest, RoundTrip) {
 INSTANTIATE_TEST_SUITE_P(
     ChunkFromPackedData, ChunkFromPackedDataTest, ::testing::Values(0, 4)
 );
+
+TEST_F(ChunkTest, StrReportsDataMemoryType) {
+    auto control = Chunk::from_finished_partition(0, 0, 1);
+    EXPECT_THAT(control.str(), ::testing::HasSubstr("data_memory_type=n/a"));
+
+    auto metadata = std::make_unique<std::vector<std::uint8_t>>(1, 0);
+    auto data = std::make_unique<rmm::device_buffer>(4, stream);
+    auto chunk = Chunk::from_packed_data(
+        0, 0, PackedData{std::move(metadata), br->move(std::move(data), stream)}
+    );
+    EXPECT_THAT(chunk.str(), ::testing::HasSubstr("data_memory_type=DEVICE"));
+}

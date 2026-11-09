@@ -15,12 +15,14 @@
 
 #include <cuda/stream>
 
+#include <rmm/cuda_stream.hpp>
 #include <rmm/device_buffer.hpp>
 #include <rmm/mr/per_device_resource.hpp>
 
 #include <rapidsmpf/config.hpp>
 #include <rapidsmpf/config_defaults.hpp>
 #include <rapidsmpf/cuda_stream.hpp>
+#include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
 #include <rapidsmpf/system_info.hpp>
@@ -82,10 +84,6 @@ void test_buffer(auto&& buffer, std::vector<std::uint8_t> const& source_data) {
 class HostMemoryResource : public ::testing::TestWithParam<std::size_t> {
   protected:
     void SetUp() override {
-        if (!rapidsmpf::is_pinned_memory_resources_supported()) {
-            GTEST_SKIP() << "HostBuffer is not supported for CUDA versions "
-                            "below " RAPIDSMPF_PINNED_MEM_RES_MIN_CUDA_VERSION_STR;
-        }
         // `HostMemoryResource` is constructible only via a `BufferResource`.
         br =
             rapidsmpf::BufferResource::create(rmm::mr::get_current_device_resource_ref());
@@ -267,6 +265,79 @@ TEST(PinnedResource, transient_mr) {
     );
 
     EXPECT_NO_THROW(test_buffer(std::move(buffer), source_data));
+}
+
+TEST(PinnedResource, from_rmm_device_buffer_stream_ordering) {
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        GTEST_SKIP() << "PinnedMemoryResource is not supported";
+    }
+    auto br = rapidsmpf::BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(), rapidsmpf::PinnedPoolProperties{}
+    );
+    auto mr = br->try_pinned_mr();
+    rmm::cuda_stream stream_a;
+    rmm::cuda_stream stream_b;
+    rmm::cuda_stream stream_c;
+    constexpr std::size_t size = 1 << 20;
+
+    // Fill the pinned buffer asynchronously on stream A, without synchronizing.
+    auto pinned_host_buffer = std::make_unique<rmm::device_buffer>(size, stream_a, *mr);
+    RAPIDSMPF_CUDA_TRY(
+        cudaMemsetAsync(pinned_host_buffer->data(), 0xAB, size, stream_a.value())
+    );
+
+    // The new stream B must be ordered after the fill on A.
+    auto buffer = rapidsmpf::HostBuffer::from_rmm_device_buffer(
+        std::move(pinned_host_buffer), stream_b
+    );
+    EXPECT_EQ(buffer.stream().get(), stream_b.value());
+    EXPECT_EQ(buffer.copy_to_uint8_vector(), std::vector<std::uint8_t>(size, 0xAB));
+
+    buffer.set_stream(stream_c);  // Switch to stream C; the memory must be freed on C.
+    EXPECT_EQ(buffer.stream().get(), stream_c.value());
+    buffer.deallocate_async();
+    EXPECT_TRUE(buffer.empty());
+    stream_c.synchronize();
+}
+
+TEST(HostBuffer, invalid_stream_throws) {
+    cuda::stream_ref const valid{cudaStreamLegacy};
+    cuda::stream_ref const invalid{cuda::invalid_stream};
+    std::vector<std::uint8_t> const data(8);
+
+    EXPECT_THROW(
+        std::ignore = rapidsmpf::HostBuffer::from_owned_vector(
+            std::vector<std::uint8_t>(data), invalid
+        ),
+        std::invalid_argument
+    );
+    auto br = rapidsmpf::BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        rapidsmpf::is_pinned_memory_resources_supported()
+            ? std::make_optional<rapidsmpf::PinnedPoolProperties>()
+            : std::nullopt
+    );
+    EXPECT_THROW(
+        std::ignore =
+            rapidsmpf::HostBuffer::from_uint8_vector(data, invalid, br->host_mr()),
+        std::invalid_argument
+    );
+    EXPECT_THROW(
+        rapidsmpf::HostBuffer(data.size(), invalid, br->host_mr()), std::invalid_argument
+    );
+
+    auto buffer =
+        rapidsmpf::HostBuffer::from_owned_vector(std::vector<std::uint8_t>(data), valid);
+    EXPECT_THROW(buffer.set_stream(invalid), std::invalid_argument);
+
+    if (auto pinned_mr = br->try_pinned_mr()) {
+        EXPECT_THROW(
+            std::ignore = rapidsmpf::HostBuffer::from_rmm_device_buffer(
+                std::make_unique<rmm::device_buffer>(8, valid, *pinned_mr), invalid
+            ),
+            std::invalid_argument
+        );
+    }
 }
 
 namespace {

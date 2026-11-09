@@ -12,10 +12,13 @@
 #include <limits>
 #include <memory>
 #include <numeric>
+#include <optional>
 #include <random>
 #include <span>
 #include <string>
 #include <thread>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -24,6 +27,7 @@
 #include <cuda/memory_resource>
 #include <cuda/stream>
 
+#include <rmm/mr/per_device_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
 #include <rapidsmpf/error.hpp>
@@ -74,6 +78,55 @@ class TempDir {
 
     std::filesystem::path path_;
 };
+
+/**
+ * @brief Create a buffer resource for tests, optionally with a disk resource.
+ *
+ * Pinned memory is always disabled.
+ *
+ * @param spill_directory Directory for disk files, `std::nullopt` disables disk.
+ * @param host_mem_limit Limit in bytes of host memory, `std::nullopt` for unlimited. A
+ * limit of zero leaves no room, so the only spill target for device data is disk.
+ * @param allow_overbooking_by_default The default overbooking policy.
+ * @return The buffer resource.
+ */
+[[nodiscard]] inline std::shared_ptr<rapidsmpf::BufferResource> create_br(
+    std::optional<std::filesystem::path> spill_directory = std::nullopt,
+    std::optional<std::int64_t> host_mem_limit = std::nullopt,
+    rapidsmpf::AllowOverbooking allow_overbooking_by_default =
+        rapidsmpf::AllowOverbooking::YES
+) {
+    std::unordered_map<rapidsmpf::MemoryType, std::int64_t> memory_limits;
+    if (host_mem_limit.has_value()) {
+        memory_limits[rapidsmpf::MemoryType::HOST] = *host_mem_limit;
+    }
+    return rapidsmpf::BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        rapidsmpf::PinnedMemoryDisabled,
+        std::move(memory_limits),
+        std::nullopt,
+        std::make_shared<rapidsmpf::StreamPool>(1),
+        rapidsmpf::Statistics::disabled(),
+        std::move(spill_directory),
+        std::chrono::milliseconds{100},
+        allow_overbooking_by_default
+    );
+}
+
+/**
+ * @brief Move the data of a packed data object to disk.
+ *
+ * @param packed_data The packed data. Its data must not be `nullptr`.
+ * @param br Buffer resource with a disk resource.
+ * @return The packed data with its data on disk.
+ */
+[[nodiscard]] inline rapidsmpf::PackedData move_to_disk(
+    rapidsmpf::PackedData&& packed_data, rapidsmpf::BufferResource& br
+) {
+    auto res = br.reserve_or_fail(packed_data.data->size, rapidsmpf::MemoryType::DISK);
+    packed_data.data = br.move(std::move(packed_data.data), res);
+    return std::move(packed_data);
+}
 
 /// @brief User-defined literal for specifying memory sizes in KiB.
 constexpr std::size_t operator"" _KiB(unsigned long long val) {
@@ -199,12 +252,17 @@ inline void validate_packed_data(
         EXPECT_EQ(offset + static_cast<T>(i), val);
     }
 
-    EXPECT_EQ(n_elements * sizeof(T), packed_data.data->size);
+    auto const size = packed_data.data->size;
+    EXPECT_EQ(n_elements * sizeof(T), size);
 
-    auto res = br.reserve_or_fail(packed_data.data->size, rapidsmpf::MemoryType::HOST);
-    auto data_on_host = br.move_to_host_buffer(std::move(packed_data.data), res);
-    RAPIDSMPF_CUDA_TRY(cudaStreamSynchronize(stream.get()));
-    EXPECT_EQ(metadata, data_on_host->copy_to_uint8_vector());
+    // Copy into a host buffer with overbooking.
+    auto [res, _] =
+        br.reserve(rapidsmpf::MemoryType::HOST, size, rapidsmpf::AllowOverbooking::YES);
+    auto data_on_host = br.make_buffer(stream, std::move(res));
+    rapidsmpf::buffer_copy(br.statistics(), *data_on_host, *packed_data.data, size);
+    data_on_host->latest_write_event().host_wait();
+    auto const* host_ptr = reinterpret_cast<std::uint8_t const*>(data_on_host->data());
+    EXPECT_TRUE(std::ranges::equal(metadata, std::span{host_ptr, size}));
 }
 
 /**

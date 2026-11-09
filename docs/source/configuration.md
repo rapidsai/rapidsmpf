@@ -81,18 +81,28 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
     Nothing is spilled on behalf of the request, so a workload that does not
     spill sees the timeout unchanged.
 
+    The shuffler uses the same timeout for receive buffers. When no incoming
+    payload could get a buffer for this long, the shuffler allocates one in host
+    memory, even beyond the host memory limit, if `allow_overbooking_by_default`
+    allows it, and fails with an error otherwise. Only one payload is forced per
+    timeout, so under sustained memory pressure N waiting payloads take about N
+    timeouts to get their buffers. Receive buffers only have to wait when host
+    memory is limited too (see `spill_host_limit`), since otherwise they always fit
+    in host memory.
+
 - **`allow_overbooking_by_default`**
   - **Environment Variable**: `RAPIDSMPF_ALLOW_OVERBOOKING_BY_DEFAULT`
   - **Default**: `true`
   - **Description**: Controls the default overbooking behavior for *high-level*
-    memory reservation APIs, such as `reserve_memory()`.
+    memory reservation APIs, such as `reserve_memory()`, and for receive buffers
+    in the shuffler.
 
-    When enabled, high-level memory reservation requests may overbook memory
-    after the global `memory_reserve_timeout` expires, allowing forward
-    progress under memory pressure.
+    When enabled, high-level memory reservation requests and shuffler receives
+    may overbook memory after the global `memory_reserve_timeout` expires,
+    allowing forward progress under memory pressure.
 
-    When disabled, high-level memory reservation requests fail with an error if
-    no progress is possible within the timeout.
+    When disabled, they fail with an error if no progress is possible within
+    the timeout.
 
     This option is only used when a high-level API does not explicitly specify
     an overbooking policy. It does **not** change the behavior of lower-level
@@ -165,28 +175,3 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
     RapidsMPF creates an exclusively owned subdirectory and enables disk I/O.
     Disabled values (`false`, `none`, `off`, …) leave disk spilling disabled. A
     whitespace-only value is invalid.
-
-- **`unbounded_file_read_cache`**
-  - **Environment Variable**: `RAPIDSMPF_UNBOUNDED_FILE_READ_CACHE`
-  - **Default**: `"disabled"`
-  - **Description**: Configure caching of file read results for file-backed messages.
-
-    When set to a memory type (for example `host`, `pinned`, or `device`), the
-    first read of a specific file slice is cached by storing a copy of the data
-    in the associated Context's message storage using the specified memory type.
-    Subsequent reads of the exact same slice reuse the cached copy instead of
-    re-reading from disk.
-
-    When set to `"disabled"`, no caching is performed.
-
-    This option is primarily intended for benchmarking and performance analysis.
-    After an initial warm-up run, subsequent runs can avoid most disk I/O (metadata
-    access and file listing will still occur).
-
-    Cached data is scoped to the Context that performed the read, and its lifetime
-    matches the lifetime of that Context. The cache is unbounded, and entries are
-    only released when the Context is destroyed.
-
-    **Warning:** This feature assumes that each file slice is always read with
-    identical read parameters, such as filters and schemas. No validation is
-    performed. If these parameters differ, incorrect data may be returned.

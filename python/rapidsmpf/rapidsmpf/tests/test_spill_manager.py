@@ -147,3 +147,28 @@ def test_reserve_device_memory_and_spill(
     res = br.reserve_device_memory_and_spill(1000, allow_overbooking=True)
     assert track_spilled[0] == 1000
     del res
+
+
+def test_spill_function_only_called_for_device(
+    device_mr: rmm.mr.CudaMemoryResource,
+) -> None:
+    br = BufferResource(device_mr, periodic_spill_check=None)
+    calls: list[int] = []
+
+    def spill(amount: int) -> int:
+        calls.append(amount)
+        return amount
+
+    br.spill_manager.add_spill_function(spill, priority=0)
+    assert br.spill_manager.spill(10) == 10
+    # Python spill functions are not invoked for other memory types.
+    assert br.spill_manager.spill(20, mem_type=MemoryType.HOST) == 0
+    assert calls == [10]
+
+
+def test_spill_rejects_unspillable_mem_type(
+    device_mr: rmm.mr.CudaMemoryResource,
+) -> None:
+    br = BufferResource(device_mr, periodic_spill_check=None)
+    with pytest.raises(ValueError):
+        br.spill_manager.spill(10, mem_type=MemoryType.DISK)
