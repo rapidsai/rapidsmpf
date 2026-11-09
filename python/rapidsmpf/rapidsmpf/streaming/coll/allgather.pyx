@@ -27,8 +27,8 @@ import asyncio
 cdef extern from * nogil:
     """
     namespace {
-    // The tasks own a reference, so the allgather outlives them even if the Python
-    // object is freed or the Python awaiter is cancelled.
+    // The task owns a reference, so the allgather outlives the task even if the
+    // Python object is freed or the Python awaiter is cancelled.
     coro::task<void> extract_all_task(
         std::shared_ptr<rapidsmpf::streaming::AllGather> gather,
         rapidsmpf::streaming::AllGather::Ordered ordered,
@@ -58,6 +58,8 @@ cdef extern from * nogil:
         return output;
     }
 
+    // Like `extract_all_task()`, the task owns a reference. Spawning `gather->wait()`
+    // directly would not keep the allgather alive.
     coro::task<void> wait_task(
         std::shared_ptr<rapidsmpf::streaming::AllGather> gather
     ) {
