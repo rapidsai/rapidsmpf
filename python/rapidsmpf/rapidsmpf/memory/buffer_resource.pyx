@@ -45,7 +45,6 @@ cdef extern from *:
             rmm::device_async_resource_ref(mr)
         );
     }
-
     """
     optional[device_async_resource_ref] cpp_make_device_async_resource_ref_from_any(
         any_resource[device_accessible]&
@@ -66,8 +65,6 @@ from rapidsmpf.statistics cimport Statistics
 
 cdef extern from * nogil:
     """
-    #include <type_traits>
-
     namespace {
     // Copy the `HostMemoryResource` behind `br->host_mr()`. The copy promotes the
     // resource's back-reference, so the result keeps `br` alive.
