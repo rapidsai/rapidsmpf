@@ -37,6 +37,11 @@ class PausableThreadLoop {
      *
      * The handler receives the captured exception. It must not throw, the process is
      * terminated if it does. It may call `stop()`, but must not destroy the loop.
+     *
+     * Like the loop function, the handler may run until `stop()` or the destructor
+     * returns, including while the owner of the loop is being destroyed. Anything the
+     * handler uses must remain alive until then. The owner can call `stop()` at the
+     * start of its destructor to guarantee this.
      */
     using ErrorHandler = std::function<void(std::exception_ptr)>;
 
