@@ -69,7 +69,7 @@ std::uint64_t BufferResource::record_reservation_event(
         );
         recording_->last_timestamp_ns = timestamp;
     } catch (...) {
-        ++recording_->allocation_failure_count;
+        ++recording_->dropped_event_count;
     }
     return recording_->id;
 }
@@ -105,10 +105,6 @@ BufferResource::BufferResource(
     }
     RAPIDSMPF_EXPECTS(stream_pool_ != nullptr, "the stream pool pointer cannot be NULL");
     RAPIDSMPF_EXPECTS(statistics_ != nullptr, "the statistics pointer cannot be NULL");
-}
-
-BufferResource::~BufferResource() noexcept {
-    static_cast<void>(stop_reservation_event_recording());
 }
 
 std::shared_ptr<BufferResource> BufferResource::create(
@@ -272,8 +268,7 @@ ReservationEventBatch BufferResource::drain_reservation_events() {
     std::lock_guard lock(recording_mutex_);
     if (recording_) {
         result.events.swap(recording_->events);
-        result.allocation_failure_count =
-            std::exchange(recording_->allocation_failure_count, 0);
+        result.dropped_event_count = std::exchange(recording_->dropped_event_count, 0);
     }
     return result;
 }
@@ -284,7 +279,7 @@ ReservationEventBatch BufferResource::stop_reservation_event_recording() {
     recording_enabled_.store(false, std::memory_order_release);
     if (recording_) {
         result.events.swap(recording_->events);
-        result.allocation_failure_count = recording_->allocation_failure_count;
+        result.dropped_event_count = recording_->dropped_event_count;
         recording_.reset();
     }
     return result;
@@ -341,16 +336,6 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     AllowOverbooking allow_overbooking,
     std::uint64_t reservation_context
 ) {
-    auto result = reserve_impl(mem_type, size, allow_overbooking, reservation_context);
-    return {std::move(result.reservation), result.total_overbooked_bytes};
-}
-
-detail::ReserveResult BufferResource::reserve_impl(
-    MemoryType mem_type,
-    std::size_t size,
-    AllowOverbooking allow_overbooking,
-    std::uint64_t reservation_context
-) {
     RAPIDSMPF_EXPECTS(
         mem_type != MemoryType::DISK || disk_resource_ != nullptr,
         "disk memory was requested but no disk resource is available",
@@ -364,7 +349,6 @@ detail::ReserveResult BufferResource::reserve_impl(
 
     std::int64_t const available = memory_available(mem_type);
     std::size_t overbooking;
-    MemoryReservation reservation;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         std::size_t& reserved = memory_reserved_[mem_type];
@@ -375,21 +359,18 @@ detail::ReserveResult BufferResource::reserve_impl(
         overbooking = headroom < 0 ? safe_cast<std::size_t>(std::abs(headroom)) : 0;
         if (overbooking > 0 && allow_overbooking == AllowOverbooking::NO) {
             return {
-                MemoryReservation(mem_type, this, 0, reservation_context),
-                mem_type,
-                std::min(size, overbooking),
-                overbooking
+                MemoryReservation(mem_type, this, 0, reservation_context), overbooking
             };
         }
         reserved += size;
-        reservation = MemoryReservation(mem_type, this, size, reservation_context);
     }
+    MemoryReservation reservation(mem_type, this, size, reservation_context);
     if (size > 0) {
         reservation.observed_session_ = record_reservation_event(
             reservation_context, mem_type, safe_cast<std::int64_t>(size)
         );
     }
-    return {std::move(reservation), mem_type, std::min(size, overbooking), overbooking};
+    return {std::move(reservation), overbooking};
 }
 
 MemoryReservation BufferResource::reserve_device_memory_and_spill(
@@ -397,14 +378,11 @@ MemoryReservation BufferResource::reserve_device_memory_and_spill(
     AllowOverbooking allow_overbooking,
     std::uint64_t reservation_context
 ) {
-    auto result = reserve_impl(
-        MemoryType::DEVICE, size, AllowOverbooking::YES, reservation_context
-    );
-    auto& reservation = result.reservation;
-    auto const total_overbooking = result.total_overbooked_bytes;
+    auto [reservation, total_overbooking] =
+        reserve(MemoryType::DEVICE, size, AllowOverbooking::YES, reservation_context);
 
     if (total_overbooking > 0) {
-        // `reserve_impl()` reports the total overbooking, other callers' included, so
+        // `reserve()` reports the total overbooking, other callers' included, so
         // clamp to `size` for the part this reservation added.
         auto const own_overbooking = std::min(size, total_overbooking);
         // With a headroom of zero, `deficit` is the overbooking still outstanding
@@ -448,28 +426,6 @@ std::size_t BufferResource::release(MemoryReservation& reservation, std::size_t 
         );
     }
     return remaining;
-}
-
-void BufferResource::clear_reservation(MemoryReservation& reservation) noexcept {
-    auto const size = reservation.size_;
-    auto const observed_session = reservation.observed_session_;
-    {
-        std::lock_guard const lock(mutex_);
-        auto& reserved = memory_reserved_[reservation.mem_type_];
-        RAPIDSMPF_EXPECTS_FATAL(
-            reserved >= reservation.size_, "corrupted reservation stat"
-        );
-        reserved -= reservation.size_;
-        reservation.size_ = 0;
-    }
-    if (size > 0 && observed_session != 0) {
-        record_reservation_event(
-            reservation.reservation_context_,
-            reservation.mem_type_,
-            -safe_cast<std::int64_t>(size),
-            observed_session
-        );
-    }
 }
 
 std::unique_ptr<Buffer> BufferResource::make_buffer(

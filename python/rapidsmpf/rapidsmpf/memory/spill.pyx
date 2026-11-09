@@ -29,6 +29,7 @@ cdef extern from "<rapidsmpf/memory/spill.hpp>" nogil:
         "rapidsmpf::spill_partitions"(
             vector[cpp_PackedData] partitions,
             cpp_BufferResource* br,
+            uint64_t reservation_context,
         ) except +ex_handler
 
     cdef vector[cpp_PackedData] cpp_unspill_partitions \
@@ -43,6 +44,7 @@ cdef extern from "<rapidsmpf/memory/spill.hpp>" nogil:
 cpdef object spill_partitions(
     object partitions,
     BufferResource br,
+    object reservation_context=0,
 ):
     """
     Spill partitions from device memory to host memory.
@@ -63,6 +65,8 @@ cpdef object spill_partitions(
         The partitions to spill.
     br
         Buffer resource used to reserve host memory and perform the move.
+    reservation_context
+        Optional telemetry reservation context for the spill reservation.
 
     Returns
     -------
@@ -76,10 +80,12 @@ cpdef object spill_partitions(
     cdef cpp_BufferResource* _br = br.ptr()
     cdef vector[cpp_PackedData] _partitions = _partitions_py_to_cpp(partitions)
     cdef vector[cpp_PackedData] _ret
+    cdef uint64_t cpp_reservation_context = <uint64_t>reservation_context
     with nogil:
         _ret = cpp_spill_partitions(
             move(_partitions),
             _br,
+            move(cpp_reservation_context),
         )
     return packed_data_vector_to_list(move(_ret), br)
 

@@ -4,7 +4,7 @@
 
 from cython.operator cimport dereference as deref
 from libc.stdint cimport uint32_t, uint64_t
-from libcpp.memory cimport make_unique, unique_ptr
+from libcpp.memory cimport make_unique
 from libcpp.span cimport span
 from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move
@@ -12,7 +12,6 @@ from libcpp.vector cimport vector
 
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
-from rapidsmpf.shuffler cimport cpp_MetadataPayloadExchange
 
 
 cdef class Shuffler:
@@ -83,7 +82,6 @@ cdef class Shuffler:
                 cpp_Shuffler.round_robin
                 if partition_assignment == PartitionAssignment.ROUND_ROBIN
                 else cpp_Shuffler.contiguous,
-                unique_ptr[cpp_MetadataPayloadExchange](),
                 move(cpp_reservation_context),
             )
 

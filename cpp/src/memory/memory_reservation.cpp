@@ -16,7 +16,7 @@ MemoryReservation::~MemoryReservation() noexcept {
 
 void MemoryReservation::clear() noexcept {
     if (size_ > 0) {
-        br_->clear_reservation(*this);
+        br_->release(*this, size_);
     }
 }
 

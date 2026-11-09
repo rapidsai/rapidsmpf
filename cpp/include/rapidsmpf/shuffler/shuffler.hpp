@@ -119,8 +119,6 @@ class Shuffler {
      * @param br Buffer resource used to allocate temporary and the shuffle result.
      * @param finished_callback Callback to notify when all partitions are finished.
      * @param partition_owner Function to determine partition ownership.
-     * @param mpe Optional custom metadata payload exchange. If not provided,
-     * uses the default tag-based implementation.
      * @param reservation_context Immutable telemetry reservation_context for internal
      * reservations.
      *
@@ -138,7 +136,6 @@ class Shuffler {
         BufferResource* br,
         FinishedCallback&& finished_callback,
         PartitionOwner partition_owner = round_robin,
-        std::unique_ptr<communicator::MetadataPayloadExchange> mpe = nullptr,
         std::uint64_t reservation_context = {}
     );
 
@@ -151,8 +148,6 @@ class Shuffler {
      * @param total_num_partitions Total number of partitions in the shuffle.
      * @param br Buffer resource used to allocate temporary and the shuffle result.
      * @param partition_owner Function to determine partition ownership.
-     * @param mpe Optional custom metadata payload exchange. If not provided,
-     * uses the default tag-based implementation.
      * @param reservation_context Immutable telemetry reservation_context for internal
      * reservations.
      *
@@ -166,7 +161,6 @@ class Shuffler {
         PartID total_num_partitions,
         BufferResource* br,
         PartitionOwner partition_owner = round_robin,
-        std::unique_ptr<communicator::MetadataPayloadExchange> mpe = nullptr,
         std::uint64_t reservation_context = {}
     )
         : Shuffler(
@@ -176,7 +170,6 @@ class Shuffler {
               br,
               nullptr,
               partition_owner,
-              std::move(mpe),
               std::move(reservation_context)
           ) {}
 

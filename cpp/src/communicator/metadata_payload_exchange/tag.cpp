@@ -528,7 +528,8 @@ void TagMetadataPayloadExchange::try_move_to_disk(std::unique_ptr<Buffer>& buffe
     if (br_->disk_resource() == nullptr) {
         return;
     }
-    auto reservation = br_->try_reserve(buffer->size, MemoryType::DISK);
+    // This exchange-level fallback has no operation attribution of its own.
+    auto reservation = br_->try_reserve(buffer->size, MemoryType::DISK, 0);
     if (!reservation.has_value()) {
         return;
     }

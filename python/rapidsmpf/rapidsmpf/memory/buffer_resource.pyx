@@ -157,7 +157,7 @@ cdef tuple _reservation_event_batch_to_tuple(
             <MemoryType>batch.events[index].memory_type,
             batch.events[index].byte_delta,
         ))
-    return result, batch.allocation_failure_count
+    return result, batch.dropped_event_count
 
 
 @no_gc_clear
@@ -606,7 +606,12 @@ cdef class BufferResource:
             deref(self._handle).set_memory_limit(mem_type, limit)
 
     def start_reservation_event_recording(self):
-        """Start a reservation event recording session."""
+        """
+        Start a reservation event recording session.
+
+        Recording serializes event appends on this buffer resource. Events are retained
+        without a fixed size limit until recording is drained or stopped.
+        """
         with nogil:
             deref(self._handle).start_reservation_event_recording()
 
@@ -614,7 +619,7 @@ cdef class BufferResource:
         """
         Atomically return events recorded so far while keeping recording active.
 
-        Returns ``(events, allocation_failure_count)``. Each event is a
+        Returns ``(events, dropped_event_count)``. Each event is a
         ``(timestamp_ns, reservation_context, memory_type, byte_delta)`` tuple.
         """
         cdef cpp_ReservationEventBatch batch

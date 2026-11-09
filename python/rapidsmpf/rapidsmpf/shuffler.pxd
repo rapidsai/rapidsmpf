@@ -16,12 +16,6 @@ from rapidsmpf.memory.buffer_resource cimport (BufferResource,
 from rapidsmpf.memory.packed_data cimport cpp_PackedData
 
 
-cdef extern from "<rapidsmpf/communicator/metadata_payload_exchange/core.hpp>" \
-        namespace "rapidsmpf::communicator":
-    cdef cppclass cpp_MetadataPayloadExchange "rapidsmpf::communicator::MetadataPayloadExchange":
-        pass
-
-
 cdef extern from *:
     """
     enum class PartitionAssignment : std::int32_t {
@@ -46,7 +40,6 @@ cdef extern from "<rapidsmpf/shuffler/shuffler.hpp>" nogil:
             uint32_t total_num_partitions,
             cpp_BufferResource *br,
             cpp_PartitionOwner partition_owner,
-            unique_ptr[cpp_MetadataPayloadExchange] mpe,
             uint64_t reservation_context,
         ) except +ex_handler
         const shared_ptr[cpp_Communicator]& comm() except +ex_handler

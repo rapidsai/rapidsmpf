@@ -51,7 +51,7 @@ cdef extern from "<rapidsmpf/memory/reservation_events.hpp>" namespace "rapidsmp
 
     cdef cppclass cpp_ReservationEventBatch "rapidsmpf::ReservationEventBatch":
         vector[cpp_ReservationEvent] events
-        uint64_t allocation_failure_count
+        uint64_t dropped_event_count
 
 cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
     cdef enum class AllowOverbooking"rapidsmpf::AllowOverbooking"(bool_t):

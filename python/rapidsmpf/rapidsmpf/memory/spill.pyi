@@ -11,6 +11,7 @@ def spill_partitions(
     partitions: Iterable[PackedData],
     *,
     br: BufferResource,
+    reservation_context: int = 0,
 ) -> list[PackedData]: ...
 def unspill_partitions(
     partitions: Iterable[PackedData],

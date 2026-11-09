@@ -579,7 +579,7 @@ async def reserve_memory(
     net_memory_delta,
     mem_type = MemoryType.DEVICE,
     allow_overbooking = None,
-    reservation_context = None,
+    reservation_context = 0,
 ):
     """
     Reserve memory using the context memory reservation mechanism.

@@ -82,7 +82,9 @@ SparseAlltoall::SparseAlltoall(
         comm_,
         op_id,
         std::vector<Rank>(peers.begin(), peers.end()),
-        communicator::default_allocate_buffer,
+        [](BufferResource* resource, std::size_t size, auto mode) {
+            return communicator::default_allocate_buffer(resource, size, mode);
+        },
         br_->memory_reserve_timeout(),
         br_
     );

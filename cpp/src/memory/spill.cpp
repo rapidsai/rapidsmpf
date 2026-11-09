@@ -14,7 +14,9 @@
 namespace rapidsmpf {
 
 std::vector<PackedData> spill_partitions(
-    std::vector<PackedData>&& partitions, BufferResource* br
+    std::vector<PackedData>&& partitions,
+    BufferResource* br,
+    std::uint64_t const& reservation_context
 ) {
     // Sum the total size of all packed data in device memory.
     std::size_t device_size{0};
@@ -24,8 +26,9 @@ std::vector<PackedData> spill_partitions(
         }
     }
     // Spill device partitions to the spill target memory types.
-    auto reservation =
-        br->reserve_or_fail(device_size, preference_lt(MemoryType::DEVICE, MEMORY_TYPES));
+    auto reservation = br->reserve_or_fail(
+        device_size, preference_lt(MemoryType::DEVICE, MEMORY_TYPES), reservation_context
+    );
     for (auto& [_, data] : partitions) {
         if (data->mem_type() == MemoryType::DEVICE) {
             data = br->move(std::move(data), reservation);
@@ -50,7 +53,7 @@ std::vector<PackedData> unspill_partitions(
 
     // Unspill non-device partitions.
     auto reservation = br->reserve_device_memory_and_spill(
-        non_device_size, allow_overbooking, reservation_context ? reservation_context : 0
+        non_device_size, allow_overbooking, reservation_context
     );
     for (auto& [_, data] : partitions) {
         if (data->mem_type() != MemoryType::DEVICE) {

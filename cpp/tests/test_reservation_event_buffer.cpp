@@ -1,8 +1,6 @@
 /**
  * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
- * All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <atomic>
@@ -42,7 +40,7 @@ TEST(ReservationEventBuffer, RecordingLifecycleAndExactDeltas) {
 
     auto batch = br->stop_reservation_event_recording();
     ASSERT_EQ(batch.events.size(), 3);
-    EXPECT_EQ(batch.allocation_failure_count, 0);
+    EXPECT_EQ(batch.dropped_event_count, 0);
     EXPECT_EQ(batch.events[0].reservation_context, 42);
     EXPECT_EQ(batch.events[0].memory_type, MemoryType::DEVICE);
     EXPECT_EQ(batch.events[0].byte_delta, 100);
@@ -99,7 +97,7 @@ TEST(ReservationEventBuffer, ZeroByteOperationsEmitNothing) {
     EXPECT_EQ(overbooked, 0);
     auto batch = br->stop_reservation_event_recording();
     EXPECT_TRUE(batch.events.empty());
-    EXPECT_EQ(batch.allocation_failure_count, 0);
+    EXPECT_EQ(batch.dropped_event_count, 0);
 }
 
 TEST(ReservationEventBuffer, ConcurrentProducersAndDrainsLoseNoEvents) {

@@ -34,7 +34,6 @@ ShufflerAsync::ShufflerAsync(
               event_.set(ctx_->executor()->get());
           },
           std::move(partition_owner),
-          nullptr,
           std::move(reservation_context)
       ) {}
 

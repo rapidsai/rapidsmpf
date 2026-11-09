@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 from libc.stdint cimport uint64_t
 from libcpp.memory cimport make_unique
 from libcpp.utility cimport move
@@ -7,9 +10,6 @@ from rapidsmpf.streaming.core.actor cimport CppActor, cpp_Actor
 from rapidsmpf.streaming.core.channel cimport Channel
 from rapidsmpf.streaming.core.context cimport Context
 from rapidsmpf.streaming.core.fanout cimport FanoutPolicy
-
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
 
 
 def fanout(

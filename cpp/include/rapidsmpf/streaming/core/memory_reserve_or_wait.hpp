@@ -257,7 +257,7 @@ class MemoryReserveOrWait {
         std::uint64_t sequence_number;
 
         /// @brief Queue into which a reservation is pushed once the request is satisfied.
-        coro::queue<detail::ReserveResult>& queue;
+        coro::queue<MemoryReservation>& queue;
 
         /// @brief Opaque telemetry token retained while this request is queued.
         std::uint64_t reservation_context;
@@ -303,9 +303,6 @@ class MemoryReserveOrWait {
      * extracted and all in-flight work has finished.
      */
     coro::task<void> periodic_memory_check();
-    coro::task<detail::ReserveResult> reserve_or_wait_impl(
-        std::size_t size, std::int64_t net_memory_delta, std::uint64_t reservation_context
-    );
 
     /**
      * @brief Adds a value to one of this instance's statistics.

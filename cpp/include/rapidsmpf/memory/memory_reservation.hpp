@@ -23,8 +23,6 @@ class MemoryReservation {
     friend class BufferResource;
 
   public:
-    MemoryReservation() noexcept = default;
-
     /**
      * @brief Destructor for the memory reservation.
      *

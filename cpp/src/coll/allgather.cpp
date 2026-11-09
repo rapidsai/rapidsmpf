@@ -171,36 +171,9 @@ AllGather::AllGather(
         comm_,
         op_id,
         std::vector<Rank>(peers.begin(), peers.end()),
-        [reservation_context](
-            BufferResource* resource,
-            std::size_t size,
-            communicator::MetadataPayloadExchange::AllocationMode mode
-        ) {
-            auto reservation = resource->try_reserve(
-                size, ADDRESSABLE_MEMORY_TYPES, reservation_context
-            );
-            if (!reservation) {
-                if (mode
-                    == communicator::MetadataPayloadExchange::AllocationMode::MAY_FAIL) {
-                    return std::unique_ptr<Buffer>{};
-                }
-                RAPIDSMPF_EXPECTS(
-                    resource->allow_overbooking_by_default() == AllowOverbooking::YES,
-                    "receive buffer allocation made no progress within the allocation "
-                    "timeout and overbooking is not allowed",
-                    std::runtime_error
-                );
-                reservation = resource
-                                  ->reserve(
-                                      MemoryType::HOST,
-                                      size,
-                                      AllowOverbooking::YES,
-                                      reservation_context
-                                  )
-                                  .first;
-            }
-            return resource->make_buffer(
-                resource->stream_pool()->get_stream(), std::move(*reservation)
+        [reservation_context](BufferResource* resource, std::size_t size, auto mode) {
+            return communicator::default_allocate_buffer(
+                resource, size, mode, reservation_context
             );
         },
         br_->memory_reserve_timeout(),

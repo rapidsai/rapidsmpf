@@ -52,29 +52,6 @@ enum class AllowOverbooking : bool {
     YES,  ///< Overbooking is allowed.
 };
 
-class BufferResource;
-
-namespace streaming {
-class MemoryReserveOrWait;
-}
-
-namespace detail {
-
-/// @cond
-struct ReserveResult {
-    MemoryReservation reservation;
-    MemoryType mem_type{MemoryType::HOST};
-    std::size_t overbooked_bytes{0};
-    std::size_t total_overbooked_bytes{0};
-    bool waited{false};
-    bool timed_out{false};
-    bool cancelled{false};
-};
-
-/// @endcond
-
-}  // namespace detail
-
 /**
  * @brief Pool of non-blocking CUDA streams.
  *
@@ -237,7 +214,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         std::shared_ptr<Statistics> statistics = Statistics::disabled()
     );
 
-    ~BufferResource() noexcept;
+    ~BufferResource() noexcept = default;
 
     /**
      * @brief `BufferResource` is non-copyable, it is owned by `std::shared_ptr`.
@@ -415,6 +392,9 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @brief Start a new reservation event recording session.
      *
      * Recording is disabled by default. A session starts with sequence zero.
+     * While enabled, recording serializes event appends with a per-resource mutex.
+     * Events are retained without a fixed size limit until they are drained or
+     * recording is stopped.
      *
      * @throws std::logic_error if recording is already active.
      */
@@ -823,26 +803,16 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     }
 
   private:
-    friend class MemoryReservation;
-    friend class streaming::MemoryReserveOrWait;
-
     [[nodiscard]] bool reservation_event_recording_enabled() const noexcept {
         return recording_enabled_.load(std::memory_order_acquire);
     }
 
-    detail::ReserveResult reserve_impl(
-        MemoryType mem_type,
-        std::size_t size,
-        AllowOverbooking allow_overbooking,
-        std::uint64_t reservation_context
-    );
     std::uint64_t record_reservation_event(
         std::uint64_t reservation_context,
         MemoryType memory_type,
         std::int64_t byte_delta,
         std::uint64_t expected_session = 0
     ) noexcept;
-    void clear_reservation(MemoryReservation&) noexcept;
     /** @brief Private constructor, use `create()` or `from_options()`. */
     BufferResource(
         cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
@@ -872,7 +842,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
 
     struct RecordingSession {
         std::vector<ReservationEvent> events;
-        std::uint64_t allocation_failure_count{0};
+        std::uint64_t dropped_event_count{0};
         std::uint64_t id{0};
         std::int64_t unix_time_anchor_ns{0};
         std::int64_t steady_time_anchor_ns{0};

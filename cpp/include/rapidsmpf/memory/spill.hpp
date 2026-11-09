@@ -24,13 +24,16 @@ namespace rapidsmpf {
  *
  * @param partitions The partitions to spill.
  * @param br Buffer resource used to reserve host memory and perform the move.
+ * @param reservation_context Immutable telemetry reservation context for the spill.
  *
  * @return A vector of `PackedData`, where each buffer resides in host memory.
  *
  * @throws rapidsmpf::reservation_error If host memory reservation fails.
  */
 std::vector<PackedData> spill_partitions(
-    std::vector<PackedData>&& partitions, BufferResource* br
+    std::vector<PackedData>&& partitions,
+    BufferResource* br,
+    std::uint64_t const& reservation_context = {}
 );
 
 /**

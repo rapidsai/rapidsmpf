@@ -37,10 +37,7 @@ cdef class SpillableMessages:
     >>> recovered = msgs.extract(mid=mid)
     """
     def __init__(self, BufferResource br not None, *, reservation_context=0):
-        cdef uint64_t cpp_reservation_context
-        if reservation_context is None:
-            reservation_context = {"rapidsmpf.site": "spill"}
-        cpp_reservation_context = <uint64_t>reservation_context
+        cdef uint64_t cpp_reservation_context = <uint64_t>reservation_context
         self._handle = make_shared[cpp_SpillableMessages](move(cpp_reservation_context))
         self._br = br
 
