@@ -35,6 +35,10 @@ namespace bootstrap {
  * The function handles all coordination transparently based on the detected
  * or specified backend.
  *
+ * The call is collective over all ranks. Under rrun it may be called several
+ * times per process, as long as all ranks make the calls in the same order and
+ * the calls within a process do not overlap. An overlapping call throws.
+ *
  * @param progress_thread Progress thread for the initialized communicator.
  * @param type Backend to use.
  * @param options Configuration options for the UCXX communicator.
