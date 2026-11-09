@@ -159,17 +159,17 @@ class SparseAlltoall {
 
   private:
     /**
-     * @brief Attempt to spill device memory from the ready (received) chunks.
+     * @brief Attempt to spill memory of the given type from the ready (received) chunks.
      *
      * Only chunks that have been fully received are spilled; chunks that are in-flight
      * or waiting to be sent are left untouched.
      *
-     * @param amount Optional amount of memory to spill. If not provided, spills based
-     * on the current device memory headroom.
+     * @param mem_type The memory type to spill from.
+     * @param amount The amount of memory to spill, in bytes.
      *
      * @return The amount of memory actually spilled.
      */
-    std::size_t spill(std::optional<std::size_t> amount = std::nullopt);
+    std::size_t spill(std::size_t amount, MemoryType mem_type);
 
     /// @brief Send all ready messages.
     void send_ready_messages();
