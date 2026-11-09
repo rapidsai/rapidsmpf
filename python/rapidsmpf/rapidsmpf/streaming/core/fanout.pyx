@@ -18,7 +18,7 @@ def fanout(
     chs_out,
     FanoutPolicy policy,
     *,
-    reservation_context=0,
+    uint64_t reservation_context=0,
 ):
     """
     Broadcast messages from one input channel to multiple output channels.
@@ -71,8 +71,6 @@ def fanout(
     ...     )
     """
     cdef vector[shared_ptr[cpp_Channel]] _chs_out
-    cdef uint64_t cpp_reservation_context = \
-        <uint64_t>reservation_context
     if len(chs_out) == 0:
         raise ValueError("output channels cannot be empty")
     owner = []
@@ -89,6 +87,6 @@ def fanout(
             ch_in._handle,
             move(_chs_out),
             policy,
-            move(cpp_reservation_context),
+            reservation_context,
         )
     return CppActor.from_handle(make_unique[cpp_Actor](move(_ret)), owner)

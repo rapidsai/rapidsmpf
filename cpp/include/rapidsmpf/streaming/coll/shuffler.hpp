@@ -66,7 +66,7 @@ class ShufflerAsync {
         shuffler::PartID total_num_partitions,
         shuffler::Shuffler::PartitionOwner partition_owner =
             shuffler::Shuffler::round_robin,
-        std::uint64_t reservation_context = {}
+        std::uint64_t reservation_context = 0
     );
 
     // Prevent copying
@@ -182,7 +182,7 @@ namespace actor {
     OpID op_id,
     shuffler::PartID total_num_partitions,
     shuffler::Shuffler::PartitionOwner partition_owner = shuffler::Shuffler::round_robin,
-    std::uint64_t reservation_context = {}
+    std::uint64_t reservation_context = 0
 );
 
 }  // namespace actor

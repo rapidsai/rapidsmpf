@@ -248,7 +248,7 @@ class Chunk {
         BufferResource* br,
         bool validate = true,
         std::unique_ptr<Buffer> data = nullptr,
-        std::uint64_t reservation_context = {}
+        std::uint64_t reservation_context = 0
     );
 
     /**

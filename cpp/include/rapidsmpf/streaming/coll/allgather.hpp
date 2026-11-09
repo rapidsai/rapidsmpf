@@ -45,7 +45,7 @@ class AllGather {
         std::shared_ptr<Context> ctx,
         std::shared_ptr<Communicator> comm,
         OpID op_id,
-        std::uint64_t reservation_context = {}
+        std::uint64_t reservation_context = 0
     );
 
     AllGather(AllGather const&) = delete;
@@ -130,7 +130,7 @@ Actor allgather(
     std::shared_ptr<Channel> ch_out,
     OpID op_id,
     AllGather::Ordered ordered = AllGather::Ordered::YES,
-    std::uint64_t reservation_context = {}
+    std::uint64_t reservation_context = 0
 );
 }  // namespace actor
 }  // namespace rapidsmpf::streaming

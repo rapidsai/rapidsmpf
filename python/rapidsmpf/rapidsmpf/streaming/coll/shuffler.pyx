@@ -75,7 +75,7 @@ def shuffler(
     uint32_t total_num_partitions,
     PartitionAssignment partition_assignment = PartitionAssignment.ROUND_ROBIN,
     *,
-    reservation_context=0,
+    uint64_t reservation_context=0,
 ):
     """
     Launch a shuffler actor for a single shuffle operation.
@@ -112,8 +112,6 @@ def shuffler(
     been drained.
     """
 
-    cdef uint64_t cpp_reservation_context = \
-        <uint64_t>reservation_context
     with nogil:
         _ret = cpp_shuffler(
             ctx._handle,
@@ -125,7 +123,7 @@ def shuffler(
             cpp_Shuffler.round_robin
             if partition_assignment == PartitionAssignment.ROUND_ROBIN
             else cpp_Shuffler.contiguous,
-            move(cpp_reservation_context),
+            reservation_context,
         )
     return CppActor.from_handle(make_unique[cpp_Actor](move(_ret)), owner=None)
 
@@ -160,19 +158,17 @@ cdef class ShufflerAsync:
         uint32_t total_num_partitions,
         PartitionAssignment partition_assignment = PartitionAssignment.ROUND_ROBIN,
         *,
-        reservation_context=0,
+        uint64_t reservation_context=0,
     ):
         self._comm = comm
         self._br = ctx.br()
-        cdef uint64_t cpp_reservation_context = \
-            <uint64_t>reservation_context
         with nogil:
             self._handle = make_unique[cpp_ShufflerAsync](
                 ctx._handle, comm._handle, op_id, total_num_partitions,
                 cpp_Shuffler.round_robin
                 if partition_assignment == PartitionAssignment.ROUND_ROBIN
                 else cpp_Shuffler.contiguous,
-                move(cpp_reservation_context),
+                reservation_context,
             )
 
     def __dealloc__(self):

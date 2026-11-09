@@ -34,7 +34,7 @@ ShufflerAsync::ShufflerAsync(
               event_.set(ctx_->executor()->get());
           },
           std::move(partition_owner),
-          std::move(reservation_context)
+          reservation_context
       ) {}
 
 ShufflerAsync::~ShufflerAsync() noexcept {
@@ -82,7 +82,7 @@ Actor shuffler(
         op_id,
         total_num_partitions,
         std::move(partition_owner),
-        std::move(reservation_context)
+        reservation_context
     );
 
     while (true) {

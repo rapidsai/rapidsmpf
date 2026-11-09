@@ -391,7 +391,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     /**
      * @brief Start a new reservation event recording session.
      *
-     * Recording is disabled by default. A session starts with sequence zero.
+     * Recording is disabled by default.
      * While enabled, recording serializes event appends with a per-resource mutex.
      * Events are retained without a fixed size limit until they are drained or
      * recording is stopped.

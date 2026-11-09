@@ -531,12 +531,12 @@ coro::task<MemoryReservation> reserve_memory(
     // Reserve memory based on the overbooking policy.
     if (allow_overbooking.value() == AllowOverbooking::YES) {
         auto [res, _] = co_await ctx->memory(mem_type)->reserve_or_wait_or_overbook(
-            size, net_memory_delta, std::move(reservation_context)
+            size, net_memory_delta, reservation_context
         );
         co_return std::move(res);
     } else {
         co_return co_await ctx->memory(mem_type)->reserve_or_wait_or_fail(
-            size, net_memory_delta, std::move(reservation_context)
+            size, net_memory_delta, reservation_context
         );
     }
 }

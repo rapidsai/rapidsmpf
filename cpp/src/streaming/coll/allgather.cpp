@@ -28,7 +28,7 @@ AllGather::AllGather(
               // completion of this callback with a task_group.
               event_.set(ctx_->executor()->get());
           },
-          std::move(reservation_context)
+          reservation_context
       )} {}
 
 AllGather::~AllGather() noexcept {
@@ -74,8 +74,7 @@ Actor allgather(
 ) {
     ShutdownAtExit c{ch_in, ch_out};
     co_await ctx->executor()->schedule();
-    auto gatherer =
-        AllGather(ctx, std::move(comm), op_id, std::move(reservation_context));
+    auto gatherer = AllGather(ctx, std::move(comm), op_id, reservation_context);
     while (true) {
         auto msg = co_await ch_in->receive();
         if (msg.empty()) {

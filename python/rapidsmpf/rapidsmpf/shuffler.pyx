@@ -66,13 +66,11 @@ cdef class Shuffler:
         BufferResource br not None,
         PartitionAssignment partition_assignment = PartitionAssignment.ROUND_ROBIN,
         *,
-        reservation_context=0,
+        uint64_t reservation_context=0,
     ):
         self._br = br
         self._comm = comm
         cdef cpp_BufferResource* br_ = br.ptr()
-        cdef uint64_t cpp_reservation_context = \
-            <uint64_t>reservation_context
         with nogil:
             self._handle = make_unique[cpp_Shuffler](
                 comm._handle,
@@ -82,7 +80,7 @@ cdef class Shuffler:
                 cpp_Shuffler.round_robin
                 if partition_assignment == PartitionAssignment.ROUND_ROBIN
                 else cpp_Shuffler.contiguous,
-                move(cpp_reservation_context),
+                reservation_context,
             )
 
     def __dealloc__(self):

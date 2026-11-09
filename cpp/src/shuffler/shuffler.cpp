@@ -228,7 +228,7 @@ Shuffler::Shuffler(
           RAPIDSMPF_EXPECTS(br != nullptr, "the buffer resource pointer cannot be NULL");
           return br;
       }()},
-      reservation_context_{std::move(reservation_context)},
+      reservation_context_{reservation_context},
       to_send_{},
       received_{safe_cast<std::size_t>(total_num_partitions)},
       comm_{[&comm] {

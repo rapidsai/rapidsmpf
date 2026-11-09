@@ -44,7 +44,7 @@ cdef extern from "<rapidsmpf/memory/spill.hpp>" nogil:
 cpdef object spill_partitions(
     object partitions,
     BufferResource br,
-    object reservation_context=0,
+    uint64_t reservation_context=0,
 ):
     """
     Spill partitions from device memory to host memory.
@@ -80,12 +80,11 @@ cpdef object spill_partitions(
     cdef cpp_BufferResource* _br = br.ptr()
     cdef vector[cpp_PackedData] _partitions = _partitions_py_to_cpp(partitions)
     cdef vector[cpp_PackedData] _ret
-    cdef uint64_t cpp_reservation_context = <uint64_t>reservation_context
     with nogil:
         _ret = cpp_spill_partitions(
             move(_partitions),
             _br,
-            move(cpp_reservation_context),
+            reservation_context,
         )
     return packed_data_vector_to_list(move(_ret), br)
 
@@ -94,7 +93,7 @@ cpdef object unspill_partitions(
     object partitions,
     BufferResource br,
     object allow_overbooking,
-    object reservation_context=0,
+    uint64_t reservation_context=0,
 ):
     """
     Move spilled partitions back to device memory.
@@ -139,14 +138,11 @@ cpdef object unspill_partitions(
     cdef AllowOverbooking ab = (
         AllowOverbooking.YES if allow_overbooking else AllowOverbooking.NO
     )
-    cdef uint64_t cpp_reservation_context = (
-        <uint64_t>reservation_context
-    )
     with nogil:
         _ret = cpp_unspill_partitions(
             move(_partitions),
             _br,
             ab,
-            move(cpp_reservation_context),
+            reservation_context,
         )
     return packed_data_vector_to_list(move(_ret), br)

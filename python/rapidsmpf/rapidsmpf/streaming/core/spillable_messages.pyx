@@ -36,9 +36,13 @@ cdef class SpillableMessages:
     >>> msgs.spill(mid=mid, br=br)
     >>> recovered = msgs.extract(mid=mid)
     """
-    def __init__(self, BufferResource br not None, *, reservation_context=0):
-        cdef uint64_t cpp_reservation_context = <uint64_t>reservation_context
-        self._handle = make_shared[cpp_SpillableMessages](move(cpp_reservation_context))
+    def __init__(
+        self,
+        BufferResource br not None,
+        *,
+        uint64_t reservation_context=0,
+    ):
+        self._handle = make_shared[cpp_SpillableMessages](reservation_context)
         self._br = br
 
     def __dealloc__(self):

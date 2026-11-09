@@ -30,7 +30,7 @@ cdef extern from * nogil:
             op_id,
             br,
             nullptr,
-            std::move(reservation_context)
+            reservation_context
         );
     }
     """
@@ -76,20 +76,18 @@ cdef class AllGather:
         int32_t op_id,
         BufferResource br not None,
         *,
-        reservation_context=0,
+        uint64_t reservation_context=0,
     ):
         self._br = br
         self._comm = comm
         cdef cpp_BufferResource* br_ = br.ptr()
-        cdef uint64_t cpp_reservation_context = \
-            <uint64_t>reservation_context
         self.in_context = False
         with nogil:
             self._handle = cpp_make_allgather(
                 comm._handle,
                 op_id,
                 br_,
-                move(cpp_reservation_context),
+                reservation_context,
             )
 
     def __dealloc__(self):

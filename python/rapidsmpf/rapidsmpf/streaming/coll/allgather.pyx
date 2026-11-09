@@ -83,15 +83,13 @@ cdef class AllGather:
         Communicator comm not None,
         int32_t op_id,
         *,
-        reservation_context=0,
+        uint64_t reservation_context=0,
     ):
         self._comm = comm
         self.in_context = False
-        cdef uint64_t cpp_reservation_context = \
-            <uint64_t>reservation_context
         with nogil:
             self._handle = make_unique[cpp_AllGather](
-                ctx._handle, comm._handle, op_id, move(cpp_reservation_context)
+                ctx._handle, comm._handle, op_id, reservation_context
             )
 
     def __dealloc__(self):
@@ -182,7 +180,7 @@ def allgather(
     int32_t op_id,
     *,
     bool ordered,
-    reservation_context=0,
+    uint64_t reservation_context=0,
 ):
     """
     Launch an allgather actor for a single allgather operation.
@@ -214,8 +212,6 @@ def allgather(
 
     cdef cpp_Actor _ret
     cdef cpp_Ordered c_ordered = cpp_Ordered.YES if ordered else cpp_Ordered.NO
-    cdef uint64_t cpp_reservation_context = \
-        <uint64_t>reservation_context
     with nogil:
         _ret = cpp_allgather(
             ctx._handle,
@@ -224,6 +220,6 @@ def allgather(
             ch_out._handle,
             op_id,
             c_ordered,
-            move(cpp_reservation_context),
+            reservation_context,
         )
     return CppActor.from_handle(make_unique[cpp_Actor](move(_ret)), owner=None)

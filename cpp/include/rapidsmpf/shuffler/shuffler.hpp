@@ -136,7 +136,7 @@ class Shuffler {
         BufferResource* br,
         FinishedCallback&& finished_callback,
         PartitionOwner partition_owner = round_robin,
-        std::uint64_t reservation_context = {}
+        std::uint64_t reservation_context = 0
     );
 
     /**
@@ -161,7 +161,7 @@ class Shuffler {
         PartID total_num_partitions,
         BufferResource* br,
         PartitionOwner partition_owner = round_robin,
-        std::uint64_t reservation_context = {}
+        std::uint64_t reservation_context = 0
     )
         : Shuffler(
               comm,
@@ -170,7 +170,7 @@ class Shuffler {
               br,
               nullptr,
               partition_owner,
-              std::move(reservation_context)
+              reservation_context
           ) {}
 
     ~Shuffler();

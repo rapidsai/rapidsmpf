@@ -230,7 +230,7 @@ class Chunk {
         std::vector<std::uint8_t>&& metadata,
         std::unique_ptr<Buffer> data,
         BufferResource* br,
-        std::uint64_t reservation_context = {}
+        std::uint64_t reservation_context = 0
     );
 
     /**

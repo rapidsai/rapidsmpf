@@ -456,17 +456,11 @@ Actor fanout(
     switch (policy) {
     case FanoutPolicy::BOUNDED:
         return bounded_fanout(
-            std::move(ctx),
-            std::move(ch_in),
-            std::move(chs_out),
-            std::move(reservation_context)
+            std::move(ctx), std::move(ch_in), std::move(chs_out), reservation_context
         );
     case FanoutPolicy::UNBOUNDED:
         return unbounded_fanout(
-            std::move(ctx),
-            std::move(ch_in),
-            std::move(chs_out),
-            std::move(reservation_context)
+            std::move(ctx), std::move(ch_in), std::move(chs_out), reservation_context
         );
     default:
         RAPIDSMPF_FAIL("Unknown broadcast policy", std::invalid_argument);

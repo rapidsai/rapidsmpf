@@ -49,7 +49,7 @@ class SpillableMessages {
      * reservations.
      */
     explicit SpillableMessages(std::uint64_t reservation_context = 0)
-        : reservation_context_{std::move(reservation_context)} {}
+        : reservation_context_{reservation_context} {}
 
     SpillableMessages(SpillableMessages const&) = delete;
     SpillableMessages& operator=(SpillableMessages const&) = delete;
