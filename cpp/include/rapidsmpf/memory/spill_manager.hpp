@@ -57,8 +57,6 @@ class SpillManager {
 
     /// @brief What `spill_to_make_headroom()` found and did.
     struct HeadroomResult {
-        /// The memory type the headroom was requested for.
-        MemoryType mem_type;
         /// How far the memory available for reservation fell short of the headroom,
         /// read under the spill lock. Zero when the headroom was already available.
         std::size_t deficit;
@@ -66,19 +64,7 @@ class SpillManager {
         /// little spillable data, or more, since data is spilled in whole buffers.
         std::size_t spilled;
 
-        /**
-         * @brief Constructs a result.
-         *
-         * @param mem_type The memory type the headroom was requested for.
-         * @param deficit How far the available memory fell short of the headroom.
-         * @param spilled What was spilled towards the headroom.
-         */
-        constexpr HeadroomResult(
-            MemoryType mem_type, std::size_t deficit, std::size_t spilled
-        ) noexcept
-            : mem_type{mem_type}, deficit{deficit}, spilled{spilled} {}
-
-        /// @brief Member-wise comparison, `mem_type` first.
+        /// @brief Member-wise comparison, `deficit` first.
         /// @return The ordering of the two results.
         auto operator<=>(HeadroomResult const&) const = default;
     };
@@ -162,8 +148,7 @@ class SpillManager {
      * `headroom`.
      * @param mem_type The memory type to make headroom in, `MemoryType::DEVICE` by
      * default.
-     * @return The memory type, the deficit found under the spill lock and what was
-     * spilled towards it.
+     * @return The deficit found under the spill lock and what was spilled towards it.
      *
      * @throws std::invalid_argument if @p mem_type has no lower memory type to spill
      * into, i.e. `MemoryType::DISK`.

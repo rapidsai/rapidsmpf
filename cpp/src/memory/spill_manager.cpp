@@ -141,10 +141,10 @@ SpillManager::HeadroomResult SpillManager::spill_to_make_headroom(
     std::lock_guard<std::mutex> lock(mutex_);
     std::int64_t const available = br_->memory_available_for_reservation(mem_type);
     if (headroom <= available) {
-        return {mem_type, 0, 0};
+        return {.deficit = 0, .spilled = 0};
     }
     auto const deficit = safe_cast<std::size_t>(headroom - available);
-    return {mem_type, deficit, spill_unsafe(deficit, mem_type)};
+    return {.deficit = deficit, .spilled = spill_unsafe(deficit, mem_type)};
 }
 
 }  // namespace rapidsmpf
