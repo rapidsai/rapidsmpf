@@ -6,10 +6,13 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <future>
+#include <iostream>
 #include <memory>
+#include <stdexcept>
 #include <thread>
 #include <tuple>
 
@@ -33,6 +36,16 @@
 #include "utils.hpp"
 
 extern Environment* GlobalEnvironment;
+
+namespace {
+
+// Upper bound on how long a test waits for a shuffle to complete. A shuffle in these
+// tests normally completes in milliseconds. The bound is long because a slow or
+// oversubscribed CI node can stall a shuffle for seconds, and a test that times out
+// fails. On a node so slow that even this bound is too short, we accept the failure.
+constexpr auto wait_timeout = std::chrono::seconds{30};
+
+}  // namespace
 
 TEST(ReceivedChunks, spill_skips_control_messages) {
     auto mr = rmm::mr::get_current_device_resource_ref();
@@ -401,7 +414,6 @@ void test_shuffler(
 ) {
     // To expose unexpected deadlocks, we use a 30s timeout. In a normal run, the
     // shuffle shouldn't get near 30s.
-    std::chrono::seconds const wait_timeout(30);
 
     for (rapidsmpf::shuffler::PartID local_pidx : shuffler.local_partitions()) {
         shuffler.insert(make_partition_data(
@@ -509,7 +521,7 @@ TEST(Shuffler, payload_statistics) {
     }
     shuffler.insert(std::move(chunks));
     shuffler.insert_finished();
-    shuffler.wait(std::chrono::seconds{30});
+    shuffler.wait(wait_timeout);
 
     auto const local_pid =
         rapidsmpf::safe_cast<rapidsmpf::shuffler::PartID>(comm->rank());
@@ -561,7 +573,7 @@ TEST(Shuffler, progress_stops_when_complete) {
     }
     shuffler.insert(std::move(chunks));
     shuffler.insert_finished();
-    shuffler.wait(std::chrono::seconds{30});
+    shuffler.wait(wait_timeout);
 
     // The probe runs once per progress iteration, after the shuffler's function. It
     // records the poll count of the shuffler's exchange in its first and third run.
@@ -736,7 +748,7 @@ TEST(Shuffler, InsertSpillsOnlyLocalChunksToDisk) {
     progress_thread->resume();
 
     shuffler.insert_finished();
-    shuffler.wait(std::chrono::seconds{30});
+    shuffler.wait(wait_timeout);
     for (auto pid : shuffler.local_partitions()) {
         auto extracted = rapidsmpf::unspill_partitions(
             shuffler.extract(pid), br.get(), rapidsmpf::AllowOverbooking::YES
@@ -788,7 +800,7 @@ TEST(Shuffler, InsertsDiskBackedData) {
     }
     shuffler.insert(std::move(chunks));
     shuffler.insert_finished();
-    shuffler.wait(std::chrono::seconds{30});
+    shuffler.wait(wait_timeout);
 
     for (auto pid : shuffler.local_partitions()) {
         auto extracted = shuffler.extract(pid);
@@ -1179,7 +1191,6 @@ TEST(Shuffler, ShutdownWhilePaused) {
 class ExtractEmptyPartitionsTest : public ::testing::Test {
   public:
     static constexpr rapidsmpf::shuffler::PartID nparts = 10;
-    static constexpr auto wait_timeout = std::chrono::seconds(30);
 
     void SetUp() override {
         stream = cuda::stream_ref{cudaStreamLegacy};
@@ -1290,7 +1301,7 @@ TEST(ShufflerTest, multiple_shutdowns) {
     );
 
     shuffler->insert_finished();
-    EXPECT_NO_THROW(shuffler->wait(std::chrono::seconds(30)));
+    EXPECT_NO_THROW(shuffler->wait(wait_timeout));
     for (auto pid : shuffler->local_partitions()) {
         std::ignore = shuffler->extract(pid);
     }
@@ -1316,7 +1327,6 @@ TEST(Shuffler, concurrent_wait) {
     auto const total_num_partitions =
         rapidsmpf::safe_cast<rapidsmpf::shuffler::PartID>(comm->nranks()) * 8;
     constexpr std::size_t total_num_rows = 1000;
-    constexpr auto wait_timeout = std::chrono::seconds{30};
 
     rapidsmpf::shuffler::Shuffler shuffler(comm, 0, total_num_partitions, br.get());
 
@@ -1370,7 +1380,6 @@ TEST(Shuffler, opid_reuse) {
         rapidsmpf::safe_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
     constexpr std::size_t total_num_rows = 1000;
     constexpr rapidsmpf::OpID op_id = 0;
-    constexpr auto wait_timeout = std::chrono::seconds{30};
 
     rmm::mr::cuda_memory_resource mr;
     auto br = rapidsmpf::BufferResource::create(mr);
@@ -1423,6 +1432,39 @@ TEST(Shuffler, opid_reuse) {
     validate_results(shuffle2, 123);
 }
 
+// Back-to-back shuffles on the same op_id where rank 0 owns every partition, so rank 0
+// has no control chunk to send. This stresses the race between `insert_finished()` and
+// the progress function deciding that the shuffle is done.
+TEST(Shuffler, opid_reuse_with_single_owner) {
+    auto const& comm = GlobalEnvironment->comm_;
+    auto br =
+        rapidsmpf::BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    auto const rank_zero_owns_all = [](std::shared_ptr<rapidsmpf::Communicator> const&,
+                                       rapidsmpf::shuffler::PartID,
+                                       rapidsmpf::shuffler::PartID) -> rapidsmpf::Rank {
+        return 0;
+    };
+    for (int i = 0; i < 1000; ++i) {
+        rapidsmpf::shuffler::Shuffler shuffler(
+            comm, 0, 1, br.get(), {}, rank_zero_owns_all
+        );
+        if (comm->rank() == 0) {
+            // Let the control chunks of the other ranks arrive first.
+            std::this_thread::sleep_for(std::chrono::microseconds{100});
+        }
+        shuffler.insert_finished();
+        try {
+            shuffler.wait(wait_timeout);
+        } catch (std::runtime_error const& e) {
+            // The destructor of a shuffler that did not complete blocks forever, so
+            // abort instead of hanging.
+            std::cerr << "opid_reuse_with_single_owner: shuffle " << i
+                      << " did not complete: " << e.what() << std::endl;
+            std::abort();
+        }
+    }
+}
+
 // Same as opid_reuse but with total_num_partitions=1, so only rank 0 owns a partition.
 // All other ranks have empty local_partitions and empty recv loops. This exercises the
 // edge case where non-partition-owning ranks must still correctly handle op_id reuse.
@@ -1436,7 +1478,6 @@ TEST(Shuffler, opid_reuse_with_empty_partitions) {
     constexpr rapidsmpf::shuffler::PartID total_num_partitions = 1;
     constexpr std::size_t total_num_rows = 1000;
     constexpr rapidsmpf::OpID op_id = 0;
-    constexpr auto wait_timeout = std::chrono::seconds{30};
 
     rmm::mr::cuda_memory_resource mr;
     auto br = rapidsmpf::BufferResource::create(mr);
