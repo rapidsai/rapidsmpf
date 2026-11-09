@@ -62,7 +62,10 @@ std::size_t SpillableMessages::spill(
 
     // Acquire the item's lock and verify that it still holds a message,
     // since it may have been extracted while the global lock was released.
-    std::unique_lock item_lock(item->mutex);
+    std::unique_lock item_lock(item->mutex, std::try_to_lock);
+    if (!item_lock.owns_lock()) {
+        return 0;
+    }
     if (!item->message.has_value()) {
         return 0;
     }

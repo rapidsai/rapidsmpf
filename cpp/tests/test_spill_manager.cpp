@@ -4,7 +4,6 @@
  */
 
 
-#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -451,18 +450,25 @@ TEST(SpillManager, PeriodicSpillMakesHeadroomInHost) {
     auto& manager = br->spill_manager();
 
     // A spill function that simulates freeing HOST memory by raising its limit.
-    std::atomic<std::size_t> host_spilled{0};
-    std::atomic<bool> spilled_other_type{false};
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::size_t host_spilled{0};
+    bool spilled_other_type{false};
     auto const fid = manager.add_spill_function(
         [&](std::size_t amount, MemoryType mem_type) -> std::size_t {
             if (mem_type != MemoryType::HOST) {
+                std::lock_guard lock(mutex);
                 spilled_other_type = true;
                 return 0;
             }
             br->set_memory_limit(
                 mem_type, br->memory_available(mem_type) + safe_cast<std::int64_t>(amount)
             );
-            host_spilled += amount;
+            {
+                std::lock_guard lock(mutex);
+                host_spilled += amount;
+            }
+            cv.notify_all();
             return amount;
         },
         /* priority = */ 0
@@ -473,13 +479,15 @@ TEST(SpillManager, PeriodicSpillMakesHeadroomInHost) {
         br->reserve(MemoryType::HOST, 16_KiB, AllowOverbooking::YES);
     EXPECT_EQ(overbooking, 6_KiB);
 
-    auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{30};
-    while (host_spilled == 0 && std::chrono::steady_clock::now() < deadline) {
-        std::this_thread::sleep_for(std::chrono::milliseconds{1});
+    {
+        std::unique_lock lock(mutex);
+        EXPECT_TRUE(cv.wait_for(lock, std::chrono::seconds{30}, [&] {
+            return host_spilled > 0;
+        }));
+        EXPECT_EQ(host_spilled, 6_KiB);
+        EXPECT_FALSE(spilled_other_type);
     }
-    EXPECT_EQ(host_spilled.load(), 6_KiB);
     EXPECT_GE(br->memory_available(MemoryType::HOST), 0);
-    EXPECT_FALSE(spilled_other_type.load());
 
     manager.remove_spill_function(fid);
 }
