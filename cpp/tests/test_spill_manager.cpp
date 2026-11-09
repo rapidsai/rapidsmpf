@@ -4,6 +4,8 @@
  */
 
 
+#include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <mutex>
@@ -434,6 +436,50 @@ TEST(SpillManager, HeadroomForAnotherMemoryType) {
         std::ignore = manager.spill_to_make_headroom(0, MemoryType::DISK),
         std::invalid_argument
     );
+
+    manager.remove_spill_function(fid);
+}
+
+TEST(SpillManager, PeriodicSpillMakesHeadroomInHost) {
+    // Only HOST has a limit, so only HOST can fall short of its headroom.
+    auto br = BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        PinnedMemoryDisabled,
+        {{MemoryType::HOST, 10_KiB}},
+        std::chrono::milliseconds{1}
+    );
+    auto& manager = br->spill_manager();
+
+    // A spill function that simulates freeing HOST memory by raising its limit.
+    std::atomic<std::size_t> host_spilled{0};
+    std::atomic<bool> spilled_other_type{false};
+    auto const fid = manager.add_spill_function(
+        [&](std::size_t amount, MemoryType mem_type) -> std::size_t {
+            if (mem_type != MemoryType::HOST) {
+                spilled_other_type = true;
+                return 0;
+            }
+            br->set_memory_limit(
+                mem_type, br->memory_available(mem_type) + safe_cast<std::int64_t>(amount)
+            );
+            host_spilled += amount;
+            return amount;
+        },
+        /* priority = */ 0
+    );
+
+    // Overbook HOST by 6 KiB. Nothing spills it except the periodic thread.
+    auto [reservation, overbooking] =
+        br->reserve(MemoryType::HOST, 16_KiB, AllowOverbooking::YES);
+    EXPECT_EQ(overbooking, 6_KiB);
+
+    auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{30};
+    while (host_spilled == 0 && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds{1});
+    }
+    EXPECT_EQ(host_spilled.load(), 6_KiB);
+    EXPECT_GE(br->memory_available(MemoryType::HOST), 0);
+    EXPECT_FALSE(spilled_other_type.load());
 
     manager.remove_spill_function(fid);
 }
