@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include <rapidsmpf/streaming/core/actor.hpp>
 #include <rapidsmpf/streaming/core/channel.hpp>
 #include <rapidsmpf/streaming/core/context.hpp>

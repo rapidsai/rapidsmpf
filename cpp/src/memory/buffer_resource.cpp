@@ -4,14 +4,12 @@
  */
 
 #include <algorithm>
-#include <cassert>
 #include <limits>
 #include <optional>
 #include <ranges>
 #include <stdexcept>
 #include <string>
 #include <utility>
-#include <vector>
 
 #include <unistd.h>
 

@@ -73,9 +73,13 @@ cdef class AllGather:
     ----------
     ctx
         Streaming context
+    comm
+        The communicator for communication between ranks.
     op_id
         Operation id identifying this allgather. Must not be reused while
         this object is still live.
+    reservation_context
+        Optional telemetry attribution token for internal memory reservations.
     """
     def __init__(
         self,
@@ -203,6 +207,8 @@ def allgather(
         have shut down.
     ordered
         Should the output channel provide data in order of input sequence numbers?
+    reservation_context
+        Optional telemetry attribution token for internal memory reservations.
 
     Returns
     -------

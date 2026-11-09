@@ -349,17 +349,35 @@ class MetadataPayloadExchange {
  * @param br The buffer resource to allocate from.
  * @param size The size of the buffer in bytes.
  * @param mode Whether the allocation may fail.
- * @param reservation_context Opaque telemetry attribution token.
  * @return The buffer, or `nullptr` if @p mode allows failing and nothing fits.
  *
  * @throws std::runtime_error If the allocation must succeed, nothing fits, and
  * overbooking is not allowed.
  */
 [[nodiscard]] std::unique_ptr<Buffer> default_allocate_buffer(
+    BufferResource* br, std::size_t size, MetadataPayloadExchange::AllocationMode mode
+);
+
+/**
+ * @brief Allocate a receive buffer with telemetry attribution.
+ *
+ * Behaves like `default_allocate_buffer()` and attributes its memory reservation to the
+ * supplied context.
+ *
+ * @param br The buffer resource to allocate from.
+ * @param size The size of the buffer in bytes.
+ * @param mode Whether the allocation may fail.
+ * @param reservation_context Opaque telemetry attribution token.
+ * @return The buffer, or `nullptr` if @p mode allows failing and nothing fits.
+ *
+ * @throws std::runtime_error If the allocation must succeed, nothing fits, and
+ * overbooking is not allowed.
+ */
+[[nodiscard]] std::unique_ptr<Buffer> default_allocate_buffer_with_context(
     BufferResource* br,
     std::size_t size,
     MetadataPayloadExchange::AllocationMode mode,
-    std::uint64_t reservation_context = 0
+    std::uint64_t reservation_context
 );
 
 }  // namespace rapidsmpf::communicator

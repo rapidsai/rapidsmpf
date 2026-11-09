@@ -240,7 +240,7 @@ Shuffler::Shuffler(
           op_id,
           all_remote_ranks(*comm_),
           [this](BufferResource* br, std::size_t size, auto mode) {
-              return communicator::default_allocate_buffer(
+              return communicator::default_allocate_buffer_with_context(
                   br, size, mode, reservation_context_
               );
           },

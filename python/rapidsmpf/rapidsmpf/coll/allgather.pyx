@@ -62,6 +62,8 @@ cdef class AllGather:
         between 0 and 2^20 - 1.
     br
         Buffer resource for memory allocation.
+    reservation_context
+        Optional telemetry attribution token for internal memory reservations.
 
     Notes
     -----

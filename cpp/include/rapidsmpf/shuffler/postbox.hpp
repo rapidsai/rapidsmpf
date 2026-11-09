@@ -6,6 +6,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <mutex>
 #include <string>
 #include <unordered_map>

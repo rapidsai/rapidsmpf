@@ -37,6 +37,12 @@ void MetadataPayloadExchange::Message::set_data(std::unique_ptr<Buffer> buffer) 
 }
 
 std::unique_ptr<Buffer> default_allocate_buffer(
+    BufferResource* br, std::size_t size, MetadataPayloadExchange::AllocationMode mode
+) {
+    return default_allocate_buffer_with_context(br, size, mode, 0);
+}
+
+std::unique_ptr<Buffer> default_allocate_buffer_with_context(
     BufferResource* br,
     std::size_t size,
     MetadataPayloadExchange::AllocationMode mode,

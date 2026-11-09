@@ -28,6 +28,8 @@ cdef class SpillableMessages:
     ----------
     br
         A BufferResource to keep alive.
+    reservation_context
+        Optional telemetry attribution token for spill reservations.
 
     Examples
     --------

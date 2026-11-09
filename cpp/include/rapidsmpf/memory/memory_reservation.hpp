@@ -123,7 +123,7 @@ class MemoryReservation {
         MemoryType mem_type,
         BufferResource* br,
         std::size_t size,
-        std::uint64_t reservation_context = 0,
+        std::uint64_t reservation_context,
         std::uint64_t observed_session = 0
     )
         : mem_type_{mem_type},
@@ -133,10 +133,10 @@ class MemoryReservation {
           observed_session_{observed_session} {}
 
   private:
-    MemoryType mem_type_{MemoryType::HOST};
-    BufferResource* br_{nullptr};
-    std::size_t size_{0};
-    std::uint64_t reservation_context_{0};
-    std::uint64_t observed_session_{0};
+    MemoryType mem_type_;
+    BufferResource* br_;
+    std::size_t size_;
+    std::uint64_t reservation_context_;
+    std::uint64_t observed_session_;
 };
 }  // namespace rapidsmpf

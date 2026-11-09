@@ -105,6 +105,8 @@ def shuffler(
         :attr:`~.PartitionAssignment.CONTIGUOUS` so each rank gets a contiguous range
         of partition IDs (e.g. for sort so concatenation order matches global order).
         A custom callable may be supported in the future.
+    reservation_context
+        Optional telemetry attribution token for internal memory reservations.
 
     Returns
     -------
@@ -149,6 +151,8 @@ cdef class ShufflerAsync:
         :attr:`~.PartitionAssignment.CONTIGUOUS` so each rank gets a contiguous range
         of partition IDs (e.g. for sort so concatenation order matches global order).
         A custom callable may be supported in the future.
+    reservation_context
+        Optional telemetry attribution token for internal memory reservations.
     """
     def __init__(
         self,

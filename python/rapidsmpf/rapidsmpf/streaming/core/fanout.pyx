@@ -43,6 +43,8 @@ def fanout(
         output channels are being consumed by independent consumers in the
         downstream. :attr:`~.FanoutPolicy.UNBOUNDED` can be used if the output channels
         are being consumed by a single/ shared consumer in the downstream.
+    reservation_context
+        Optional telemetry attribution token for message-copy reservations.
 
     Returns
     -------

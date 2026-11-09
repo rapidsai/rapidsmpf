@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <mutex>
 #include <optional>
 #include <set>

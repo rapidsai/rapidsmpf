@@ -661,6 +661,8 @@ cdef class BufferResource:
             The number of bytes to reserve.
         allow_overbooking
             Whether overbooking is permitted.
+        reservation_context
+            Optional telemetry attribution token for the reservation.
 
         Returns
         -------
@@ -704,6 +706,8 @@ cdef class BufferResource:
             Whether to allow overbooking. If false, ensures enough memory is freed
             to satisfy the reservation. If true, the reservation may succeed even
             if spilling was insufficient.
+        reservation_context
+            Optional telemetry attribution token for the reservation.
 
         Returns
         -------
@@ -745,6 +749,8 @@ cdef class BufferResource:
         mem_types
             List of :class:`~.MemoryType` values specifying the order of preference
             in which memory types are tried.
+        reservation_context
+            Optional telemetry attribution token for the reservation.
 
         Returns
         -------

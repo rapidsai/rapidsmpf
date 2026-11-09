@@ -119,7 +119,7 @@ cpdef object unspill_partitions(
         If False, ensures enough memory is freed to satisfy the reservation;
         otherwise, allows overbooking even if spilling was insufficient.
     reservation_context
-        Optional telemetry reservation_context for the unspill reservation.
+        Optional telemetry reservation context for the unspill reservation.
 
     Returns
     -------

@@ -172,7 +172,7 @@ AllGather::AllGather(
         op_id,
         std::vector<Rank>(peers.begin(), peers.end()),
         [reservation_context](BufferResource* resource, std::size_t size, auto mode) {
-            return communicator::default_allocate_buffer(
+            return communicator::default_allocate_buffer_with_context(
                 resource, size, mode, reservation_context
             );
         },

@@ -803,10 +803,6 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     }
 
   private:
-    [[nodiscard]] bool reservation_event_recording_enabled() const noexcept {
-        return recording_enabled_.load(std::memory_order_acquire);
-    }
-
     std::uint64_t record_reservation_event(
         std::uint64_t reservation_context,
         MemoryType memory_type,

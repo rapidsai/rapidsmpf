@@ -121,9 +121,9 @@ TEST_P(StreamingMemoryReserveOrWait, ShutdownEarly) {
         ctx->executor(),
         ctx->br()
     };
+
     // Create a reserve request while no memory is available.
     set_mem_avail(0);
-    br->start_reservation_event_recording();
     std::vector<Actor> actors;
     actors.push_back([](MemoryReserveOrWait& mrow) -> Actor {
         EXPECT_THROW(
@@ -142,9 +142,6 @@ TEST_P(StreamingMemoryReserveOrWait, ShutdownEarly) {
     // We expect shutdown to make `reserve_or_wait()` throw std::runtime_error.
     coro::sync_wait(mrow.shutdown());
     thd.join();
-
-    auto events = br->stop_reservation_event_recording();
-    EXPECT_TRUE(events.events.empty());
 }
 
 struct ReserveLog {

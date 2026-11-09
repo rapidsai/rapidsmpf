@@ -12,7 +12,6 @@
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <utility>
 #include <vector>
 
 #include <rapidsmpf/coll/utils.hpp>

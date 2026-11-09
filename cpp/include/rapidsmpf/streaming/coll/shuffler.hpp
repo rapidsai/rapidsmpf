@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include <coro/event.hpp>
 
 #include <rapidsmpf/shuffler/shuffler.hpp>

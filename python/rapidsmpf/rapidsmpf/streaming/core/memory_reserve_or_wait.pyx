@@ -412,6 +412,8 @@ cdef class MemoryReserveOrWait:
         net_memory_delta
             Estimated net change in memory usage after the reservation has been granted
             and the dependent operation completes. Smaller values have higher priority.
+        reservation_context
+            Optional telemetry attribution token for the reservation.
 
         Returns
         -------
@@ -467,6 +469,8 @@ cdef class MemoryReserveOrWait:
         net_memory_delta
             Heuristic used to prioritize eligible requests. See `reserve_or_wait()`
             for details and semantics.
+        reservation_context
+            Optional telemetry attribution token for the reservation.
 
         Returns
         -------
@@ -527,6 +531,8 @@ cdef class MemoryReserveOrWait:
         net_memory_delta
             Heuristic used to prioritize eligible requests. See `reserve_or_wait()`
             for details and semantics.
+        reservation_context
+            Optional telemetry attribution token for the reservation.
 
         Returns
         -------
@@ -620,6 +626,8 @@ async def reserve_memory(
           - If ``None`` (the default), the behavior is determined by the
             configuration option ``"allow_overbooking_by_default"``, which is
             read via ``ctx.options()``.
+    reservation_context
+        Optional telemetry attribution token for the reservation.
 
     Returns
     -------

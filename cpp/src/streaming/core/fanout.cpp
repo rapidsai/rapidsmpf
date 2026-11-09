@@ -24,9 +24,11 @@ namespace {
 /**
  * @brief Asynchronously send a message to multiple output channels.
  *
+ * @param ctx The context to use.
  * @param msg The message to broadcast. Each channel receives a deep copy of the original
  * message.
  * @param chs_out The set of output channels to which the message is sent.
+ * @param reservation_context Opaque telemetry attribution token for message copies.
  */
 Actor send_to_channels(
     Context& ctx,
@@ -76,6 +78,7 @@ Actor send_to_channels(
  * @param ctx The context to use.
  * @param ch_in The input channel to receive messages from.
  * @param chs_out The output channels to send messages to.
+ * @param reservation_context Opaque telemetry attribution token for message copies.
  * @return An actor representing the bounded fanout operation.
  */
 Actor bounded_fanout(
@@ -192,6 +195,7 @@ struct UnboundedFanout {
      * @param self_next_idx Next index to send for the current channel (passed by ref
      * because it needs to be updated)
      * @param ch_out The output channel to send messages to.
+     * @param reservation_context Opaque telemetry attribution token for message copies.
      * @return A coroutine representing the task.
      */
     Actor send_task(
@@ -410,6 +414,7 @@ struct UnboundedFanout {
  * @param ctx The context to use.
  * @param ch_in The input channel to receive messages from.
  * @param chs_out The output channels to send messages to.
+ * @param reservation_context Opaque telemetry attribution token for message copies.
  * @return An actor representing the unbounded fanout operation.
  */
 Actor unbounded_fanout(

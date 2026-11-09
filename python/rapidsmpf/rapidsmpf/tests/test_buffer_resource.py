@@ -105,8 +105,8 @@ def test_reservation_event_recording_lifecycle() -> None:
         reservation_context=42,
     )
     assert reservation.reservation_context == 42
-    first, failures = br.drain_reservation_events()
-    assert failures == 0
+    first, dropped_event_count = br.drain_reservation_events()
+    assert dropped_event_count == 0
     assert len(first) == 1
     timestamp_ns, context, memory_type, delta = first[0]
     assert timestamp_ns > 0
@@ -122,8 +122,8 @@ def test_reservation_event_recording_lifecycle() -> None:
         allow_overbooking=False,
     )
     assert empty.size == 0
-    final, failures = br.stop_reservation_event_recording()
-    assert failures == 0
+    final, dropped_event_count = br.stop_reservation_event_recording()
+    assert dropped_event_count == 0
     assert [(event[1], event[2], event[3]) for event in final] == [
         (42, MemoryType.DEVICE, -1),
         (42, MemoryType.DEVICE, -3),

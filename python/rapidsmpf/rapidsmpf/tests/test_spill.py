@@ -37,7 +37,7 @@ def test_spill_unspill_roundtrip(
         validate_packed_data(partition, num_elements, partition_id * 100)
 
 
-def test_unspill_reservation_context_are_recorded(
+def test_unspill_reservation_context_is_recorded(
     device_mr: rmm.mr.CudaMemoryResource,
     stream: Stream,
 ) -> None:
@@ -54,8 +54,10 @@ def test_unspill_reservation_context_are_recorded(
         allow_overbooking=False,
         reservation_context=7,
     )
-    events, failures = br.drain_reservation_events()
-    assert failures == 0
+    assert len(unspilled) == 1
+    events, dropped_event_count = br.drain_reservation_events()
+    assert dropped_event_count == 0
     assert any(event[1] == 7 and event[3] > 0 for event in events)
-    del unspilled
-    br.stop_reservation_event_recording()
+    assert any(event[1] == 7 and event[3] < 0 for event in events)
+    assert sum(event[3] for event in events if event[1] == 7) == 0
+    assert br.stop_reservation_event_recording() == ([], 0)
