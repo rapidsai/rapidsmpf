@@ -142,19 +142,103 @@ cdef extern from * nogil:
         vector[MemoryType],
         uint64_t,
     ) except +ex_handler
-cdef tuple _reservation_event_batch_to_tuple(
+
+
+cdef class ReservationEvent:
+    """
+    A change in reserved bytes recorded by a ``BufferResource``.
+
+    Parameters
+    ----------
+    timestamp_ns
+        Non-decreasing Unix timestamp in nanoseconds.
+    reservation_context
+        Opaque attribution token passed when the reservation was made.
+    memory_type
+        Memory type of the reservation.
+    byte_delta
+        Change in reserved bytes: positive on reserve, negative on release.
+    """
+
+    def __init__(
+        self,
+        *,
+        int64_t timestamp_ns,
+        uint64_t reservation_context,
+        MemoryType memory_type,
+        int64_t byte_delta,
+    ):
+        self.timestamp_ns = timestamp_ns
+        self.reservation_context = reservation_context
+        self._memory_type = memory_type
+        self.byte_delta = byte_delta
+
+    @property
+    def memory_type(self):
+        """Memory type of the reservation."""
+        return self._memory_type
+
+    def __eq__(self, other):
+        if not isinstance(other, ReservationEvent):
+            return NotImplemented
+        cdef ReservationEvent o = other
+        return (
+            self.timestamp_ns == o.timestamp_ns
+            and self.reservation_context == o.reservation_context
+            and self._memory_type == o._memory_type
+            and self.byte_delta == o.byte_delta
+        )
+
+    def __repr__(self):
+        return (
+            f"ReservationEvent(timestamp_ns={self.timestamp_ns}, "
+            f"reservation_context={self.reservation_context}, "
+            f"memory_type={self.memory_type!r}, byte_delta={self.byte_delta})"
+        )
+
+
+cdef class ReservationEventBatch:
+    """
+    Reservation events returned by draining or stopping a recording session.
+
+    Parameters
+    ----------
+    events
+        Recorded events, in recording order.
+    dropped_event_count
+        Number of events that could not be recorded.
+    """
+
+    def __init__(self, *, list events, uint64_t dropped_event_count=0):
+        self.events = events
+        self.dropped_event_count = dropped_event_count
+
+    def __repr__(self):
+        return (
+            f"ReservationEventBatch(events=<{len(self.events)} events>, "
+            f"dropped_event_count={self.dropped_event_count})"
+        )
+
+
+cdef ReservationEventBatch _reservation_event_batch_from_cpp(
     const cpp_ReservationEventBatch& batch
 ):
-    cdef list result = []
+    cdef list events = []
+    cdef ReservationEvent event
     cdef size_t index
     for index in range(batch.events.size()):
-        result.append((
-            batch.events[index].timestamp_ns,
-            batch.events[index].reservation_context,
-            <MemoryType>batch.events[index].memory_type,
-            batch.events[index].byte_delta,
-        ))
-    return result, batch.dropped_event_count
+        event = ReservationEvent.__new__(ReservationEvent)
+        event.timestamp_ns = batch.events[index].timestamp_ns
+        event.reservation_context = batch.events[index].reservation_context
+        event._memory_type = batch.events[index].memory_type
+        event.byte_delta = batch.events[index].byte_delta
+        events.append(event)
+    cdef ReservationEventBatch result = ReservationEventBatch.__new__(
+        ReservationEventBatch
+    )
+    result.events = events
+    result.dropped_event_count = batch.dropped_event_count
+    return result
 
 
 @no_gc_clear
@@ -616,20 +700,21 @@ cdef class BufferResource:
         """
         Atomically return events recorded so far while keeping recording active.
 
-        Returns ``(events, dropped_event_count)``. Each event is a
-        ``(timestamp_ns, reservation_context, memory_type, byte_delta)`` tuple.
+        Returns
+        -------
+        A ``ReservationEventBatch`` with the recorded events.
         """
         cdef cpp_ReservationEventBatch batch
         with nogil:
             batch = deref(self._handle).drain_reservation_events()
-        return _reservation_event_batch_to_tuple(batch)
+        return _reservation_event_batch_from_cpp(batch)
 
     def stop_reservation_event_recording(self):
-        """Disable recording and return the final event batch."""
+        """Disable recording and return the final ``ReservationEventBatch``."""
         cdef cpp_ReservationEventBatch batch
         with nogil:
             batch = deref(self._handle).stop_reservation_event_recording()
-        return _reservation_event_batch_to_tuple(batch)
+        return _reservation_event_batch_from_cpp(batch)
 
     def reserve(
         self,

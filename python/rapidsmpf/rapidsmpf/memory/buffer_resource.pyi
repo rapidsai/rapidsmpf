@@ -22,8 +22,32 @@ from rapidsmpf.memory.spill_manager import SpillManager
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.statistics import Statistics
 
-ReservationEvent = tuple[int, int, MemoryType, int]
-ReservationEventBatch = tuple[list[ReservationEvent], int]
+class ReservationEvent:
+    def __init__(
+        self,
+        *,
+        timestamp_ns: int,
+        reservation_context: int,
+        memory_type: MemoryType,
+        byte_delta: int,
+    ) -> None: ...
+    @property
+    def timestamp_ns(self) -> int: ...
+    @property
+    def reservation_context(self) -> int: ...
+    @property
+    def memory_type(self) -> MemoryType: ...
+    @property
+    def byte_delta(self) -> int: ...
+
+class ReservationEventBatch:
+    def __init__(
+        self, *, events: list[ReservationEvent], dropped_event_count: int = 0
+    ) -> None: ...
+    @property
+    def events(self) -> list[ReservationEvent]: ...
+    @property
+    def dropped_event_count(self) -> int: ...
 
 class BufferResource:
     def __init__(

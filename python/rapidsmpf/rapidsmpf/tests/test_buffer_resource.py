@@ -18,6 +18,8 @@ from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import (
     BufferResource,
     OwningDeviceMemoryResource,
+    ReservationEvent,
+    ReservationEventBatch,
     allow_overbooking_by_default_from_options,
     memory_reserve_timeout_from_options,
     spill_dir_from_options,
@@ -89,11 +91,17 @@ def test_memory_reservation(mem_type: MemoryType) -> None:
         br.release(res1, KiB(10))
 
 
+def assert_empty_batch(batch: ReservationEventBatch) -> None:
+    assert isinstance(batch, ReservationEventBatch)
+    assert batch.events == []
+    assert batch.dropped_event_count == 0
+
+
 def test_reservation_event_recording_lifecycle() -> None:
     br = BufferResource(rmm.mr.CudaMemoryResource())
     br.set_memory_limit(MemoryType.DEVICE, 10)
-    assert br.drain_reservation_events() == ([], 0)
-    assert br.stop_reservation_event_recording() == ([], 0)
+    assert_empty_batch(br.drain_reservation_events())
+    assert_empty_batch(br.stop_reservation_event_recording())
 
     br.start_reservation_event_recording()
     with pytest.raises(RuntimeError, match="already active"):
@@ -105,13 +113,18 @@ def test_reservation_event_recording_lifecycle() -> None:
         reservation_context=42,
     )
     assert reservation.reservation_context == 42
-    first, dropped_event_count = br.drain_reservation_events()
-    assert dropped_event_count == 0
-    assert len(first) == 1
-    timestamp_ns, context, memory_type, delta = first[0]
-    assert timestamp_ns > 0
-    assert (context, memory_type, delta) == (42, MemoryType.DEVICE, 4)
-    assert br.drain_reservation_events() == ([], 0)
+    first = br.drain_reservation_events()
+    assert first.dropped_event_count == 0
+    assert len(first.events) == 1
+    (event,) = first.events
+    assert event.timestamp_ns > 0
+    assert event == ReservationEvent(
+        timestamp_ns=event.timestamp_ns,
+        reservation_context=42,
+        memory_type=MemoryType.DEVICE,
+        byte_delta=4,
+    )
+    assert_empty_batch(br.drain_reservation_events())
 
     assert br.release(reservation, 1) == 3
     reservation.clear()
@@ -122,13 +135,16 @@ def test_reservation_event_recording_lifecycle() -> None:
         allow_overbooking=False,
     )
     assert empty.size == 0
-    final, dropped_event_count = br.stop_reservation_event_recording()
-    assert dropped_event_count == 0
-    assert [(event[1], event[2], event[3]) for event in final] == [
+    final = br.stop_reservation_event_recording()
+    assert final.dropped_event_count == 0
+    assert [
+        (event.reservation_context, event.memory_type, event.byte_delta)
+        for event in final.events
+    ] == [
         (42, MemoryType.DEVICE, -1),
         (42, MemoryType.DEVICE, -3),
     ]
-    assert br.stop_reservation_event_recording() == ([], 0)
+    assert_empty_batch(br.stop_reservation_event_recording())
 
 
 def test_memory_resource_introspection() -> None:

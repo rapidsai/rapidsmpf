@@ -101,6 +101,18 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
             cpp_MemoryReservation& reservation,
         ) except +ex_handler
 
+cdef class ReservationEvent:
+    cdef readonly int64_t timestamp_ns
+    cdef readonly uint64_t reservation_context
+    cdef MemoryType _memory_type
+    cdef readonly int64_t byte_delta
+
+
+cdef class ReservationEventBatch:
+    cdef readonly list events
+    cdef readonly uint64_t dropped_event_count
+
+
 cdef class BufferResource:
     cdef object __weakref__
     cdef shared_ptr[cpp_BufferResource] _handle

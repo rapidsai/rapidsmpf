@@ -55,9 +55,14 @@ def test_unspill_reservation_context_is_recorded(
         reservation_context=7,
     )
     assert len(unspilled) == 1
-    events, dropped_event_count = br.drain_reservation_events()
-    assert dropped_event_count == 0
-    assert any(event[1] == 7 and event[3] > 0 for event in events)
-    assert any(event[1] == 7 and event[3] < 0 for event in events)
-    assert sum(event[3] for event in events if event[1] == 7) == 0
-    assert br.stop_reservation_event_recording() == ([], 0)
+    batch = br.drain_reservation_events()
+    assert batch.dropped_event_count == 0
+    deltas = [
+        event.byte_delta for event in batch.events if event.reservation_context == 7
+    ]
+    assert any(delta > 0 for delta in deltas)
+    assert any(delta < 0 for delta in deltas)
+    assert sum(deltas) == 0
+    final = br.stop_reservation_event_recording()
+    assert final.events == []
+    assert final.dropped_event_count == 0
