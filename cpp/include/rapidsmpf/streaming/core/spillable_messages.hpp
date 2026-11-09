@@ -39,17 +39,28 @@ namespace rapidsmpf::streaming {
  */
 class SpillableMessages {
   public:
+    /// @brief Order in which messages are chosen for spilling.
+    enum class SpillOrder : std::uint8_t {
+        EARLIEST_FIRST,  ///< Spill the earliest inserted messages first.
+        LATEST_FIRST  ///< Spill the most recently inserted messages first.
+    };
+
     /// @brief Unique identifier assigned to each message.
     using MessageId = std::uint64_t;
 
     /**
-     * @brief Construct a spillable message store.
+     * @brief Construct an empty container.
      *
+     * @param spill_order Order in which `try_spill()` picks
+     * messages. Defaults to earliest inserted first.
      * @param reservation_context Default telemetry context for messages inserted
      * without an explicit context.
      */
-    explicit SpillableMessages(std::uint64_t reservation_context = 0)
-        : default_reservation_context_{reservation_context} {}
+    explicit SpillableMessages(
+        SpillOrder spill_order = SpillOrder::EARLIEST_FIRST,
+        std::uint64_t reservation_context = 0
+    )
+        : spill_order_{spill_order}, default_reservation_context_{reservation_context} {}
 
     SpillableMessages(SpillableMessages const&) = delete;
     SpillableMessages& operator=(SpillableMessages const&) = delete;
@@ -127,6 +138,27 @@ class SpillableMessages {
     [[nodiscard]] std::size_t spill(MessageId mid, BufferResource* br) const;
 
     /**
+     * @brief Spill messages until the target amount of memory has been released.
+     *
+     * Messages are spilled in the order given by the `SpillOrder` passed at
+     * construction (earliest inserted first by default). The function stops once
+     * the cumulative amount of spilled memory reaches or exceeds `amount`, or when no
+     * further spillable messages remain.
+     *
+     * @param br Buffer resource used for spill allocations.
+     * @param amount Target number of bytes to spill.
+     * @param mem_type The memory type to spill from. Only `MemoryType::DEVICE` is
+     * supported for now, other types spill nothing.
+     * @return The total number of bytes actually spilled.
+     *
+     * @todo Support additional spilling strategies (e.g., size-based or
+     * priority-based).
+     */
+    [[nodiscard]] std::size_t try_spill(
+        BufferResource* br, std::size_t amount, MemoryType mem_type
+    ) const;
+
+    /**
      * @brief Get a snapshot of current messages' content descriptions.
      *
      * The returned map may become outdated immediately if other threads
@@ -185,6 +217,7 @@ class SpillableMessages {
 
     // Never lock the global mutex and an item's mutex at the same time!
     mutable std::mutex global_mutex_;
+    SpillOrder spill_order_;
     MessageId counter_{0};
     std::unordered_map<MessageId, std::shared_ptr<Item>> items_;
     mutable std::map<MessageId, ContentDescription> content_descriptions_;

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from libc.stddef cimport size_t
-from libc.stdint cimport uint64_t
+from libc.stdint cimport uint8_t, uint64_t
 from libcpp.map cimport map as cpp_map
 from libcpp.memory cimport shared_ptr
 
@@ -14,10 +14,17 @@ from rapidsmpf.streaming.core.message cimport Message, cpp_Message
 
 
 cdef extern from "<rapidsmpf/streaming/core/spillable_messages.hpp>" nogil:
+    cdef enum class cpp_SpillOrder \
+            "rapidsmpf::streaming::SpillableMessages::SpillOrder"(uint8_t):
+        EARLIEST_FIRST
+        LATEST_FIRST
+
     cdef cppclass cpp_SpillableMessages"rapidsmpf::streaming::SpillableMessages":
         ctypedef uint64_t cpp_MessageId"MessageId"
 
-        cpp_SpillableMessages(uint64_t reservation_context) except +ex_handler
+        cpp_SpillableMessages(
+            cpp_SpillOrder spill_order, uint64_t reservation_context
+        ) except +ex_handler
         cpp_MessageId insert(cpp_Message message) except +ex_handler
         cpp_Message extract(cpp_MessageId mid) except +ex_handler
         size_t spill(cpp_MessageId mid, cpp_BufferResource *br) except +ex_handler

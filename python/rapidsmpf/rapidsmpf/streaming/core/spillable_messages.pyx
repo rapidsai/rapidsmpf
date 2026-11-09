@@ -44,7 +44,9 @@ cdef class SpillableMessages:
         *,
         uint64_t reservation_context=0,
     ):
-        self._handle = make_shared[cpp_SpillableMessages](reservation_context)
+        self._handle = make_shared[cpp_SpillableMessages](
+            cpp_SpillOrder.EARLIEST_FIRST, reservation_context
+        )
         self._br = br
 
     def __dealloc__(self):
