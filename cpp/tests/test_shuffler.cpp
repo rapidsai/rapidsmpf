@@ -23,8 +23,10 @@
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/memory/spill.hpp>
+#include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/shuffler/finish_counter.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
+#include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
 #include "environment.hpp"
@@ -533,6 +535,62 @@ TEST(Shuffler, payload_statistics) {
     }
 }
 
+// Test that the progress function stops polling the shuffler once the shuffle is
+// complete, without waiting for the shuffler to shut down.
+TEST(Shuffler, progress_stops_when_complete) {
+    auto const& comm = GlobalEnvironment->comm_;
+    auto const& progress_thread = comm->progress_thread();
+    auto statistics = rapidsmpf::Statistics::create();
+    auto br = rapidsmpf::BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        rapidsmpf::PinnedMemoryDisabled,
+        {},
+        std::chrono::milliseconds{1},
+        std::make_shared<rapidsmpf::StreamPool>(16),
+        statistics
+    );
+    auto const total_num_partitions =
+        rapidsmpf::safe_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
+
+    rapidsmpf::shuffler::Shuffler shuffler(comm, 0, total_num_partitions, br.get());
+    std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> chunks;
+    for (rapidsmpf::shuffler::PartID pid = 0; pid < total_num_partitions; ++pid) {
+        chunks.emplace(
+            pid, generate_packed_data(7, 0, cuda::stream_ref{cudaStreamLegacy}, *br)
+        );
+    }
+    shuffler.insert(std::move(chunks));
+    shuffler.insert_finished();
+    shuffler.wait(std::chrono::seconds{30});
+
+    // The probe runs once per progress iteration, after the shuffler's function. It
+    // records the poll count of the shuffler's exchange in its first and third run.
+    // The iteration that completed the shuffle ended before the probe was added.
+    constexpr std::size_t num_probe_runs = 3;
+    std::size_t probe_runs = 0;
+    std::size_t first_count = 0;
+    std::size_t last_count = 0;
+    std::atomic<bool> probe_done{false};
+    auto const probe_id = progress_thread->add_function([&]() {
+        auto const count =
+            statistics->get_stat("metadata-payload-exchange-progress").count();
+        if (++probe_runs == 1) {
+            first_count = count;
+        }
+        if (probe_runs < num_probe_runs) {
+            return rapidsmpf::ProgressThread::ProgressState::InProgress;
+        }
+        last_count = count;
+        probe_done.store(true, std::memory_order_release);
+        probe_done.notify_all();
+        return rapidsmpf::ProgressThread::ProgressState::Done;
+    });
+    probe_done.wait(false, std::memory_order_acquire);
+    progress_thread->remove_function(probe_id);
+
+    EXPECT_EQ(first_count, last_count);
+}
+
 // Test that the same communicator can be used concurrently by multiple shufflers in
 // separate threads
 class ConcurrentShuffleTest : public ::testing::TestWithParam<
@@ -863,12 +921,7 @@ TEST(Shuffler, SpillToDiskOnInsert) {
     EXPECT_EQ(comm->nranks(), 1);
 
     rapidsmpf::shuffler::Shuffler shuffler(
-        comm,
-        0,
-        num_partitions,
-        br.get(),
-        rapidsmpf::shuffler::Shuffler::round_robin,
-        nullptr
+        comm, 0, num_partitions, br.get(), rapidsmpf::shuffler::Shuffler::round_robin
     );
     std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> input;
     input.emplace(0, generate_packed_data(num_rows, 0, stream, *br));
