@@ -34,6 +34,16 @@
 
 extern Environment* GlobalEnvironment;
 
+namespace {
+
+// Upper bound on how long a test waits for a shuffle to complete. A shuffle in these
+// tests normally completes in milliseconds. The bound is long because a slow or
+// oversubscribed CI node can stall a shuffle for seconds, and a test that times out
+// fails. On a node so slow that even this bound is too short, we accept the failure.
+constexpr auto wait_timeout = std::chrono::seconds{30};
+
+}  // namespace
+
 TEST(ReceivedChunks, spill_skips_control_messages) {
     auto mr = rmm::mr::get_current_device_resource_ref();
     auto br = rapidsmpf::BufferResource::create(mr);
@@ -401,7 +411,6 @@ void test_shuffler(
 ) {
     // To expose unexpected deadlocks, we use a 30s timeout. In a normal run, the
     // shuffle shouldn't get near 30s.
-    std::chrono::seconds const wait_timeout(30);
 
     for (rapidsmpf::shuffler::PartID local_pidx : shuffler.local_partitions()) {
         shuffler.insert(make_partition_data(
@@ -509,7 +518,7 @@ TEST(Shuffler, payload_statistics) {
     }
     shuffler.insert(std::move(chunks));
     shuffler.insert_finished();
-    shuffler.wait(std::chrono::seconds{30});
+    shuffler.wait(wait_timeout);
 
     auto const local_pid =
         rapidsmpf::safe_cast<rapidsmpf::shuffler::PartID>(comm->rank());
@@ -561,7 +570,7 @@ TEST(Shuffler, progress_stops_when_complete) {
     }
     shuffler.insert(std::move(chunks));
     shuffler.insert_finished();
-    shuffler.wait(std::chrono::seconds{30});
+    shuffler.wait(wait_timeout);
 
     // The probe runs once per progress iteration, after the shuffler's function. It
     // records the poll count of the shuffler's exchange in its first and third run.
@@ -736,7 +745,7 @@ TEST(Shuffler, InsertSpillsOnlyLocalChunksToDisk) {
     progress_thread->resume();
 
     shuffler.insert_finished();
-    shuffler.wait(std::chrono::seconds{30});
+    shuffler.wait(wait_timeout);
     for (auto pid : shuffler.local_partitions()) {
         auto extracted = rapidsmpf::unspill_partitions(
             shuffler.extract(pid), br.get(), rapidsmpf::AllowOverbooking::YES
@@ -788,7 +797,7 @@ TEST(Shuffler, InsertsDiskBackedData) {
     }
     shuffler.insert(std::move(chunks));
     shuffler.insert_finished();
-    shuffler.wait(std::chrono::seconds{30});
+    shuffler.wait(wait_timeout);
 
     for (auto pid : shuffler.local_partitions()) {
         auto extracted = shuffler.extract(pid);
@@ -1179,7 +1188,6 @@ TEST(Shuffler, ShutdownWhilePaused) {
 class ExtractEmptyPartitionsTest : public ::testing::Test {
   public:
     static constexpr rapidsmpf::shuffler::PartID nparts = 10;
-    static constexpr auto wait_timeout = std::chrono::seconds(30);
 
     void SetUp() override {
         stream = cuda::stream_ref{cudaStreamLegacy};
@@ -1290,7 +1298,7 @@ TEST(ShufflerTest, multiple_shutdowns) {
     );
 
     shuffler->insert_finished();
-    EXPECT_NO_THROW(shuffler->wait(std::chrono::seconds(30)));
+    EXPECT_NO_THROW(shuffler->wait(wait_timeout));
     for (auto pid : shuffler->local_partitions()) {
         std::ignore = shuffler->extract(pid);
     }
@@ -1316,7 +1324,6 @@ TEST(Shuffler, concurrent_wait) {
     auto const total_num_partitions =
         rapidsmpf::safe_cast<rapidsmpf::shuffler::PartID>(comm->nranks()) * 8;
     constexpr std::size_t total_num_rows = 1000;
-    constexpr auto wait_timeout = std::chrono::seconds{30};
 
     rapidsmpf::shuffler::Shuffler shuffler(comm, 0, total_num_partitions, br.get());
 
@@ -1370,7 +1377,6 @@ TEST(Shuffler, opid_reuse) {
         rapidsmpf::safe_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
     constexpr std::size_t total_num_rows = 1000;
     constexpr rapidsmpf::OpID op_id = 0;
-    constexpr auto wait_timeout = std::chrono::seconds{30};
 
     rmm::mr::cuda_memory_resource mr;
     auto br = rapidsmpf::BufferResource::create(mr);
@@ -1436,7 +1442,6 @@ TEST(Shuffler, opid_reuse_with_empty_partitions) {
     constexpr rapidsmpf::shuffler::PartID total_num_partitions = 1;
     constexpr std::size_t total_num_rows = 1000;
     constexpr rapidsmpf::OpID op_id = 0;
-    constexpr auto wait_timeout = std::chrono::seconds{30};
 
     rmm::mr::cuda_memory_resource mr;
     auto br = rapidsmpf::BufferResource::create(mr);
