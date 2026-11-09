@@ -86,9 +86,11 @@ struct ReadTimeout : std::runtime_error {
 };
 
 void set_recv_timeout(int fd, std::chrono::microseconds timeout) {
+    auto const seconds = std::chrono::duration_cast<std::chrono::seconds>(timeout);
+    auto const micro = timeout - seconds;
     struct timeval tv{
-        .tv_sec = static_cast<time_t>(timeout.count() / 1'000'000),
-        .tv_usec = static_cast<suseconds_t>(timeout.count() % 1'000'000)
+        .tv_sec = static_cast<time_t>(seconds.count()),
+        .tv_usec = static_cast<suseconds_t>(micro.count())
     };
     ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 }
