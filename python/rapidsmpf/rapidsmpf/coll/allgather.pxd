@@ -3,6 +3,7 @@
 
 from libc.stdint cimport int32_t, int64_t, uint64_t
 from libcpp cimport bool
+from libcpp.functional cimport function
 from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.vector cimport vector
 
@@ -28,6 +29,8 @@ cdef extern from "<rapidsmpf/coll/allgather.hpp>" nogil:
             shared_ptr[cpp_Communicator] comm,
             int32_t op_id,
             cpp_BufferResource *br,
+            function[void()] finished_callback,
+            uint64_t reservation_context,
         ) except +ex_handler
         void insert(uint64_t sequence_number, cpp_PackedData packed_data) \
             except +ex_handler

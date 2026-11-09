@@ -4,42 +4,17 @@
 
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int32_t, uint64_t
-from libcpp.memory cimport shared_ptr, unique_ptr
+from libcpp cimport nullptr
+from libcpp.memory cimport make_unique
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
 
-from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.coll.allgather cimport Ordered, cpp_AllGather, milliseconds_t
-from rapidsmpf.communicator.communicator cimport Communicator, cpp_Communicator
+from rapidsmpf.communicator.communicator cimport Communicator
 from rapidsmpf.memory.buffer_resource cimport (BufferResource,
                                                cpp_BufferResource)
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
-
-
-cdef extern from * nogil:
-    """
-    std::unique_ptr<rapidsmpf::coll::AllGather> cpp_make_allgather(
-        std::shared_ptr<rapidsmpf::Communicator> comm,
-        rapidsmpf::OpID op_id,
-        rapidsmpf::BufferResource* br,
-        std::uint64_t reservation_context
-    ) {
-        return std::make_unique<rapidsmpf::coll::AllGather>(
-            std::move(comm),
-            op_id,
-            br,
-            nullptr,
-            reservation_context
-        );
-    }
-    """
-    unique_ptr[cpp_AllGather] cpp_make_allgather(
-        shared_ptr[cpp_Communicator],
-        int32_t,
-        cpp_BufferResource*,
-        uint64_t,
-    ) except +ex_handler
 
 
 cdef class AllGather:
@@ -85,10 +60,11 @@ cdef class AllGather:
         cdef cpp_BufferResource* br_ = br.ptr()
         self.in_context = False
         with nogil:
-            self._handle = cpp_make_allgather(
+            self._handle = make_unique[cpp_AllGather](
                 comm._handle,
                 op_id,
                 br_,
+                nullptr,
                 reservation_context,
             )
 
