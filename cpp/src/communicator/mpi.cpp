@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <limits>
 #include <memory>
 #include <string>
 #include <utility>
@@ -94,6 +95,69 @@ void check_mpi_thread_support() {
             + " isn't sufficient, need MPI_THREAD_MULTIPLE"
     );
 }
+
+/**
+ * @brief The `(count, datatype)` pair MPI needs to transfer a contiguous run of bytes.
+ *
+ * MPI counts are `int`, so a message larger than `INT_MAX` bytes is described as a
+ * single element of a derived datatype instead of as `nbytes` elements of
+ * `MPI_UINT8_T` (see https://github.com/jeffhammond/BigMPI). Only the type
+ * signature has to match between sender and receiver, so both sides can describe
+ * the same number of bytes independently.
+ *
+ * The derived datatype is freed on destruction, which MPI allows while a
+ * non-blocking operation that uses it is still pending.
+ */
+class ByteMessageType {
+  public:
+    explicit ByteMessageType(std::size_t nbytes) {
+        if (nbytes <= static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+            count_ = static_cast<int>(nbytes);
+            return;
+        }
+        constexpr std::size_t chunk_size = std::size_t{1} << 30;
+        auto const nchunks = nbytes / chunk_size;
+        auto const remainder = nbytes % chunk_size;
+        MPI_Datatype chunk;
+        RAPIDSMPF_MPI(
+            MPI_Type_contiguous(safe_cast<int>(chunk_size), MPI_UINT8_T, &chunk)
+        );
+        std::array<int, 2> block_lengths{
+            safe_cast<int>(nchunks), safe_cast<int>(remainder)
+        };
+        std::array<MPI_Aint, 2> displacements{
+            0, safe_cast<MPI_Aint>(nchunks * chunk_size)
+        };
+        std::array<MPI_Datatype, 2> types{chunk, MPI_UINT8_T};
+        RAPIDSMPF_MPI(MPI_Type_create_struct(
+            2, block_lengths.data(), displacements.data(), types.data(), &type_
+        ));
+        RAPIDSMPF_MPI(MPI_Type_free(&chunk));
+        RAPIDSMPF_MPI(MPI_Type_commit(&type_));
+        count_ = 1;
+    }
+
+    ~ByteMessageType() noexcept {
+        if (type_ != MPI_UINT8_T) {
+            MPI_Type_free(&type_);
+        }
+    }
+
+    ByteMessageType(ByteMessageType const&) = delete;
+    ByteMessageType& operator=(ByteMessageType const&) = delete;
+
+    [[nodiscard]] int count() const noexcept {
+        return count_;
+    }
+
+    [[nodiscard]] MPI_Datatype type() const noexcept {
+        return type_;
+    }
+
+  private:
+    int count_{0};
+    MPI_Datatype type_{MPI_UINT8_T};
+};
 }  // namespace
 
 MPI::MPI(
@@ -124,9 +188,10 @@ std::unique_ptr<Communicator::Future> MPI::send(
 ) {
     RAPIDSMPF_EXPECTS(msg != nullptr, "msg cannot be null", std::invalid_argument);
     MPI_Request req;
-    RAPIDSMPF_MPI(MPI_Isend(
-        msg->data(), safe_cast<int>(msg->size()), MPI_UINT8_T, rank, tag, comm_, &req
-    ));
+    ByteMessageType const msg_type{msg->size()};
+    RAPIDSMPF_MPI(
+        MPI_Isend(msg->data(), msg_type.count(), msg_type.type(), rank, tag, comm_, &req)
+    );
     return std::make_unique<Future>(req, std::move(msg));
 }
 
@@ -136,9 +201,10 @@ std::unique_ptr<Communicator::Future> MPI::send(
     RAPIDSMPF_EXPECTS(msg != nullptr, "msg buffer cannot be null", std::invalid_argument);
     RAPIDSMPF_EXPECTS(msg->is_latest_write_done(), "msg must be ready", std::logic_error);
     MPI_Request req;
-    RAPIDSMPF_MPI(MPI_Isend(
-        msg->data(), safe_cast<int>(msg->size), MPI_UINT8_T, rank, tag, comm_, &req
-    ));
+    ByteMessageType const msg_type{msg->size};
+    RAPIDSMPF_MPI(
+        MPI_Isend(msg->data(), msg_type.count(), msg_type.type(), rank, tag, comm_, &req)
+    );
     return std::make_unique<Future>(req, std::move(msg));
 }
 
@@ -147,8 +213,9 @@ namespace {
 void mpi_recv_impl(
     Rank rank, Tag tag, auto* data, std::size_t size, MPI_Comm comm, MPI_Request* req
 ) {
+    ByteMessageType const msg_type{size};
     RAPIDSMPF_MPI(
-        MPI_Irecv(data, safe_cast<int>(size), MPI_UINT8_T, rank, tag, comm, req)
+        MPI_Irecv(data, msg_type.count(), msg_type.type(), rank, tag, comm, req)
     );
 }
 
@@ -203,10 +270,11 @@ std::pair<std::unique_ptr<std::vector<std::uint8_t>>, Rank> MPI::recv_any(Tag ta
     );  // TODO: uninitialize
 
     MPI_Status msg_status;
+    ByteMessageType const msg_type{msg->size()};
     RAPIDSMPF_MPI(MPI_Mrecv(
-        msg->data(), safe_cast<int>(msg->size()), MPI_UINT8_T, &matched_msg, &msg_status
+        msg->data(), msg_type.count(), msg_type.type(), &matched_msg, &msg_status
     ));
-    RAPIDSMPF_MPI(MPI_Get_elements_x(&msg_status, MPI_UINT8_T, &size));
+    RAPIDSMPF_MPI(MPI_Get_elements_x(&msg_status, msg_type.type(), &size));
     RAPIDSMPF_EXPECTS(
         safe_cast<std::size_t>(size) == msg->size(),
         "incorrect size of the MPI_Recv message"
@@ -232,10 +300,11 @@ std::unique_ptr<std::vector<std::uint8_t>> MPI::recv_from(Rank src, Tag tag) {
     );  // TODO: uninitialize
 
     MPI_Status msg_status;
+    ByteMessageType const msg_type{msg->size()};
     RAPIDSMPF_MPI(MPI_Mrecv(
-        msg->data(), safe_cast<int>(msg->size()), MPI_UINT8_T, &matched_msg, &msg_status
+        msg->data(), msg_type.count(), msg_type.type(), &matched_msg, &msg_status
     ));
-    RAPIDSMPF_MPI(MPI_Get_elements_x(&msg_status, MPI_UINT8_T, &size));
+    RAPIDSMPF_MPI(MPI_Get_elements_x(&msg_status, msg_type.type(), &size));
     RAPIDSMPF_EXPECTS(
         safe_cast<std::size_t>(size) == msg->size(),
         "incorrect size of the MPI_Recv message"
