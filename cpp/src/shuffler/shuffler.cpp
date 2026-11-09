@@ -152,8 +152,8 @@ class Shuffler::Progress {
         }
 
         // `insert_finished()` runs concurrently with this function, so read
-        // `locally_finished_` once. Its control chunks are in `to_send_` before the flag
-        // is set.
+        // `locally_finished_` once. All control chunks from `insert_finished()` are
+        // inserted, into `to_send_` or `received_`, before the flag is set.
         bool const locally_finished =
             shuffler_.locally_finished_.load(std::memory_order_acquire);
 
