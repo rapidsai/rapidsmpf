@@ -6,13 +6,10 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <future>
-#include <iostream>
 #include <memory>
-#include <stdexcept>
 #include <thread>
 #include <tuple>
 
@@ -1430,42 +1427,6 @@ TEST(Shuffler, opid_reuse) {
 
     validate_results(shuffle1, 42);
     validate_results(shuffle2, 123);
-}
-
-// Back-to-back shuffles on the same op_id where rank 0 owns every partition, so rank 0
-// has no control chunk to send. This stresses the race between `insert_finished()` and
-// the progress function deciding that the shuffle is done. The race is not hit in every
-// run, but the test passes regardless of timing when there is no race.
-TEST(Shuffler, opid_reuse_with_single_owner) {
-    auto const& comm = GlobalEnvironment->comm_;
-    auto br =
-        rapidsmpf::BufferResource::create(rmm::mr::get_current_device_resource_ref());
-    auto const rank_zero_owns_all = [](std::shared_ptr<rapidsmpf::Communicator> const&,
-                                       rapidsmpf::shuffler::PartID,
-                                       rapidsmpf::shuffler::PartID) -> rapidsmpf::Rank {
-        return 0;
-    };
-    for (int i = 0; i < 1000; ++i) {
-        rapidsmpf::shuffler::Shuffler shuffler(
-            comm, 0, 1, br.get(), {}, rank_zero_owns_all
-        );
-        if (comm->rank() == 0) {
-            // Give the control chunks of the other ranks time to arrive before rank 0
-            // calls `insert_finished()`, which makes the race more likely. The test does
-            // not depend on the timing.
-            std::this_thread::sleep_for(std::chrono::microseconds{100});
-        }
-        shuffler.insert_finished();
-        try {
-            shuffler.wait(wait_timeout);
-        } catch (std::runtime_error const& e) {
-            // The destructor of a shuffler that did not complete blocks forever, so
-            // abort instead of hanging.
-            std::cerr << "opid_reuse_with_single_owner: shuffle " << i
-                      << " did not complete: " << e.what() << std::endl;
-            std::abort();
-        }
-    }
 }
 
 // Same as opid_reuse but with total_num_partitions=1, so only rank 0 owns a partition.
