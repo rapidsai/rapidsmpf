@@ -1434,7 +1434,8 @@ TEST(Shuffler, opid_reuse) {
 
 // Back-to-back shuffles on the same op_id where rank 0 owns every partition, so rank 0
 // has no control chunk to send. This stresses the race between `insert_finished()` and
-// the progress function deciding that the shuffle is done.
+// the progress function deciding that the shuffle is done. The race is not hit in every
+// run, but the test passes regardless of timing when there is no race.
 TEST(Shuffler, opid_reuse_with_single_owner) {
     auto const& comm = GlobalEnvironment->comm_;
     auto br =
@@ -1449,7 +1450,9 @@ TEST(Shuffler, opid_reuse_with_single_owner) {
             comm, 0, 1, br.get(), {}, rank_zero_owns_all
         );
         if (comm->rank() == 0) {
-            // Let the control chunks of the other ranks arrive first.
+            // Give the control chunks of the other ranks time to arrive before rank 0
+            // calls `insert_finished()`, which makes the race more likely. The test does
+            // not depend on the timing.
             std::this_thread::sleep_for(std::chrono::microseconds{100});
         }
         shuffler.insert_finished();
