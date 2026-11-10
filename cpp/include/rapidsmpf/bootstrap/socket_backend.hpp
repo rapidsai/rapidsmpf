@@ -55,8 +55,10 @@ class SocketServer {
     /**
      * @brief Shut down the server and join all threads.
      *
-     * Stops the accept thread, closes the listen socket, then joins all
-     * connection-handler threads.
+     * Stops the accept thread and closes the listen socket. Then shuts down
+     * all open client connections, wakes the handlers waiting in a barrier, a
+     * sync or a get, and joins all connection-handler threads. Calls that
+     * clients still have in flight fail.
      */
     ~SocketServer();
 
@@ -96,6 +98,16 @@ class SocketServer {
      * @return The number of handler threads.
      */
     [[nodiscard]] std::size_t num_handler_threads() const;
+
+    /**
+     * @brief Returns the number of connection handlers waiting for other ranks.
+     *
+     * Counts the handlers waiting in a barrier, a sync, or a get of a key that
+     * is not set yet. The result is a snapshot.
+     *
+     * @return The number of waiting handlers.
+     */
+    [[nodiscard]] int num_waiting_handlers() const;
 
     SocketServer(SocketServer const&) = delete;
     SocketServer& operator=(SocketServer const&) = delete;
