@@ -15,6 +15,7 @@ from rapidsmpf.memory.buffer_resource cimport (BufferResource,
                                                cpp_BufferResource)
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
+from rapidsmpf.memory.reservation_events cimport ReservationContext
 
 
 cdef class AllGather:
@@ -53,7 +54,7 @@ cdef class AllGather:
         int32_t op_id,
         BufferResource br not None,
         *,
-        uint64_t reservation_context=0,
+        ReservationContext reservation_context=0,
     ):
         self._br = br
         self._comm = comm

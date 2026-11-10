@@ -10,6 +10,7 @@ from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.buffer_resource cimport (BufferResource,
                                                cpp_BufferResource)
 from rapidsmpf.memory.content_description cimport cpp_ContentDescription
+from rapidsmpf.memory.reservation_events cimport ReservationContext
 from rapidsmpf.streaming.core.message cimport Message, cpp_Message
 
 
@@ -23,7 +24,7 @@ cdef extern from "<rapidsmpf/streaming/core/spillable_messages.hpp>" nogil:
         ctypedef uint64_t cpp_MessageId"MessageId"
 
         cpp_SpillableMessages(
-            cpp_SpillOrder spill_order, uint64_t reservation_context
+            cpp_SpillOrder spill_order, ReservationContext reservation_context
         ) except +ex_handler
         cpp_MessageId insert(cpp_Message message) except +ex_handler
         cpp_Message extract(cpp_MessageId mid) except +ex_handler

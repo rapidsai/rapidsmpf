@@ -224,7 +224,7 @@ Shuffler::Shuffler(
     BufferResource* br,
     FinishedCallback&& finished_callback,
     PartitionOwner partition_owner_fn,
-    std::uint64_t reservation_context
+    ReservationContext reservation_context
 )
     : total_num_partitions{total_num_partitions},
       partition_owner{std::move(partition_owner_fn)},

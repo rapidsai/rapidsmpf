@@ -3,7 +3,6 @@
 """Spill and unspill packed partitions between device and host memory."""
 
 from cython.operator cimport dereference as deref
-from libc.stdint cimport uint64_t
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
 
@@ -13,6 +12,7 @@ from rapidsmpf.memory.buffer_resource cimport (AllowOverbooking,
                                                cpp_BufferResource)
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
+from rapidsmpf.memory.reservation_events cimport ReservationContext
 
 
 cdef vector[cpp_PackedData] _partitions_py_to_cpp(partitions):
@@ -29,7 +29,7 @@ cdef extern from "<rapidsmpf/memory/spill.hpp>" nogil:
         "rapidsmpf::spill_partitions"(
             vector[cpp_PackedData] partitions,
             cpp_BufferResource* br,
-            uint64_t reservation_context,
+            ReservationContext reservation_context,
         ) except +ex_handler
 
     cdef vector[cpp_PackedData] cpp_unspill_partitions \
@@ -37,7 +37,7 @@ cdef extern from "<rapidsmpf/memory/spill.hpp>" nogil:
             vector[cpp_PackedData] partitions,
             cpp_BufferResource* br,
             AllowOverbooking allow_overbooking,
-            uint64_t reservation_context,
+            ReservationContext reservation_context,
         ) except +ex_handler
 
 
@@ -45,7 +45,7 @@ def spill_partitions(
     object partitions,
     BufferResource br,
     *,
-    uint64_t reservation_context=0,
+    ReservationContext reservation_context=0,
 ):
     """
     Spill partitions from device memory to host memory.
@@ -95,7 +95,7 @@ def unspill_partitions(
     BufferResource br,
     object allow_overbooking,
     *,
-    uint64_t reservation_context=0,
+    ReservationContext reservation_context=0,
 ):
     """
     Move spilled partitions back to device memory.

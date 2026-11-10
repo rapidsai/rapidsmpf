@@ -95,7 +95,7 @@ std::size_t ReceivedChunks::data_size(MemoryType mem_type) const {
 }
 
 std::size_t ReceivedChunks::spill(
-    BufferResource* br, std::size_t amount, std::uint64_t reservation_context
+    BufferResource* br, std::size_t amount, ReservationContext reservation_context
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE(amount);
     std::lock_guard lock(mutex_);

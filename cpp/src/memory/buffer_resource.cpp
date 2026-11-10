@@ -243,7 +243,7 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     MemoryType mem_type,
     std::size_t size,
     AllowOverbooking allow_overbooking,
-    std::uint64_t reservation_context
+    ReservationContext reservation_context
 ) {
     RAPIDSMPF_EXPECTS(
         mem_type != MemoryType::DISK || disk_resource_ != nullptr,
@@ -285,7 +285,7 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
 MemoryReservation BufferResource::reserve_device_memory_and_spill(
     std::size_t size,
     AllowOverbooking allow_overbooking,
-    std::uint64_t reservation_context
+    ReservationContext reservation_context
 ) {
     auto [reservation, total_overbooking] =
         reserve(MemoryType::DEVICE, size, AllowOverbooking::YES, reservation_context);

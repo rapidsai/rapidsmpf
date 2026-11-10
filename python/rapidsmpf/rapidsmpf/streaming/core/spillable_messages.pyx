@@ -11,6 +11,7 @@ from libcpp.utility cimport move
 
 from rapidsmpf.memory.buffer_resource cimport BufferResource
 from rapidsmpf.memory.content_description cimport content_description_from_cpp
+from rapidsmpf.memory.reservation_events cimport ReservationContext
 
 
 @no_gc_clear
@@ -42,7 +43,7 @@ cdef class SpillableMessages:
         self,
         BufferResource br not None,
         *,
-        uint64_t reservation_context=0,
+        ReservationContext reservation_context=0,
     ):
         self._handle = make_shared[cpp_SpillableMessages](
             cpp_SpillOrder.EARLIEST_FIRST, reservation_context

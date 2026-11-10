@@ -84,7 +84,7 @@ cdef extern from * nogil:
         rapidsmpf::MemoryType mem_type,
         size_t size,
         bool allow_overbooking,
-        std::uint64_t reservation_context
+        rapidsmpf::ReservationContext reservation_context
     ) {
         auto ab = allow_overbooking ? rapidsmpf::AllowOverbooking::YES
                                     :rapidsmpf::AllowOverbooking::NO;
@@ -97,7 +97,7 @@ cdef extern from * nogil:
         std::shared_ptr<rapidsmpf::BufferResource> br,
         size_t size,
         bool allow_overbooking,
-        std::uint64_t reservation_context
+        rapidsmpf::ReservationContext reservation_context
     ) {
         auto ab = allow_overbooking ? rapidsmpf::AllowOverbooking::YES
                                     :rapidsmpf::AllowOverbooking::NO;
@@ -111,7 +111,7 @@ cdef extern from * nogil:
         std::shared_ptr<rapidsmpf::BufferResource> br,
         size_t size,
         std::vector<rapidsmpf::MemoryType> mem_types,
-        std::uint64_t reservation_context
+        rapidsmpf::ReservationContext reservation_context
     ) {
         return std::make_unique<rapidsmpf::MemoryReservation>(
             br->reserve_or_fail(size, mem_types, reservation_context)
@@ -128,19 +128,19 @@ cdef extern from * nogil:
         MemoryType,
         size_t,
         bool_t,
-        uint64_t,
+        ReservationContext,
     ) except +ex_handler
     unique_ptr[cpp_MemoryReservation] cpp_br_reserve_device_memory_and_spill(
         shared_ptr[cpp_BufferResource],
         size_t,
         bool_t,
-        uint64_t,
+        ReservationContext,
     ) except +ex_handler
     unique_ptr[cpp_MemoryReservation] cpp_br_reserve_or_fail(
         shared_ptr[cpp_BufferResource],
         size_t,
         vector[MemoryType],
-        uint64_t,
+        ReservationContext,
     ) except +ex_handler
 
 
@@ -164,7 +164,7 @@ cdef class ReservationEvent:
         self,
         *,
         int64_t timestamp_ns,
-        uint64_t reservation_context,
+        ReservationContext reservation_context,
         MemoryType memory_type,
         int64_t byte_delta,
     ):
@@ -715,7 +715,7 @@ cdef class BufferResource:
         size_t size,
         *,
         bool_t allow_overbooking,
-        uint64_t reservation_context=0,
+        ReservationContext reservation_context=0,
     ):
         """
         Reserve an amount of the specified memory type.
@@ -766,7 +766,7 @@ cdef class BufferResource:
         size_t size,
         *,
         bool_t allow_overbooking,
-        uint64_t reservation_context=0,
+        ReservationContext reservation_context=0,
     ):
         """
         Reserve device memory and spill if necessary.
@@ -810,7 +810,7 @@ cdef class BufferResource:
         size_t size,
         list mem_types,
         *,
-        uint64_t reservation_context=0,
+        ReservationContext reservation_context=0,
     ):
         """
         Make a memory reservation or fail based on the given order of memory types.

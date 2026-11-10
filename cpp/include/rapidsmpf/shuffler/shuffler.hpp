@@ -137,7 +137,7 @@ class Shuffler {
         BufferResource* br,
         FinishedCallback&& finished_callback,
         PartitionOwner partition_owner = round_robin,
-        std::uint64_t reservation_context = 0
+        ReservationContext reservation_context = 0
     );
 
     /**
@@ -162,7 +162,7 @@ class Shuffler {
         PartID total_num_partitions,
         BufferResource* br,
         PartitionOwner partition_owner = round_robin,
-        std::uint64_t reservation_context = 0
+        ReservationContext reservation_context = 0
     )
         : Shuffler(
               comm,
@@ -329,7 +329,7 @@ class Shuffler {
 
   private:
     BufferResource* br_;
-    std::uint64_t reservation_context_;
+    ReservationContext reservation_context_;
     std::atomic<bool> active_{true};
     // Have we called `insert_finished()` on this rank.
     std::atomic<bool> locally_finished_{false};

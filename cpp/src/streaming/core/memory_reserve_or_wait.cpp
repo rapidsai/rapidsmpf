@@ -114,7 +114,9 @@ Actor MemoryReserveOrWait::shutdown() {
 }
 
 coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
-    std::size_t size, std::int64_t net_memory_delta, std::uint64_t reservation_context
+    std::size_t size,
+    std::int64_t net_memory_delta,
+    ReservationContext reservation_context
 ) {
     record_stat("request-bytes", static_cast<double>(size));
 
@@ -183,7 +185,9 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
 
 coro::task<std::pair<MemoryReservation, std::size_t>>
 MemoryReserveOrWait::reserve_or_wait_or_overbook(
-    std::size_t size, std::int64_t net_memory_delta, std::uint64_t reservation_context
+    std::size_t size,
+    std::int64_t net_memory_delta,
+    ReservationContext reservation_context
 ) {
     auto ret = co_await reserve_or_wait(size, net_memory_delta, reservation_context);
     if (ret.size() < size) {
@@ -201,7 +205,9 @@ MemoryReserveOrWait::reserve_or_wait_or_overbook(
 }
 
 coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait_or_fail(
-    std::size_t size, std::int64_t net_memory_delta, std::uint64_t reservation_context
+    std::size_t size,
+    std::int64_t net_memory_delta,
+    ReservationContext reservation_context
 ) {
     auto ret = co_await reserve_or_wait(size, net_memory_delta, reservation_context);
     RAPIDSMPF_EXPECTS(
@@ -501,7 +507,7 @@ coro::task<MemoryReservation> reserve_memory(
     std::int64_t net_memory_delta,
     MemoryType mem_type,
     std::optional<AllowOverbooking> allow_overbooking,
-    std::uint64_t reservation_context
+    ReservationContext reservation_context
 ) {
     // If allow_overbooking is not specified, get it from the configuration options.
     if (!allow_overbooking.has_value()) {

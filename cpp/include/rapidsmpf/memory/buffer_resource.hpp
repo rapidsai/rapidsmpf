@@ -466,7 +466,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         MemoryType mem_type,
         std::size_t size,
         AllowOverbooking allow_overbooking,
-        std::uint64_t reservation_context = 0
+        ReservationContext reservation_context = 0
     );
 
     /**
@@ -490,7 +490,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     MemoryReservation reserve_device_memory_and_spill(
         std::size_t size,
         AllowOverbooking allow_overbooking,
-        std::uint64_t reservation_context = 0
+        ReservationContext reservation_context = 0
     );
 
     /**
@@ -509,7 +509,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     template <std::ranges::input_range Range>
         requires std::convertible_to<std::ranges::range_value_t<Range>, MemoryType>
     [[nodiscard]] std::optional<MemoryReservation> try_reserve(
-        std::size_t size, Range mem_types, std::uint64_t reservation_context = 0
+        std::size_t size, Range mem_types, ReservationContext reservation_context = 0
     ) {
         // try to reserve memory from the given order
         for (auto const& mem_type : mem_types) {
@@ -535,7 +535,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * satisfied.
      */
     [[nodiscard]] std::optional<MemoryReservation> try_reserve(
-        std::size_t size, MemoryType mem_type, std::uint64_t reservation_context = 0
+        std::size_t size, MemoryType mem_type, ReservationContext reservation_context = 0
     ) {
         return try_reserve(size, std::ranges::single_view{mem_type}, reservation_context);
     }
@@ -557,7 +557,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     template <std::ranges::input_range Range>
         requires std::convertible_to<std::ranges::range_value_t<Range>, MemoryType>
     [[nodiscard]] MemoryReservation reserve_or_fail(
-        std::size_t size, Range mem_types, std::uint64_t reservation_context = 0
+        std::size_t size, Range mem_types, ReservationContext reservation_context = 0
     ) {
         if (auto res = try_reserve(size, std::move(mem_types), reservation_context)) {
             return std::move(*res);
@@ -576,7 +576,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @throws std::runtime_error if no memory reservation was made.
      */
     [[nodiscard]] MemoryReservation reserve_or_fail(
-        std::size_t size, MemoryType mem_type, std::uint64_t reservation_context = 0
+        std::size_t size, MemoryType mem_type, ReservationContext reservation_context = 0
     ) {
         return reserve_or_fail(
             size, std::ranges::single_view{mem_type}, reservation_context
@@ -796,7 +796,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
 
   private:
     std::uint64_t record_reservation_event(
-        std::uint64_t reservation_context,
+        ReservationContext reservation_context,
         MemoryType memory_type,
         std::int64_t byte_delta,
         std::uint64_t expected_session = 0

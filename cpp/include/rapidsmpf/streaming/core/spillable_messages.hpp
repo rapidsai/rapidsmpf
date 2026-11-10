@@ -58,7 +58,7 @@ class SpillableMessages {
      */
     explicit SpillableMessages(
         SpillOrder spill_order = SpillOrder::EARLIEST_FIRST,
-        std::uint64_t reservation_context = 0
+        ReservationContext reservation_context = 0
     )
         : spill_order_{spill_order}, default_reservation_context_{reservation_context} {}
 
@@ -82,7 +82,9 @@ class SpillableMessages {
      * @param reservation_context Telemetry context for future spill reservations.
      * @return Assigned `MessageId` of the inserted message.
      */
-    [[nodiscard]] MessageId insert(Message&& message, std::uint64_t reservation_context);
+    [[nodiscard]] MessageId insert(
+        Message&& message, ReservationContext reservation_context
+    );
 
     /**
      * @brief Extract and remove a message by ID.
@@ -209,9 +211,9 @@ class SpillableMessages {
     struct Item {
         mutable std::mutex mutex;
         std::optional<Message> message;
-        std::uint64_t reservation_context;
+        ReservationContext reservation_context;
 
-        Item(Message&& message, std::uint64_t reservation_context)
+        Item(Message&& message, ReservationContext reservation_context)
             : message(std::move(message)), reservation_context(reservation_context) {}
     };
 
@@ -221,7 +223,7 @@ class SpillableMessages {
     MessageId counter_{0};
     std::unordered_map<MessageId, std::shared_ptr<Item>> items_;
     mutable std::map<MessageId, ContentDescription> content_descriptions_;
-    std::uint64_t default_reservation_context_;
+    ReservationContext default_reservation_context_;
 };
 
 }  // namespace rapidsmpf::streaming

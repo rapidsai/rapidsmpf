@@ -14,7 +14,7 @@ SpillableMessages::MessageId SpillableMessages::insert(Message&& message) {
 }
 
 SpillableMessages::MessageId SpillableMessages::insert(
-    Message&& message, std::uint64_t reservation_context
+    Message&& message, ReservationContext reservation_context
 ) {
     std::lock_guard<std::mutex> lock(global_mutex_);
     content_descriptions_.insert({counter_, message.content_description()});

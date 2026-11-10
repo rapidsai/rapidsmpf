@@ -13,6 +13,18 @@
 namespace rapidsmpf {
 
 /**
+ * @brief Opaque telemetry attribution token carried by memory reservations.
+ *
+ * Callers choose the values and rapidsmpf never interprets them: a token is attached to a
+ * reservation when it is created and is reported unchanged in the `ReservationEvent`s
+ * recorded for that reservation, which lets consumers of the events attribute memory
+ * usage to the code that requested it.
+ *
+ * The value `0` is the default and means unattributed.
+ */
+using ReservationContext = std::uint64_t;
+
+/**
  * @brief A change in reserved-but-not-yet-consumed bytes.
  *
  * Timestamps are derived from a steady-clock offset from a Unix-time anchor, so events
@@ -22,7 +34,8 @@ namespace rapidsmpf {
  */
 struct ReservationEvent {
     std::int64_t timestamp_ns;  ///< Non-decreasing Unix timestamp in nanoseconds.
-    std::uint64_t reservation_context;  ///< Opaque caller-provided attribution token.
+    ReservationContext
+        reservation_context;  ///< Opaque caller-provided attribution token.
     MemoryType memory_type;  ///< Type of memory whose occupancy changed.
     std::int64_t byte_delta;  ///< Signed change in reserved bytes.
 };

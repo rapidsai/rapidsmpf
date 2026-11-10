@@ -13,6 +13,7 @@ from rapidsmpf.coll.allgather cimport Ordered as cpp_Ordered
 from rapidsmpf.communicator.communicator cimport Communicator
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
+from rapidsmpf.memory.reservation_events cimport ReservationContext
 from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
 from rapidsmpf.streaming._detail.libcoro_spawn_task cimport cpp_set_py_future
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
@@ -87,7 +88,7 @@ cdef class AllGather:
         Communicator comm not None,
         int32_t op_id,
         *,
-        uint64_t reservation_context=0,
+        ReservationContext reservation_context=0,
     ):
         self._comm = comm
         self.in_context = False
@@ -184,7 +185,7 @@ def allgather(
     int32_t op_id,
     *,
     bool ordered,
-    uint64_t reservation_context=0,
+    ReservationContext reservation_context=0,
 ):
     """
     Launch an allgather actor for a single allgather operation.

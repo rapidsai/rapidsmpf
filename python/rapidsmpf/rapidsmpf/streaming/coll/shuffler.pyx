@@ -3,7 +3,7 @@
 from cpython.object cimport PyObject
 from cpython.ref cimport Py_INCREF
 from cython.operator cimport dereference as deref
-from libc.stdint cimport int32_t, uint32_t, uint64_t
+from libc.stdint cimport int32_t, uint32_t
 from libcpp.memory cimport make_unique, shared_ptr
 from libcpp.span cimport span
 from libcpp.unordered_map cimport unordered_map
@@ -16,6 +16,7 @@ from rapidsmpf.communicator.communicator cimport Communicator
 from rapidsmpf.memory.buffer_resource cimport BufferResource  # no-cython-lint
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
+from rapidsmpf.memory.reservation_events cimport ReservationContext
 from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
 from rapidsmpf.shuffler cimport (PartitionAssignment,
                                  cpp_insert_chunk_into_partition_map,
@@ -75,7 +76,7 @@ def shuffler(
     uint32_t total_num_partitions,
     PartitionAssignment partition_assignment = PartitionAssignment.ROUND_ROBIN,
     *,
-    uint64_t reservation_context=0,
+    ReservationContext reservation_context=0,
 ):
     """
     Launch a shuffler actor for a single shuffle operation.
@@ -162,7 +163,7 @@ cdef class ShufflerAsync:
         uint32_t total_num_partitions,
         PartitionAssignment partition_assignment = PartitionAssignment.ROUND_ROBIN,
         *,
-        uint64_t reservation_context=0,
+        ReservationContext reservation_context=0,
     ):
         self._comm = comm
         self._br = ctx.br()

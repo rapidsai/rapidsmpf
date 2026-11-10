@@ -3,7 +3,7 @@
 from cpython.object cimport PyObject
 from cpython.ref cimport Py_INCREF
 from cython.operator cimport dereference as deref
-from libc.stdint cimport int64_t, uint64_t
+from libc.stdint cimport int64_t
 from libcpp.memory cimport unique_ptr
 from libcpp.pair cimport pair
 from libcpp.utility cimport move
@@ -13,6 +13,7 @@ from rapidsmpf.config cimport Options, cpp_Options
 from rapidsmpf.memory.buffer cimport MemoryType
 from rapidsmpf.memory.memory_reservation cimport (MemoryReservation,
                                                   cpp_MemoryReservation)
+from rapidsmpf.memory.reservation_events cimport ReservationContext
 from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
 from rapidsmpf.streaming._detail.libcoro_spawn_task cimport cpp_set_py_future
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
@@ -92,7 +93,7 @@ cdef extern from * nogil:
         std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait> mrow,
         std::size_t size,
         std::int64_t net_memory_delta,
-        std::uint64_t reservation_context,
+        rapidsmpf::ReservationContext reservation_context,
         std::shared_ptr<std::unique_ptr<rapidsmpf::MemoryReservation>> output
     ) {
         *output = std::make_unique<rapidsmpf::MemoryReservation>(
@@ -106,7 +107,7 @@ cdef extern from * nogil:
         std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait> mrow,
         std::size_t size,
         std::int64_t net_memory_delta,
-        std::uint64_t reservation_context,
+        rapidsmpf::ReservationContext reservation_context,
         void (*cpp_set_py_future)(void*, const char *),
         rapidsmpf::OwningWrapper py_future
     ) {
@@ -135,7 +136,7 @@ cdef extern from * nogil:
         shared_ptr[cpp_MemoryReserveOrWait] mrow,
         size_t size,
         int64_t net_memory_delta,
-        uint64_t reservation_context,
+        ReservationContext reservation_context,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
     ) except +ex_handler
@@ -147,7 +148,7 @@ cdef extern from * nogil:
         std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait> mrow,
         std::size_t size,
         std::int64_t net_memory_delta,
-        std::uint64_t reservation_context,
+        rapidsmpf::ReservationContext reservation_context,
         std::shared_ptr<
             std::pair<std::unique_ptr<rapidsmpf::MemoryReservation>, std::size_t>
         > output
@@ -165,7 +166,7 @@ cdef extern from * nogil:
         std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait> mrow,
         std::size_t size,
         std::int64_t net_memory_delta,
-        std::uint64_t reservation_context,
+        rapidsmpf::ReservationContext reservation_context,
         void (*cpp_set_py_future)(void*, const char *),
         rapidsmpf::OwningWrapper py_future
     ) {
@@ -197,7 +198,7 @@ cdef extern from * nogil:
         shared_ptr[cpp_MemoryReserveOrWait] mrow,
         size_t size,
         int64_t net_memory_delta,
-        uint64_t reservation_context,
+        ReservationContext reservation_context,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
     ) except +ex_handler
@@ -209,7 +210,7 @@ cdef extern from * nogil:
         std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait> mrow,
         std::size_t size,
         std::int64_t net_memory_delta,
-        std::uint64_t reservation_context,
+        rapidsmpf::ReservationContext reservation_context,
         std::shared_ptr<std::unique_ptr<rapidsmpf::MemoryReservation>> output
     ) {
         *output = std::make_unique<rapidsmpf::MemoryReservation>(
@@ -223,7 +224,7 @@ cdef extern from * nogil:
         std::shared_ptr<rapidsmpf::streaming::MemoryReserveOrWait> mrow,
         std::size_t size,
         std::int64_t net_memory_delta,
-        std::uint64_t reservation_context,
+        rapidsmpf::ReservationContext reservation_context,
         void (*cpp_set_py_future)(void*, const char *),
         rapidsmpf::OwningWrapper py_future
     ) {
@@ -252,7 +253,7 @@ cdef extern from * nogil:
         shared_ptr[cpp_MemoryReserveOrWait] mrow,
         size_t size,
         int64_t net_memory_delta,
-        uint64_t reservation_context,
+        ReservationContext reservation_context,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
     ) except +ex_handler
@@ -360,7 +361,7 @@ cdef class MemoryReserveOrWait:
         size_t size,
         *,
         int64_t net_memory_delta,
-        uint64_t reservation_context=0,
+        ReservationContext reservation_context=0,
     ):
         """
         Attempt to reserve memory, or wait until progress can be made.
@@ -449,7 +450,7 @@ cdef class MemoryReserveOrWait:
         size_t size,
         *,
         int64_t net_memory_delta,
-        uint64_t reservation_context=0,
+        ReservationContext reservation_context=0,
     ):
         """
         Variant of `reserve_or_wait()` that allows overbooking on timeout.
@@ -511,7 +512,7 @@ cdef class MemoryReserveOrWait:
         size_t size,
         *,
         int64_t net_memory_delta,
-        uint64_t reservation_context=0,
+        ReservationContext reservation_context=0,
     ):
         """
         Variant of `reserve_or_wait()` that fails if no progress is possible.
@@ -591,7 +592,7 @@ async def reserve_memory(
     net_memory_delta,
     mem_type = MemoryType.DEVICE,
     allow_overbooking = None,
-    uint64_t reservation_context = 0,
+    ReservationContext reservation_context = 0,
 ):
     """
     Reserve memory using the context memory reservation mechanism.

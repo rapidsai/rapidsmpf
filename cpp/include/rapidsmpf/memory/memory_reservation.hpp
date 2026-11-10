@@ -8,6 +8,7 @@
 #include <cstdint>
 
 #include <rapidsmpf/memory/buffer.hpp>
+#include <rapidsmpf/memory/reservation_events.hpp>
 
 namespace rapidsmpf {
 
@@ -103,7 +104,7 @@ class MemoryReservation {
      *
      * @return The reservation context token.
      */
-    [[nodiscard]] constexpr std::uint64_t reservation_context() const noexcept {
+    [[nodiscard]] constexpr ReservationContext reservation_context() const noexcept {
         return reservation_context_;
     }
 
@@ -123,7 +124,7 @@ class MemoryReservation {
         MemoryType mem_type,
         BufferResource* br,
         std::size_t size,
-        std::uint64_t reservation_context,
+        ReservationContext reservation_context,
         std::uint64_t observed_session = 0
     )
         : mem_type_{mem_type},
@@ -136,7 +137,7 @@ class MemoryReservation {
     MemoryType mem_type_;  ///< The type of memory for this reservation.
     BufferResource* br_;  ///< The buffer resource that manages this reservation.
     std::size_t size_;  ///< The remaining size of the reserved memory in bytes.
-    std::uint64_t reservation_context_;  ///< Opaque telemetry attribution token.
+    ReservationContext reservation_context_;  ///< Opaque telemetry attribution token.
     std::uint64_t observed_session_;  ///< Recording session that observed creation, or
                                       ///< zero.
 };

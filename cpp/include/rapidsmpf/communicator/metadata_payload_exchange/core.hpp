@@ -360,7 +360,7 @@ class MetadataPayloadExchange {
     BufferResource* br,
     std::size_t size,
     MetadataPayloadExchange::AllocationMode mode,
-    std::uint64_t reservation_context = 0
+    ReservationContext reservation_context = 0
 );
 
 }  // namespace rapidsmpf::communicator

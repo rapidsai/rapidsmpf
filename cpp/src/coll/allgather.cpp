@@ -151,7 +151,7 @@ AllGather::AllGather(
     OpID op_id,
     BufferResource* br,
     std::function<void(void)>&& finished_callback,
-    std::uint64_t reservation_context
+    ReservationContext reservation_context
 )
     : comm_{std::move(comm)},
       br_{br},

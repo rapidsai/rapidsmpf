@@ -19,7 +19,7 @@ ShufflerAsync::ShufflerAsync(
     OpID op_id,
     shuffler::PartID total_num_partitions,
     shuffler::Shuffler::PartitionOwner partition_owner,
-    std::uint64_t reservation_context
+    ReservationContext reservation_context
 )
     : ctx_(std::move(ctx)),
       shuffler_(
@@ -72,7 +72,7 @@ Actor shuffler(
     OpID op_id,
     shuffler::PartID total_num_partitions,
     shuffler::Shuffler::PartitionOwner partition_owner,
-    std::uint64_t reservation_context
+    ReservationContext reservation_context
 ) {
     co_await ctx->executor()->schedule();
     ShutdownAtExit c{ch_in, ch_out};

@@ -24,7 +24,7 @@ std::int64_t clock_now_ns() {
 }  // namespace
 
 std::uint64_t BufferResource::record_reservation_event(
-    std::uint64_t reservation_context,
+    ReservationContext reservation_context,
     MemoryType memory_type,
     std::int64_t byte_delta,
     std::uint64_t expected_session

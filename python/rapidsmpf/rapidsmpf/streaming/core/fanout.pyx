@@ -1,11 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from libc.stdint cimport uint64_t
 from libcpp.memory cimport make_unique
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
 
+from rapidsmpf.memory.reservation_events cimport ReservationContext
 from rapidsmpf.streaming.core.actor cimport CppActor, cpp_Actor
 from rapidsmpf.streaming.core.channel cimport Channel
 from rapidsmpf.streaming.core.context cimport Context
@@ -18,7 +18,7 @@ def fanout(
     chs_out,
     FanoutPolicy policy,
     *,
-    uint64_t reservation_context=0,
+    ReservationContext reservation_context=0,
 ):
     """
     Broadcast messages from one input channel to multiple output channels.

@@ -130,7 +130,7 @@ std::unique_ptr<Chunk> Chunk::deserialize(
     std::vector<std::uint8_t>&& metadata,
     std::unique_ptr<Buffer> data,
     BufferResource* br,
-    std::uint64_t reservation_context
+    ReservationContext reservation_context
 ) {
     ChunkID id;
     std::memcpy(&id, metadata.data(), sizeof(ChunkID));
@@ -222,7 +222,7 @@ std::size_t PostBox::spill(
     BufferResource* br,
     std::size_t amount,
     std::span<MemoryType const> spill_target_types,
-    std::uint64_t reservation_context
+    ReservationContext reservation_context
 ) {
     std::lock_guard lock(mutex_);
     std::vector<Chunk*> spillable_chunks;

@@ -61,7 +61,7 @@ Chunk Chunk::deserialize(
     BufferResource* br,
     bool validate,
     std::unique_ptr<Buffer> data,
-    std::uint64_t reservation_context
+    ReservationContext reservation_context
 ) {
     if (validate) {
         RAPIDSMPF_EXPECTS(

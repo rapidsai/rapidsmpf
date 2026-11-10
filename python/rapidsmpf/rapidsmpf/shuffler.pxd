@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from libc.stdint cimport int32_t, uint32_t, uint64_t
+from libc.stdint cimport int32_t, uint32_t
 from libcpp cimport bool
 from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.span cimport span
@@ -14,6 +14,7 @@ from rapidsmpf.communicator.communicator cimport Communicator, cpp_Communicator
 from rapidsmpf.memory.buffer_resource cimport (BufferResource,
                                                cpp_BufferResource)
 from rapidsmpf.memory.packed_data cimport cpp_PackedData
+from rapidsmpf.memory.reservation_events cimport ReservationContext
 
 
 cdef extern from *:
@@ -40,7 +41,7 @@ cdef extern from "<rapidsmpf/shuffler/shuffler.hpp>" nogil:
             uint32_t total_num_partitions,
             cpp_BufferResource *br,
             cpp_PartitionOwner partition_owner,
-            uint64_t reservation_context,
+            ReservationContext reservation_context,
         ) except +ex_handler
         const shared_ptr[cpp_Communicator]& comm() except +ex_handler
         void shutdown() except +ex_handler

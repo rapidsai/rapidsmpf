@@ -3,7 +3,7 @@
 """The Shuffler interface for RapidsMPF."""
 
 from cython.operator cimport dereference as deref
-from libc.stdint cimport uint32_t, uint64_t
+from libc.stdint cimport uint32_t
 from libcpp.memory cimport make_unique
 from libcpp.span cimport span
 from libcpp.unordered_map cimport unordered_map
@@ -12,6 +12,7 @@ from libcpp.vector cimport vector
 
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
+from rapidsmpf.memory.reservation_events cimport ReservationContext
 
 
 cdef class Shuffler:
@@ -68,7 +69,7 @@ cdef class Shuffler:
         BufferResource br not None,
         PartitionAssignment partition_assignment = PartitionAssignment.ROUND_ROBIN,
         *,
-        uint64_t reservation_context=0,
+        ReservationContext reservation_context=0,
     ):
         self._br = br
         self._comm = comm

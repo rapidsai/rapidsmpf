@@ -40,7 +40,7 @@ std::unique_ptr<Buffer> default_allocate_buffer(
     BufferResource* br,
     std::size_t size,
     MetadataPayloadExchange::AllocationMode mode,
-    std::uint64_t reservation_context
+    ReservationContext reservation_context
 ) {
     auto res = br->try_reserve(size, ADDRESSABLE_MEMORY_TYPES, reservation_context);
     if (!res.has_value()) {

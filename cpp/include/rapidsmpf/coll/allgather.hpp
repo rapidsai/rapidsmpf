@@ -126,7 +126,7 @@ class AllGather {
         OpID op_id,
         BufferResource* br,
         std::function<void(void)>&& finished_callback = nullptr,
-        std::uint64_t reservation_context = 0
+        ReservationContext reservation_context = 0
     );
 
     /// @brief Deleted copy constructor.
@@ -218,7 +218,7 @@ class AllGather {
 
     std::shared_ptr<Communicator> comm_;  ///< Communicator
     BufferResource* br_;  ///< Buffer resource for memory allocation
-    std::uint64_t reservation_context_;
+    ReservationContext reservation_context_;
     std::function<void(void)> finished_callback_{
         nullptr
     };  ///< Optional callback to run when allgather is finished and ready for extraction.

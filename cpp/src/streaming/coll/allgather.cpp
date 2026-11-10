@@ -15,7 +15,7 @@ AllGather::AllGather(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Communicator> comm,
     OpID op_id,
-    std::uint64_t reservation_context
+    ReservationContext reservation_context
 )
     : ctx_{std::move(ctx)},
       gatherer_{coll::AllGather(
@@ -70,7 +70,7 @@ Actor allgather(
     std::shared_ptr<Channel> ch_out,
     OpID op_id,
     AllGather::Ordered ordered,
-    std::uint64_t reservation_context
+    ReservationContext reservation_context
 ) {
     ShutdownAtExit c{ch_in, ch_out};
     co_await ctx->executor()->schedule();

@@ -38,7 +38,7 @@ Actor send_to_channels(
     Context& ctx,
     Message&& msg,
     std::vector<std::shared_ptr<Channel>>& chs_out,
-    std::uint64_t reservation_context
+    ReservationContext reservation_context
 ) {
     RAPIDSMPF_EXPECTS(!chs_out.empty(), "output channels cannot be empty");
 
@@ -47,7 +47,7 @@ Actor send_to_channels(
            Message const& msg_,
            std::size_t msg_sz_,
            Channel& ch_,
-           std::uint64_t reservation_context_) -> coro::task<bool> {
+           ReservationContext reservation_context_) -> coro::task<bool> {
         co_await ctx_.executor()->schedule();
         auto const& cd = msg_.content_description();
         auto const mem_types = preference_leq(cd.principal_memory_type(), MEMORY_TYPES);
@@ -89,7 +89,7 @@ Actor bounded_fanout(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_in,
     std::vector<std::shared_ptr<Channel>> chs_out,
-    std::uint64_t reservation_context
+    ReservationContext reservation_context
 ) {
     ShutdownAtExit c1{ch_in};
     ShutdownAtExit c2{chs_out};
@@ -235,7 +235,7 @@ struct UnboundedFanout {
         Context& ctx,
         std::size_t& self_next_idx,
         std::shared_ptr<Channel> ch_out,
-        std::uint64_t reservation_context
+        ReservationContext reservation_context
     ) {
         ShutdownAtExit ch_shutdown{ch_out};
         SetChannelIdxInvalidAtExit set_ch_idx_invalid{
@@ -370,7 +370,9 @@ struct UnboundedFanout {
      * @return A coroutine representing the task.
      */
     Actor recv_task(
-        Context& ctx, std::shared_ptr<Channel> ch_in, std::uint64_t reservation_context
+        Context& ctx,
+        std::shared_ptr<Channel> ch_in,
+        ReservationContext reservation_context
     ) {
         ShutdownAtExit ch_in_shutdown{ch_in};
         SetInputDoneAtExit set_input_done{.fanout = this};
@@ -461,7 +463,7 @@ Actor unbounded_fanout(
     std::shared_ptr<Context> ctx,
     std::shared_ptr<Channel> ch_in,
     std::vector<std::shared_ptr<Channel>> chs_out,
-    std::uint64_t reservation_context
+    ReservationContext reservation_context
 ) {
     auto& executor = *ctx->executor();
 
@@ -492,7 +494,7 @@ Actor fanout(
     std::shared_ptr<Channel> ch_in,
     std::vector<std::shared_ptr<Channel>> chs_out,
     FanoutPolicy policy,
-    std::uint64_t reservation_context
+    ReservationContext reservation_context
 ) {
     RAPIDSMPF_EXPECTS(
         chs_out.size() > 1,

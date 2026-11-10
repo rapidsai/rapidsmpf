@@ -155,7 +155,7 @@ class ReceivedChunks {
      * @return Actual amount of data spilled in bytes.
      */
     [[nodiscard]] std::size_t spill(
-        BufferResource* br, std::size_t amount, std::uint64_t reservation_context = 0
+        BufferResource* br, std::size_t amount, ReservationContext reservation_context = 0
     );
 
   private:
