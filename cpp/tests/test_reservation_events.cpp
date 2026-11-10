@@ -26,7 +26,7 @@ std::shared_ptr<BufferResource> make_resource(std::int64_t device_limit = 1024) 
     );
 }
 
-TEST(ReservationEventBuffer, RecordingLifecycleAndExactDeltas) {
+TEST(ReservationEvents, RecordingLifecycleAndExactDeltas) {
     auto br = make_resource();
     EXPECT_TRUE(br->drain_reservation_events().events.empty());
     EXPECT_TRUE(br->stop_reservation_event_recording().events.empty());
@@ -53,7 +53,7 @@ TEST(ReservationEventBuffer, RecordingLifecycleAndExactDeltas) {
     }
 }
 
-TEST(ReservationEventBuffer, SplitAndMoveConserveOccupancy) {
+TEST(ReservationEvents, SplitAndMoveConserveOccupancy) {
     auto br = make_resource();
     br->start_reservation_event_recording();
     auto reservation = br->reserve_or_fail(100, MemoryType::DEVICE, std::uint64_t{7});
@@ -70,7 +70,7 @@ TEST(ReservationEventBuffer, SplitAndMoveConserveOccupancy) {
     EXPECT_EQ(batch.events[1].byte_delta, -60);
 }
 
-TEST(ReservationEventBuffer, OnlySameSessionEmitsNegativeDelta) {
+TEST(ReservationEvents, OnlySameSessionEmitsNegativeDelta) {
     auto br = make_resource();
     auto before = br->reserve_or_fail(10, MemoryType::DEVICE, std::uint64_t{1});
 
@@ -87,7 +87,7 @@ TEST(ReservationEventBuffer, OnlySameSessionEmitsNegativeDelta) {
     EXPECT_TRUE(second.events.empty());
 }
 
-TEST(ReservationEventBuffer, ZeroByteOperationsEmitNothing) {
+TEST(ReservationEvents, ZeroByteOperationsEmitNothing) {
     auto br = make_resource();
     br->start_reservation_event_recording();
     auto [reservation, overbooked] =
@@ -99,7 +99,7 @@ TEST(ReservationEventBuffer, ZeroByteOperationsEmitNothing) {
     EXPECT_EQ(batch.dropped_event_count, 0);
 }
 
-TEST(ReservationEventBuffer, ConcurrentProducersAndDrainsLoseNoEvents) {
+TEST(ReservationEvents, ConcurrentProducersAndDrainsLoseNoEvents) {
     auto br = make_resource(1 << 20);
     br->start_reservation_event_recording();
     constexpr std::size_t producer_count = 4;
