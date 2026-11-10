@@ -55,8 +55,10 @@ class SocketServer {
     /**
      * @brief Shut down the server and join all threads.
      *
-     * Stops the accept thread, closes the listen socket, then joins all
-     * connection-handler threads.
+     * Stops the accept thread and closes the listen socket. Then shuts down
+     * all open client connections, wakes the handlers waiting in a barrier, a
+     * sync or a get, and joins all connection-handler threads. Calls that
+     * clients still have in flight fail.
      */
     ~SocketServer();
 
