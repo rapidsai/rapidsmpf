@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <ranges>
+
 #include <rapidsmpf/streaming/core/spillable_messages.hpp>
 
 namespace rapidsmpf::streaming {
@@ -95,6 +97,31 @@ std::size_t SpillableMessages::spill(
         it->second = new_cd;
     }
     return old_cd.content_size(mem_type);
+}
+
+std::size_t SpillableMessages::try_spill(
+    BufferResource* br, std::size_t amount, MemoryType mem_type
+) const {
+    // Recall that std::map is sorted by key, so iteration follows the order in which
+    // messages were inserted.
+    std::map<MessageId, ContentDescription> cds = get_content_descriptions();
+
+    // Spill messages from `range` until the target amount is reached.
+    auto spill_range = [&](auto&& range) {
+        std::size_t total_spilled = 0;
+        for (auto const& [id, cd] : range) {
+            if (total_spilled >= amount) {
+                break;
+            }
+            if (cd.spillable() && cd.content_size(mem_type) > 0) {
+                total_spilled += spill(id, br, mem_type);
+            }
+        }
+        return total_spilled;
+    };
+    return spill_order_ == SpillOrder::EARLIEST_FIRST
+               ? spill_range(cds)
+               : spill_range(cds | std::views::reverse);
 }
 
 std::map<SpillableMessages::MessageId, ContentDescription>
