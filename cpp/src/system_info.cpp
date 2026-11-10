@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <iterator>
+#include <stdexcept>
 #include <vector>
 
 #include <sched.h>
@@ -20,6 +21,23 @@
 #if RAPIDSMPF_HAVE_NUMA
 #include <numa.h>
 #include <numaif.h>
+
+// Older libnuma/kernel headers may not define these.
+#ifndef MPOL_F_STATIC_NODES
+#define MPOL_F_STATIC_NODES (1 << 15)
+#endif
+#ifndef MPOL_F_RELATIVE_NODES
+#define MPOL_F_RELATIVE_NODES (1 << 14)
+#endif
+#ifndef MPOL_F_NUMA_BALANCING
+#define MPOL_F_NUMA_BALANCING (1 << 13)
+#endif
+#ifndef MPOL_WEIGHTED_INTERLEAVE
+#define MPOL_WEIGHTED_INTERLEAVE 6
+#endif
+#ifndef MPOL_PREFERRED_MANY
+#define MPOL_PREFERRED_MANY 5
+#endif
 #endif
 
 namespace rapidsmpf {
@@ -105,7 +123,7 @@ std::vector<int> get_allowed_host_numa_nodes() noexcept {
 #endif
 }
 
-std::vector<int> get_current_numa_nodes() noexcept {
+std::vector<int> get_current_numa_nodes() {
 #if RAPIDSMPF_HAVE_NUMA
     if (numa_available() == -1) {
         return {0};
@@ -115,17 +133,21 @@ std::vector<int> get_current_numa_nodes() noexcept {
     auto const host_nodes = get_allowed_host_numa_nodes();
     // Policy nodes that are valid host nodes.
     std::vector<int> policy_host_nodes;
+    // All nodes in the policy, including non-host ones.
+    std::vector<int> bound_nodes;
     int mode = MPOL_DEFAULT;
     struct bitmask* policy = numa_allocate_nodemask();
     if (policy != nullptr
         && get_mempolicy(&mode, policy->maskp, policy->size, nullptr, 0) == 0)
     {
+        bound_nodes = bitmask_to_nodes(policy, [](int) { return true; });
         policy_host_nodes = bitmask_to_nodes(policy, [&](int node) {
             return std::ranges::find(host_nodes, node) != host_nodes.end();
         });
     }
-    numa_free_nodemask(policy);  // no-op on nullptr
-    // Policy host nodes, followed by the remaining host nodes.
+    numa_free_nodemask(policy);
+    // The policy host nodes first, then every other allowed host node (used by
+    // policies that may fall back to any allowed node).
     auto const policy_first = [&] {
         auto ret = policy_host_nodes;
         std::ranges::copy_if(host_nodes, std::back_inserter(ret), [&](int node) {
@@ -134,27 +156,38 @@ std::vector<int> get_current_numa_nodes() noexcept {
         return ret;
     };
 
-    // Fall back to node 0 if no valid host node was found.
-    auto const or_node_zero = [](std::vector<int> nodes) {
-        return nodes.empty() ? std::vector<int>{0} : nodes;
-    };
-    // Strip mode flags (MPOL_F_STATIC_NODES, MPOL_F_RELATIVE_NODES, ...).
-    switch (mode & ~0xE000) {
+    // Strip the mode flags, leaving only the policy mode.
+    constexpr int mode_flags =
+        MPOL_F_STATIC_NODES | MPOL_F_RELATIVE_NODES | MPOL_F_NUMA_BALANCING;
+    // With MPOL_F_RELATIVE_NODES the returned mask is relative to the allowed nodes
+    // rather than holding absolute node IDs, so it can't be interpreted here. Treat
+    // such policies as the default policy.
+    if ((mode & MPOL_F_RELATIVE_NODES) != 0) {
+        return host_nodes;
+    }
+    switch (mode & ~mode_flags) {
     case MPOL_BIND:
-        // Allocation is restricted to the bound nodes.
-        return or_node_zero(policy_host_nodes);
+        {
+            // Allocation is restricted to the bound nodes. Bound nodes that aren't
+            // allowed host nodes (e.g. GPU HBM nodes) are an error rather than being
+            // silently dropped, since that would report a binding that wasn't requested.
+            RAPIDSMPF_EXPECTS(
+                !policy_host_nodes.empty()
+                    && policy_host_nodes.size() == bound_nodes.size(),
+                "MPOL_BIND includes NUMA nodes that are not allowed host-memory nodes "
+                "(e.g. CPU-less GPU memory nodes); bind only to host nodes with CPUs",
+                std::runtime_error
+            );
+            return policy_host_nodes;
+        }
     case MPOL_PREFERRED:
     case MPOL_INTERLEAVE:
-#ifdef MPOL_PREFERRED_MANY
     case MPOL_PREFERRED_MANY:
-#endif
-#ifdef MPOL_WEIGHTED_INTERLEAVE
     case MPOL_WEIGHTED_INTERLEAVE:
-#endif
         // Allocation may fall back to any allowed node; list policy nodes first.
-        return or_node_zero(policy_first());
+        return policy_first();
     default:  // MPOL_DEFAULT, MPOL_LOCAL
-        return or_node_zero(host_nodes);
+        return host_nodes;
     }
 #else
     return {0};

@@ -67,7 +67,8 @@ std::vector<int> get_allowed_host_numa_nodes() noexcept;
  * GPU HBM nodes exposed on GB/GH systems (CPU-less CXL expander nodes are also
  * excluded). The result depends on the policy mode:
  * - `MPOL_DEFAULT`/`MPOL_LOCAL`: all allowed host nodes (respecting cpusets).
- * - `MPOL_BIND`: only the bound nodes.
+ * - `MPOL_BIND`: only the bound nodes. Throws if any bound node is not an allowed host
+ *   node (e.g. a CPU-less GPU memory node), rather than silently dropping it.
  * - `MPOL_PREFERRED`: all allowed host nodes, with the preferred node(s) first.
  * - `MPOL_INTERLEAVE`: all allowed host nodes, with the interleave nodes first.
  *
@@ -75,9 +76,15 @@ std::vector<int> get_allowed_host_numa_nodes() noexcept;
  * function returns a vector containing a single element, `0`, which corresponds
  * to the single implicit NUMA node on non-NUMA systems.
  *
+ * Policies using `MPOL_F_RELATIVE_NODES` are treated as the default policy, since
+ * their node mask is relative and can't be interpreted as absolute node IDs.
+ *
  * @return Vector of NUMA node IDs in the current memory policy.
+ *
+ * @throws std::runtime_error If the policy is `MPOL_BIND` and includes nodes that are
+ * not allowed host-memory nodes.
  */
-std::vector<int> get_current_numa_nodes() noexcept;
+std::vector<int> get_current_numa_nodes();
 
 /**
  * @brief Get the total amount of host memory for a NUMA node.

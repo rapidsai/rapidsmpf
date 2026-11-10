@@ -355,11 +355,7 @@ std::string format_output(
     }
     output << "CPU Affinity: "
            << (actual.cpu_affinity.empty() ? "(none)" : actual.cpu_affinity) << std::endl;
-    // Nodes in the effective memory policy: bound nodes under MPOL_BIND, otherwise all
-    // allowed host nodes with the policy's own nodes first.
     output << "NUMA Nodes: " << format_nodes{actual.numa_nodes} << std::endl;
-    // Host nodes the process may allocate from (cpuset-aware, CPU-less nodes such as GPU
-    // HBM excluded). If this is wider than "NUMA Nodes" a memory binding is in effect.
     output << "Allowed Host NUMA Nodes: "
            << format_nodes{rapidsmpf::get_allowed_host_numa_nodes()} << std::endl;
     output << "UCX_NET_DEVICES: "

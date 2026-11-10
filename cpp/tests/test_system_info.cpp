@@ -4,6 +4,7 @@
  */
 
 #include <optional>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
@@ -72,8 +73,8 @@ Topology discover_topology() {
  * @param mode Memory policy (`MPOL_*`).
  * @param policy_nodes Nodes passed to `set_mempolicy()`.
  * @param pin_to_node If >= 0, also pin the thread's CPUs to this node.
- * @return The nodes, or `std::nullopt` if the policy could not be applied (e.g.
- * `EPERM` in a container).
+ * @return The nodes (`{-1}` if `get_current_numa_nodes()` threw), or `std::nullopt` if
+ * the policy could not be applied (e.g. `EPERM` in a container).
  */
 std::optional<std::vector<int>> nodes_with_policy(
     int mode, std::vector<int> const& policy_nodes, int pin_to_node = -1
@@ -83,7 +84,13 @@ std::optional<std::vector<int>> nodes_with_policy(
         if (pin_to_node >= 0 && numa_run_on_node(pin_to_node) != 0) {
             return;
         }
-        if (mode != MPOL_DEFAULT) {
+        // New threads inherit the creator's memory policy (e.g. from `numactl
+        // --membind`), so always set the policy explicitly, including for MPOL_DEFAULT.
+        if (mode == MPOL_DEFAULT) {
+            if (set_mempolicy(MPOL_DEFAULT, nullptr, 0) != 0) {
+                return;
+            }
+        } else {
             struct bitmask* mask = numa_allocate_nodemask();
             for (int node : policy_nodes) {
                 numa_bitmask_setbit(mask, node);
@@ -94,7 +101,11 @@ std::optional<std::vector<int>> nodes_with_policy(
                 return;
             }
         }
-        ret = get_current_numa_nodes();
+        try {
+            ret = get_current_numa_nodes();
+        } catch (std::runtime_error const&) {
+            ret = std::vector<int>{-1};  // sentinel: threw
+        }
     }).join();
     return ret;
 }
@@ -228,6 +239,17 @@ TEST_F(MultiNumaGBTest, BindReturnsOnlyBoundHostNodes) {
     auto const all = nodes_with_policy(MPOL_BIND, topo.host);
     ASSERT_TRUE(all.has_value()) << "could not apply memory policy / CPU pinning";
     EXPECT_THAT(*all, ElementsAreArray(topo.host));
+}
+
+TEST_F(MultiNumaGBTest, BindIncludingCpulessNodeThrows) {
+    int const cpuless = topo.cpuless[0];
+    auto const only = nodes_with_policy(MPOL_BIND, {cpuless});
+    ASSERT_TRUE(only.has_value()) << "could not apply memory policy / CPU pinning";
+    EXPECT_THAT(*only, ElementsAre(-1));
+
+    auto const mixed = nodes_with_policy(MPOL_BIND, {topo.host[0], cpuless});
+    ASSERT_TRUE(mixed.has_value()) << "could not apply memory policy / CPU pinning";
+    EXPECT_THAT(*mixed, ElementsAre(-1));
 }
 
 TEST_F(MultiNumaGBTest, PreferredAndInterleaveListPolicyNodesFirstAndExcludeCpuless) {
