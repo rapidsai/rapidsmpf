@@ -487,72 +487,95 @@ Actor many_input_sink(
 }
 }  // namespace
 
-struct ManyInputSinkStreamingFanout : public StreamingFanout {
-    void run(ConsumePolicy consume_policy) {
-        auto inputs = make_int_inputs(num_msgs);
-
-        std::vector<std::vector<Message>> outs(num_out_chs);
-        {
-            std::vector<Actor> actors;
-
-            auto in = ctx->create_channel();
-            actors.push_back(actor::push_to_channel(ctx, in, std::move(inputs)));
-
-            std::vector<std::shared_ptr<Channel>> out_chs;
-            for (int i = 0; i < num_out_chs; ++i) {
-                out_chs.emplace_back(ctx->create_channel());
-            }
-
-            actors.push_back(actor::fanout(ctx, in, out_chs, policy));
-
-            actors.push_back(many_input_sink(ctx, out_chs, consume_policy, outs));
-
-            run_actor_network(std::move(actors));
+class ManyInputSinkStreamingFanout
+    : public BaseStreamingFixture,
+      public ::testing::WithParamInterface<
+          std::tuple<FanoutPolicy, int, int, int, ConsumePolicy>> {
+  public:
+    void SetUp() override {
+        // restrict fanout tests to single communicator mode to reduce test runtime
+        if (GlobalEnvironment->type() != TestEnvironmentType::SINGLE) {
+            GTEST_SKIP() << "Skipping test in non-single communicator mode";
         }
-
-        std::vector<int> expected(num_msgs);
-        std::iota(expected.begin(), expected.end(), 0);
-        for (int c = 0; c < num_out_chs; ++c) {
-            SCOPED_TRACE("channel " + std::to_string(c));
-            std::vector<int> actual;
-            actual.reserve(outs[c].size());
-            std::ranges::transform(
-                outs[c], std::back_inserter(actual), [](const Message& m) {
-                    return m.get<int>();
-                }
-            );
-            EXPECT_EQ(expected, actual);
-        }
+        std::tie(policy, num_threads, num_out_chs, num_msgs, consume_policy) = GetParam();
+        SetUpWithThreads(num_threads);
     }
+
+    FanoutPolicy policy;
+    int num_threads;
+    int num_out_chs;
+    int num_msgs;
+    ConsumePolicy consume_policy;
 };
 
 INSTANTIATE_TEST_SUITE_P(
     ManyInputSinkStreamingFanout,
     ManyInputSinkStreamingFanout,
-    ::testing::Combine(
-        ::testing::Values(FanoutPolicy::BOUNDED, FanoutPolicy::UNBOUNDED),
-        ::testing::Values(1, 4),  // number of threads
-        ::testing::Values(2, 4),  // number of output channels
-        ::testing::Values(10, 100)  // number of messages
-    ),
-    [](testing::TestParamInfo<StreamingFanout::ParamType> const& info) {
+    ::testing::ValuesIn([] {
+        using Param = ManyInputSinkStreamingFanout::ParamType;
+        std::vector<Param> params;
+
+        auto add_params = [&](FanoutPolicy policy, ConsumePolicy consume_policy) {
+            for (int num_threads : {1, 4}) {
+                for (int num_out_chs : {2, 4}) {
+                    for (int num_msgs : {10, 100}) {
+                        params.emplace_back(
+                            policy, num_threads, num_out_chs, num_msgs, consume_policy
+                        );
+                    }
+                }
+            }
+        };
+
+        add_params(FanoutPolicy::BOUNDED, ConsumePolicy::MESSAGE_ORDER);
+        add_params(FanoutPolicy::UNBOUNDED, ConsumePolicy::CHANNEL_ORDER);
+        add_params(FanoutPolicy::UNBOUNDED, ConsumePolicy::MESSAGE_ORDER);
+        return params;
+    }()),
+    [](testing::TestParamInfo<ManyInputSinkStreamingFanout::ParamType> const& info) {
         return "policy_" + policy_to_string(std::get<0>(info.param)) + "_nthreads_"
                + std::to_string(std::get<1>(info.param)) + "_nch_out_"
                + std::to_string(std::get<2>(info.param)) + "_nmsgs_"
-               + std::to_string(std::get<3>(info.param));
+               + std::to_string(std::get<3>(info.param)) + "_consume_"
+               + (std::get<4>(info.param) == ConsumePolicy::CHANNEL_ORDER
+                      ? "channel_order"
+                      : "message_order");
     }
 );
 
-TEST_P(ManyInputSinkStreamingFanout, ChannelOrder) {
-    if (policy == FanoutPolicy::BOUNDED) {
-        GTEST_SKIP() << "Bounded fanout does not support channel order";
+TEST_P(ManyInputSinkStreamingFanout, Run) {
+    auto inputs = make_int_inputs(num_msgs);
+
+    std::vector<std::vector<Message>> outs(num_out_chs);
+    {
+        std::vector<Actor> actors;
+
+        auto in = ctx->create_channel();
+        actors.push_back(actor::push_to_channel(ctx, in, std::move(inputs)));
+
+        std::vector<std::shared_ptr<Channel>> out_chs;
+        for (int i = 0; i < num_out_chs; ++i) {
+            out_chs.emplace_back(ctx->create_channel());
+        }
+
+        actors.push_back(actor::fanout(ctx, in, out_chs, policy));
+
+        actors.push_back(many_input_sink(ctx, out_chs, consume_policy, outs));
+
+        run_actor_network(std::move(actors));
     }
 
-    EXPECT_NO_FATAL_FAILURE(run(ConsumePolicy::CHANNEL_ORDER));
-}
-
-TEST_P(ManyInputSinkStreamingFanout, MessageOrder) {
-    EXPECT_NO_FATAL_FAILURE(run(ConsumePolicy::MESSAGE_ORDER));
+    std::vector<int> expected(num_msgs);
+    std::iota(expected.begin(), expected.end(), 0);
+    for (int c = 0; c < num_out_chs; ++c) {
+        SCOPED_TRACE("channel " + std::to_string(c));
+        std::vector<int> actual;
+        actual.reserve(outs[c].size());
+        std::ranges::transform(outs[c], std::back_inserter(actual), [](const Message& m) {
+            return m.get<int>();
+        });
+        EXPECT_EQ(expected, actual);
+    }
 }
 
 class StreamingFanoutWithMemType
