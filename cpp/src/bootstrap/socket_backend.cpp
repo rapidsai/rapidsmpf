@@ -182,6 +182,9 @@ struct SocketServer::State {
     // Client sockets of running handlers, shut down by the destructor.
     std::set<int> client_fds;
 
+    // Handlers waiting in a barrier, a sync or a get.
+    int waiting_handlers{0};
+
     int nranks;
     std::string token;  // 64-char hex
     std::atomic<bool> shutdown{false};
@@ -297,6 +300,11 @@ SocketServer::~SocketServer() {
 int SocketServer::num_open_connections() const {
     std::lock_guard<std::mutex> lk(state_->mu);
     return state_->active_connections;
+}
+
+int SocketServer::num_waiting_handlers() const {
+    std::lock_guard<std::mutex> lk(state_->mu);
+    return state_->waiting_handlers;
 }
 
 std::size_t SocketServer::num_handler_threads() const {
@@ -562,8 +570,10 @@ void SocketServer::handle_connection(int fd) {
                         if (shutting_down()) {
                             return;
                         }
-                        if (session->kv_cv.wait_until(lk, deadline)
-                            == std::cv_status::timeout)
+                        ++state_->waiting_handlers;
+                        auto const status = session->kv_cv.wait_until(lk, deadline);
+                        --state_->waiting_handlers;
+                        if (status == std::cv_status::timeout)
                             break;
                     }
                     auto it = session->kv.find(key);
@@ -590,9 +600,11 @@ void SocketServer::handle_connection(int fd) {
                     session->barrier_count = 0;
                     session->barrier_cv.notify_all();
                 } else {
+                    ++state_->waiting_handlers;
                     session->barrier_cv.wait(lk, [&] {
                         return session->barrier_gen != gen || shutting_down();
                     });
+                    --state_->waiting_handlers;
                     if (session->barrier_gen == gen) {
                         return;  // woken by shutdown
                     }
@@ -608,9 +620,11 @@ void SocketServer::handle_connection(int fd) {
                     session->sync_count = 0;
                     session->sync_cv.notify_all();
                 } else {
+                    ++state_->waiting_handlers;
                     session->sync_cv.wait(lk, [&] {
                         return session->sync_gen != gen || shutting_down();
                     });
+                    --state_->waiting_handlers;
                     if (session->sync_gen == gen) {
                         return;  // woken by shutdown
                     }

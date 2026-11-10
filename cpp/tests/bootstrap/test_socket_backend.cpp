@@ -18,6 +18,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <tuple>
 #include <vector>
 
 #include <arpa/inet.h>
@@ -165,18 +166,25 @@ std::string send_recv_line(int fd, std::string const& line) {
 // Wait until the server has no open connection. A closed connection keeps its
 // slot until its handler sees EOF. Returns false if that does not happen
 // within `timeout`.
-[[nodiscard]] bool wait_until_idle(
-    SocketServer const& server,
+[[nodiscard]] bool wait_until(
+    std::function<bool()> const& cond,
     std::chrono::milliseconds timeout = std::chrono::seconds{10}
 ) {
     auto const deadline = std::chrono::steady_clock::now() + timeout;
-    while (server.num_open_connections() > 0) {
+    while (!cond()) {
         if (std::chrono::steady_clock::now() >= deadline) {
             return false;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds{1});
     }
     return true;
+}
+
+[[nodiscard]] bool wait_until_idle(
+    SocketServer const& server,
+    std::chrono::milliseconds timeout = std::chrono::seconds{10}
+) {
+    return wait_until([&] { return server.num_open_connections() == 0; }, timeout);
 }
 
 // Authenticate a raw connection as `rank` and return the server's response.
@@ -442,30 +450,50 @@ TEST(SocketServerTest, ConcurrentBootstrapRejected) {
     }
 }
 
-TEST(SocketServerTest, DestructorUnblocksWaitingRank) {
-    // Rank 0 waits in a barrier that rank 1, which has already left, never
-    // joins. Destroying the server must not hang, and rank 0's barrier fails.
+namespace {
+
+// Destroy the server while rank 0 waits in `op`, which rank 1, which has
+// already left, never completes. The destructor must return, and `op` must fail.
+void expect_destructor_unblocks(std::function<void(SocketBackend&)> const& op) {
     auto server = std::make_unique<SocketServer>(2);
     SocketEnv env{*server};
     std::optional<SocketBackend> rank1{make_ctx(1, 2)};
     SocketBackend rank0{make_ctx(0, 2)};
     rank1.reset();
 
-    std::thread waiter([&rank0] { EXPECT_THROW(rank0.barrier(), std::runtime_error); });
+    std::thread waiter([&] { EXPECT_THROW(op(rank0), std::runtime_error); });
+    EXPECT_TRUE(wait_until([&] { return server->num_waiting_handlers() == 1; }))
+        << "rank 0's handler is not waiting";
 
     // Destroy the server on another thread, so that a hang fails the test
     // instead of blocking it.
     std::promise<void> destroyed;
     auto destroyed_future = destroyed.get_future();
-    std::thread([&server, &destroyed] {
+    std::thread destroyer([&server, &destroyed] {
         server.reset();
         destroyed.set_value();
-    }).detach();
+    });
     if (destroyed_future.wait_for(std::chrono::seconds{10}) != std::future_status::ready)
     {
         std::cerr << "~SocketServer did not return within 10s" << std::endl;
         std::_Exit(EXIT_FAILURE);
     }
-
+    destroyer.join();
     waiter.join();
+}
+
+}  // namespace
+
+TEST(SocketServerTest, DestructorUnblocksBarrier) {
+    expect_destructor_unblocks([](SocketBackend& backend) { backend.barrier(); });
+}
+
+TEST(SocketServerTest, DestructorUnblocksSync) {
+    expect_destructor_unblocks([](SocketBackend& backend) { backend.sync(); });
+}
+
+TEST(SocketServerTest, DestructorUnblocksGet) {
+    expect_destructor_unblocks([](SocketBackend& backend) {
+        std::ignore = backend.get("missing", std::chrono::hours{1});
+    });
 }

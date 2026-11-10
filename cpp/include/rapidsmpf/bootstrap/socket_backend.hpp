@@ -99,6 +99,16 @@ class SocketServer {
      */
     [[nodiscard]] std::size_t num_handler_threads() const;
 
+    /**
+     * @brief Returns the number of connection handlers waiting for other ranks.
+     *
+     * Counts the handlers waiting in a barrier, a sync, or a get of a key that
+     * is not set yet. The result is a snapshot.
+     *
+     * @return The number of waiting handlers.
+     */
+    [[nodiscard]] int num_waiting_handlers() const;
+
     SocketServer(SocketServer const&) = delete;
     SocketServer& operator=(SocketServer const&) = delete;
     SocketServer(SocketServer&&) = delete;
