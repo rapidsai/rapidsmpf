@@ -18,6 +18,7 @@
 #include <rapidsmpf/streaming/chunks/packed_data.hpp>
 #include <rapidsmpf/streaming/core/spillable_messages.hpp>
 
+#include "../utils.hpp"
 #include "base_streaming_fixture.hpp"
 
 using namespace rapidsmpf;
@@ -125,6 +126,45 @@ TEST_F(StreamingSpillableMessages, InsertSpillExtract) {
     EXPECT_EQ(msg.get<int>(), 3);
     EXPECT_THROW(std::ignore = msgs.extract(mid2), std::out_of_range);
     EXPECT_TRUE(msgs.get_content_descriptions().empty());
+}
+
+TEST_F(StreamingSpillableMessages, SpillWithoutReservation) {
+    SpillableMessages msgs;
+    auto mid = msgs.insert(
+        create_int_msg(1, 42, MemoryType::DEVICE, ContentDescription::Spillable::YES)
+    );
+
+    br->set_memory_limit(MemoryType::HOST, 0);
+    EXPECT_EQ(msgs.spill(mid, br.get()), 0);
+    EXPECT_EQ(
+        msgs.get_content_description(mid).content_size(MemoryType::DEVICE), sizeof(int)
+    );
+
+    br->set_memory_limit(MemoryType::HOST, sizeof(int));
+    EXPECT_EQ(msgs.spill(mid, br.get()), sizeof(int));
+    EXPECT_EQ(msgs.extract(mid).get<int>(), 42);
+}
+
+TEST_F(StreamingSpillableMessages, DiskSpill) {
+    TempDir disk_dir;
+    auto disk_br = create_br(disk_dir.path(), 0);  // No host room, so spill goes to disk.
+    constexpr std::size_t n_elements = 64;
+    constexpr std::size_t size = n_elements * sizeof(int);
+
+    SpillableMessages msgs;
+    auto mid = msgs.insert(to_message(
+        0,
+        std::make_unique<PackedData>(
+            generate_packed_data(n_elements, 0, stream, *disk_br)
+        )
+    ));
+    EXPECT_EQ(msgs.spill(mid, disk_br.get()), size);
+    EXPECT_EQ(msgs.get_content_description(mid).content_size(MemoryType::DISK), size);
+
+    // Extraction returns the message in its current (disk) memory tier.
+    auto spilled = msgs.extract(mid).release<PackedData>();
+    EXPECT_EQ(spilled.data->mem_type(), MemoryType::DISK);
+    validate_packed_data(std::move(spilled), n_elements, 0, stream, *disk_br);
 }
 
 TEST_F(StreamingSpillableMessages, MultiThreadedRandomInsertSpillExtract) {
@@ -235,7 +275,8 @@ TEST_F(StreamingSpillableMessages, SpillInFlightMessages) {
                 co_await ctx->executor()->schedule();
                 for (int j = 0; j < msgs_per_producer; ++j) {
                     spilled_expect.fetch_add(
-                        ctx->br()->spill_manager().spill(1024), std::memory_order_relaxed
+                        ctx->br()->spill_manager().spill(1024, MemoryType::DEVICE),
+                        std::memory_order_relaxed
                     );
 
                     auto msg = co_await ch_in->receive();
@@ -378,4 +419,53 @@ TEST_F(StreamingSpillableMessages, SpillingPackedDataIsTracked) {
     std::ignore = tracked_br->move(std::move(spilled.data), back);
     ASSERT_TRUE(stats->has_stat("buffer-spilled-time"));
     EXPECT_EQ(stats->get_stat("buffer-spilled-time").count(), 1);
+}
+
+class StreamingSpillableMessagesWithSpillOrder
+    : public StreamingSpillableMessages,
+      public ::testing::WithParamInterface<SpillableMessages::SpillOrder> {};
+
+INSTANTIATE_TEST_SUITE_P(
+    SpillOrder,
+    StreamingSpillableMessagesWithSpillOrder,
+    ::testing::Values(
+        SpillableMessages::SpillOrder::EARLIEST_FIRST,
+        SpillableMessages::SpillOrder::LATEST_FIRST
+    ),
+    [](testing::TestParamInfo<SpillableMessages::SpillOrder> const& info) {
+        return info.param == SpillableMessages::SpillOrder::EARLIEST_FIRST
+                   ? "EarliestFirst"
+                   : "LatestFirst";
+    }
+);
+
+TEST_P(StreamingSpillableMessagesWithSpillOrder, Spill) {
+    auto const order = GetParam();
+    constexpr int num_msgs = 3;
+
+    SpillableMessages msgs{order};
+    std::vector<SpillableMessages::MessageId> ids;
+    for (int i = 0; i < num_msgs; ++i) {
+        ids.push_back(msgs.insert(
+            create_int_msg(i, i, MemoryType::DEVICE, ContentDescription::Spillable::YES)
+        ));
+    }
+
+    // Spilling one message's worth must stop after a single message.
+    EXPECT_EQ(msgs.try_spill(br.get(), sizeof(int), MemoryType::DEVICE), sizeof(int));
+
+    auto const cds = msgs.get_content_descriptions();
+    bool const earliest = order == SpillableMessages::SpillOrder::EARLIEST_FIRST;
+    auto device_size = [&](auto mid) {
+        return cds.at(mid).content_size(MemoryType::DEVICE);
+    };
+    EXPECT_EQ(device_size(ids.front()), earliest ? 0 : sizeof(int));
+    EXPECT_EQ(device_size(ids[1]), sizeof(int));
+    EXPECT_EQ(device_size(ids.back()), earliest ? sizeof(int) : 0);
+
+    // Spilling more than what remains spills everything else.
+    EXPECT_EQ(
+        msgs.try_spill(br.get(), 100 * sizeof(int), MemoryType::DEVICE),
+        (num_msgs - 1) * sizeof(int)
+    );
 }

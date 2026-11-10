@@ -37,6 +37,11 @@ class PausableThreadLoop {
      *
      * The handler receives the captured exception. It must not throw, the process is
      * terminated if it does. It may call `stop()`, but must not destroy the loop.
+     *
+     * Like the loop function, the handler may run until `stop()` or the destructor
+     * returns, including while the owner of the loop is being destroyed. Anything the
+     * handler uses must remain alive until then. The owner can call `stop()` at the
+     * start of its destructor to guarantee this.
      */
     using ErrorHandler = std::function<void(std::exception_ptr)>;
 
@@ -48,7 +53,8 @@ class PausableThreadLoop {
      * method is called.
      *
      * If a sleep duration is provided, the thread will sleep for the specified duration
-     * between executions of the task.
+     * between executions of the task. The sleep is interrupted by `resume()`,
+     * `pause_nb()`, `pause()`, and `stop()`.
      *
      * A short sleep is introduced when running under Valgrind to avoid potential issues
      * with thread starvation.
@@ -111,12 +117,14 @@ class PausableThreadLoop {
     void pause() noexcept;
 
     /**
-     * @brief Resumes execution of the thread after being paused.
+     * @brief Resumes the thread and requests a prompt iteration of the loop function.
      *
-     * Calling resume on an already running loop is a no-op and is allowed. Resuming a
-     * loop that has failed (see `error()`) is a no-op.
+     * If the thread is paused or pausing, it is resumed. If it is sleeping, it starts
+     * its next iteration immediately. If it is in the middle of an iteration, the sleep
+     * after that iteration is skipped. Multiple calls before the next iteration starts
+     * are coalesced into one. Resuming a loop that has failed (see `error()`) is a no-op.
      *
-     * @return True if the state is changed to Running, false otherwise.
+     * @return True if the thread was paused or pausing, false otherwise.
      */
     bool resume() noexcept;
 
@@ -138,9 +146,8 @@ class PausableThreadLoop {
      *
      * Once stopped, the thread cannot be resumed.
      *
-     * @note This function is blocking and will wait on the loop function
-     * to finish its current execution, or for the sleep between iterations to elapse
-     * if called during that sleep.
+     * @note This function is blocking and will wait on the loop function to finish its
+     * current execution. It interrupts the sleep between iterations.
      *
      * @note If called from the loop thread, i.e., from the loop function or the error
      * handler, the thread is not joined: it exits once the current iteration returns,

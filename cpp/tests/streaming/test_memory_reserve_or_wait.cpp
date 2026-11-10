@@ -32,7 +32,11 @@ class StreamingMemoryReserveOrWait
         // Drive device memory availability by mutating the DEVICE limit. No real
         // device allocations occur in these tests, so `memory_available(DEVICE)`
         // equals whatever limit we set.
-        SetUpWithThreads(GetParam().num_threads, {{rapidsmpf::MemoryType::DEVICE, 0}});
+        SetUpWithThreads(
+            GetParam().num_threads,
+            rapidsmpf::PinnedMemoryDisabled,
+            {{rapidsmpf::MemoryType::DEVICE, 0}}
+        );
     }
 
   protected:
@@ -320,7 +324,7 @@ class SpillRecorder {
           spillable_{spillable} {
         br_->set_memory_limit(MemoryType::DEVICE, limit_);
         fid_ = br_->spill_manager().add_spill_function(
-            [this](std::size_t amount) -> std::size_t {
+            [this](std::size_t amount, MemoryType) -> std::size_t {
                 std::lock_guard lock(mutex_);
                 amounts_.push_back(amount);
                 auto const spilled = std::min(amount, spillable_);
@@ -752,7 +756,7 @@ class BlockingSpill {
           frees_{frees} {
         br_->set_memory_limit(MemoryType::DEVICE, limit_);
         fid_ = br_->spill_manager().add_spill_function(
-            [this](std::size_t) -> std::size_t {
+            [this](std::size_t, MemoryType) -> std::size_t {
                 {
                     std::unique_lock lock(mutex_);
                     int const me = ++entered_;
@@ -781,7 +785,9 @@ class BlockingSpill {
 
     /// @brief Start another spill on its own thread and return once it is executing.
     void start() {
-        spillers_.emplace_back([this] { std::ignore = br_->spill_manager().spill(1); });
+        spillers_.emplace_back([this] {
+            std::ignore = br_->spill_manager().spill(1, MemoryType::DEVICE);
+        });
         auto const n = static_cast<int>(spillers_.size());
         std::unique_lock lock(mutex_);
         cv_.wait(lock, [&] { return entered_ >= n; });

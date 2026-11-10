@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <exception>
@@ -22,15 +23,18 @@ namespace rapidsmpf::detail {
  * sequentially.
  *
  * Transitions:
- *  - `resume()`: PAUSED, PAUSING -> RUNNING
- *  - `pause_nb()`, `pause()`: RUNNING -> PAUSING
- *  - `stop()`: RUNNING, PAUSING, PAUSED -> STOPPING, FAILED -> STOPPED
- *  - `next_step()` (loop thread): PAUSING -> PAUSED, STOPPING -> STOPPED
- *  - `fail()` (loop thread): RUNNING, PAUSING -> FAILED, STOPPING -> STOPPED
+ *  - `resume()`: PAUSED, PAUSING, RUNNING -> SKIP_SLEEP
+ *  - `pause_nb()`, `pause()`: RUNNING, SKIP_SLEEP -> PAUSING
+ *  - `stop()`: RUNNING, SKIP_SLEEP, PAUSING, PAUSED -> STOPPING,
+ *    FAILED -> STOPPED
+ *  - `next_step()` (loop thread): PAUSING -> PAUSED, STOPPING -> STOPPED,
+ *    SKIP_SLEEP -> RUNNING
+ *  - `fail()` (loop thread): RUNNING, SKIP_SLEEP, PAUSING -> FAILED,
+ *    STOPPING -> STOPPED
  *
  * A failure is recorded in the same critical section as its transition, which leaves
- * the running states (RUNNING, PAUSING, STOPPING), and a failed loop never returns to
- * them.
+ * the running states (RUNNING, SKIP_SLEEP, PAUSING, STOPPING), and a failed loop never
+ * returns to them.
  */
 class LoopState {
   public:
@@ -40,7 +44,8 @@ class LoopState {
         Stopping,  ///< Stopping, the loop thread moves it to Stopped.
         Paused,  ///< Paused, can be resumed.
         Pausing,  ///< Pausing, the loop thread moves it to Paused.
-        Running,  ///< Running the loop function.
+        Running,  ///< Running the loop function or sleeping between iterations.
+        SkipSleep,  ///< Running, with a prompt next iteration requested.
         Failed,  ///< The loop function threw, can only be stopped.
     };
 
@@ -60,14 +65,14 @@ class LoopState {
     /**
      * @brief Check whether the loop is running.
      *
-     * @return True if RUNNING, PAUSING or STOPPING.
+     * @return True if RUNNING, SKIP_SLEEP, PAUSING or STOPPING.
      */
     [[nodiscard]] bool is_running() const noexcept;
 
     /**
-     * @brief Resume the loop.
+     * @brief Resume the loop and request a prompt iteration.
      *
-     * @return True if the state changed to RUNNING.
+     * @return True if the loop was paused or pausing, false otherwise.
      */
     bool resume() noexcept;
 
@@ -110,12 +115,23 @@ class LoopState {
     /**
      * @brief Wait until the loop thread must run the loop function or exit.
      *
-     * Called on the loop thread only. Acknowledges pausing (PAUSING -> PAUSED) and
-     * stopping (STOPPING -> STOPPED), and blocks while PAUSED or FAILED.
+     * Called on the loop thread only. Acknowledges pausing (PAUSING -> PAUSED),
+     * stopping (STOPPING -> STOPPED), and a prompt iteration request
+     * (SKIP_SLEEP -> RUNNING), and blocks while PAUSED or FAILED.
      *
      * @return The next step of the loop thread.
      */
     Step next_step() noexcept;
+
+    /**
+     * @brief Wait between iterations while the state remains RUNNING.
+     *
+     * Resume, pause, stop, or failure interrupts the wait. Called on the loop thread
+     * only.
+     *
+     * @param duration The maximum time to wait.
+     */
+    void wait_for(std::chrono::steady_clock::duration duration) noexcept;
 
   private:
     mutable std::mutex mutex_;

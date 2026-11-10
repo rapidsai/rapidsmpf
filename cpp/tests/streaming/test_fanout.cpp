@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include <iostream>
+#include <sstream>
 #include <unordered_set>
 #include <vector>
 
@@ -21,6 +22,7 @@
 #include <rapidsmpf/streaming/core/fanout.hpp>
 #include <rapidsmpf/streaming/core/leaf_actor.hpp>
 
+#include "../utils.hpp"
 #include "base_streaming_fixture.hpp"
 
 using namespace rapidsmpf;
@@ -53,8 +55,14 @@ std::vector<Message> make_int_inputs(int n) {
 /**
  * @brief Helper to make a sequence of Message<Buffer>s where each buffer contains 1024
  * values of int [i, i + 1024).
+ *
+ * @param n Number of messages.
+ * @param br Buffer resource.
+ * @param mem_type Memory type of the input buffers.
  */
-std::vector<Message> make_buffer_inputs(int n, rapidsmpf::BufferResource& br) {
+std::vector<Message> make_buffer_inputs(
+    int n, rapidsmpf::BufferResource& br, MemoryType mem_type = MemoryType::DEVICE
+) {
     std::vector<Message> inputs;
     inputs.reserve(n);
 
@@ -87,8 +95,12 @@ std::vector<Message> make_buffer_inputs(int n, rapidsmpf::BufferResource& br) {
         // If the copy to the device buffer is actually stream ordered, the host values
         // might go out of scope before the copy completes.
         stream.sync();
+        if (mem_type != MemoryType::DEVICE) {
+            auto res = br.reserve_or_fail(buffer->size, mem_type);
+            buffer = br.move(std::move(buffer), res);
+        }
         ContentDescription cd{
-            std::ranges::single_view{std::pair{MemoryType::DEVICE, 1024 * sizeof(int)}},
+            std::ranges::single_view{std::pair{mem_type, 1024 * sizeof(int)}},
             ContentDescription::Spillable::YES
         };
         inputs.emplace_back(i, std::move(buffer), cd, callbacks);
@@ -475,94 +487,156 @@ Actor many_input_sink(
 }
 }  // namespace
 
-struct ManyInputSinkStreamingFanout : public StreamingFanout {
-    void run(ConsumePolicy consume_policy) {
-        auto inputs = make_int_inputs(num_msgs);
-
-        std::vector<std::vector<Message>> outs(num_out_chs);
-        {
-            std::vector<Actor> actors;
-
-            auto in = ctx->create_channel();
-            actors.push_back(actor::push_to_channel(ctx, in, std::move(inputs)));
-
-            std::vector<std::shared_ptr<Channel>> out_chs;
-            for (int i = 0; i < num_out_chs; ++i) {
-                out_chs.emplace_back(ctx->create_channel());
-            }
-
-            actors.push_back(actor::fanout(ctx, in, out_chs, policy));
-
-            actors.push_back(many_input_sink(ctx, out_chs, consume_policy, outs));
-
-            run_actor_network(std::move(actors));
+class ManyInputSinkStreamingFanout
+    : public BaseStreamingFixture,
+      public ::testing::WithParamInterface<
+          std::tuple<FanoutPolicy, int, int, int, ConsumePolicy>> {
+  public:
+    void SetUp() override {
+        // restrict fanout tests to single communicator mode to reduce test runtime
+        if (GlobalEnvironment->type() != TestEnvironmentType::SINGLE) {
+            GTEST_SKIP() << "Skipping test in non-single communicator mode";
         }
-
-        std::vector<int> expected(num_msgs);
-        std::iota(expected.begin(), expected.end(), 0);
-        for (int c = 0; c < num_out_chs; ++c) {
-            SCOPED_TRACE("channel " + std::to_string(c));
-            std::vector<int> actual;
-            actual.reserve(outs[c].size());
-            std::ranges::transform(
-                outs[c], std::back_inserter(actual), [](const Message& m) {
-                    return m.get<int>();
-                }
-            );
-            EXPECT_EQ(expected, actual);
-        }
+        std::tie(policy, num_threads, num_out_chs, num_msgs, consume_policy) = GetParam();
+        SetUpWithThreads(num_threads);
     }
+
+    FanoutPolicy policy;
+    int num_threads;
+    int num_out_chs;
+    int num_msgs;
+    ConsumePolicy consume_policy;
 };
 
 INSTANTIATE_TEST_SUITE_P(
     ManyInputSinkStreamingFanout,
     ManyInputSinkStreamingFanout,
-    ::testing::Combine(
-        ::testing::Values(FanoutPolicy::BOUNDED, FanoutPolicy::UNBOUNDED),
-        ::testing::Values(1, 4),  // number of threads
-        ::testing::Values(2, 4),  // number of output channels
-        ::testing::Values(10, 100)  // number of messages
-    ),
-    [](testing::TestParamInfo<StreamingFanout::ParamType> const& info) {
+    ::testing::ValuesIn([] {
+        using Param = ManyInputSinkStreamingFanout::ParamType;
+        std::vector<Param> params;
+
+        auto add_params = [&](FanoutPolicy policy, ConsumePolicy consume_policy) {
+            for (int num_threads : {1, 4}) {
+                for (int num_out_chs : {2, 4}) {
+                    for (int num_msgs : {10, 100}) {
+                        params.emplace_back(
+                            policy, num_threads, num_out_chs, num_msgs, consume_policy
+                        );
+                    }
+                }
+            }
+        };
+
+        add_params(FanoutPolicy::BOUNDED, ConsumePolicy::MESSAGE_ORDER);
+        add_params(FanoutPolicy::UNBOUNDED, ConsumePolicy::CHANNEL_ORDER);
+        add_params(FanoutPolicy::UNBOUNDED, ConsumePolicy::MESSAGE_ORDER);
+        return params;
+    }()),
+    [](testing::TestParamInfo<ManyInputSinkStreamingFanout::ParamType> const& info) {
         return "policy_" + policy_to_string(std::get<0>(info.param)) + "_nthreads_"
                + std::to_string(std::get<1>(info.param)) + "_nch_out_"
                + std::to_string(std::get<2>(info.param)) + "_nmsgs_"
-               + std::to_string(std::get<3>(info.param));
+               + std::to_string(std::get<3>(info.param)) + "_consume_"
+               + (std::get<4>(info.param) == ConsumePolicy::CHANNEL_ORDER
+                      ? "channel_order"
+                      : "message_order");
     }
 );
 
-TEST_P(ManyInputSinkStreamingFanout, ChannelOrder) {
-    if (policy == FanoutPolicy::BOUNDED) {
-        GTEST_SKIP() << "Bounded fanout does not support channel order";
+TEST_P(ManyInputSinkStreamingFanout, Run) {
+    auto inputs = make_int_inputs(num_msgs);
+
+    std::vector<std::vector<Message>> outs(num_out_chs);
+    {
+        std::vector<Actor> actors;
+
+        auto in = ctx->create_channel();
+        actors.push_back(actor::push_to_channel(ctx, in, std::move(inputs)));
+
+        std::vector<std::shared_ptr<Channel>> out_chs;
+        for (int i = 0; i < num_out_chs; ++i) {
+            out_chs.emplace_back(ctx->create_channel());
+        }
+
+        actors.push_back(actor::fanout(ctx, in, out_chs, policy));
+
+        actors.push_back(many_input_sink(ctx, out_chs, consume_policy, outs));
+
+        run_actor_network(std::move(actors));
     }
 
-    EXPECT_NO_FATAL_FAILURE(run(ConsumePolicy::CHANNEL_ORDER));
+    std::vector<int> expected(num_msgs);
+    std::iota(expected.begin(), expected.end(), 0);
+    for (int c = 0; c < num_out_chs; ++c) {
+        SCOPED_TRACE("channel " + std::to_string(c));
+        std::vector<int> actual;
+        actual.reserve(outs[c].size());
+        std::ranges::transform(outs[c], std::back_inserter(actual), [](const Message& m) {
+            return m.get<int>();
+        });
+        EXPECT_EQ(expected, actual);
+    }
 }
 
-TEST_P(ManyInputSinkStreamingFanout, MessageOrder) {
-    EXPECT_NO_FATAL_FAILURE(run(ConsumePolicy::MESSAGE_ORDER));
-}
-
-class SpillingStreamingFanout : public BaseStreamingFixture {
+class StreamingFanoutWithMemType
+    : public BaseStreamingFixture,
+      public ::testing::WithParamInterface<std::tuple<MemoryType, MemoryType>> {
+  public:
     void SetUp() override {
-        SetUpWithThreads(4);
+        std::tie(src_mem_type, dest_mem_type) = GetParam();
+        auto pinned_pool_properties = PinnedMemoryDisabled;
+        if (src_mem_type == MemoryType::PINNED_HOST
+            || dest_mem_type == MemoryType::PINNED_HOST)
+        {
+            if (!is_pinned_memory_resources_supported()) {
+                GTEST_SKIP() << "Pinned host memory is not supported on this system";
+            }
+            pinned_pool_properties = PinnedPoolProperties{};
+        }
 
-        // override br and context with no device memory
-        std::unordered_map<MemoryType, std::int64_t> memory_limits = {
-            {MemoryType::DEVICE, 0},
-        };
-        br = rapidsmpf::BufferResource::create(
-            mr_cuda, rapidsmpf::PinnedMemoryDisabled, memory_limits
-        );
-        auto options = ctx->options();
-        ctx = std::make_shared<rapidsmpf::streaming::Context>(
-            options, GlobalEnvironment->comm_->logger(), br
+        // disable the periodic spill thread, so nothing spills in the background
+        SetUpWithThreads(
+            4, std::move(pinned_pool_properties), {}, std::nullopt, spill_dir.path()
         );
     }
+
+    TempDir spill_dir;
+    MemoryType src_mem_type;
+    MemoryType dest_mem_type;
 };
 
-TEST_F(SpillingStreamingFanout, Spilling) {
-    auto inputs = make_buffer_inputs(100, *ctx->br());
+INSTANTIATE_TEST_SUITE_P(
+    StreamingFanoutWithMemType,
+    StreamingFanoutWithMemType,
+    // All (src, dest) pairs where dest is not of higher priority than src: fanout
+    // allocates copies in the source memory type or a lower-priority one.
+    ::testing::ValuesIn([] {
+        std::vector<std::tuple<MemoryType, MemoryType>> pairs;
+        for (auto src : MEMORY_TYPES) {
+            for (auto dest : preference_leq(src, MEMORY_TYPES)) {
+                pairs.emplace_back(src, dest);
+            }
+        }
+        return pairs;
+    }()),
+    [](testing::TestParamInfo<StreamingFanoutWithMemType::ParamType> const& info) {
+        std::ostringstream ss;
+        ss << "src_" << std::get<0>(info.param) << "_dest_" << std::get<1>(info.param);
+        return ss.str();
+    }
+);
+
+TEST_P(StreamingFanoutWithMemType, OutputsInDestMemType) {
+    auto inputs = make_buffer_inputs(100, *ctx->br(), src_mem_type);
+
+    // Disallow every memory type except the destination, which forces the fanout outputs
+    // to be allocated in the destination memory type.
+    for (auto mem_type : MEMORY_TYPES) {
+        if (mem_type != dest_mem_type) {
+            ctx->br()->set_memory_limit(mem_type, 0);
+        }
+    }
+
     constexpr int num_out_chs = 4;
     constexpr FanoutPolicy policy = FanoutPolicy::UNBOUNDED;
 
@@ -588,10 +662,10 @@ TEST_F(SpillingStreamingFanout, Spilling) {
 
     for (int c = 0; c < num_out_chs; ++c) {
         SCOPED_TRACE("channel " + std::to_string(c));
-        // all messages should be in host memory
-        EXPECT_TRUE(std::ranges::all_of(outs[c], [](const Message& m) {
+        // all messages should be in the destination memory type
+        EXPECT_TRUE(std::ranges::all_of(outs[c], [&](const Message& m) {
             auto const cd = m.content_description();
-            return cd.principal_memory_type() == MemoryType::HOST
+            return cd.principal_memory_type() == dest_mem_type
                    && cd.content_size() == 1024 * sizeof(int);
         }));
     }
