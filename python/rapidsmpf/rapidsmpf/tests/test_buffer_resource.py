@@ -21,6 +21,7 @@ from rapidsmpf.memory.buffer_resource import (
     ReservationEvent,
     ReservationEventBatch,
     allow_overbooking_by_default_from_options,
+    max_reservation_events_from_options,
     memory_reserve_timeout_from_options,
     spill_dir_from_options,
 )
@@ -463,6 +464,51 @@ def test_reservation_policy_from_options() -> None:
     )
     assert br.memory_reserve_timeout == pytest.approx(2.0)
     assert br.allow_overbooking_by_default is False
+
+
+def test_max_reservation_events_defaults() -> None:
+    br = BufferResource(rmm.mr.CudaMemoryResource())
+    assert br.max_reservation_events == 1_000_000
+    options = Options()
+    assert max_reservation_events_from_options(options) == 1_000_000
+    br = BufferResource.from_options(rmm.mr.CudaMemoryResource(), options)
+    assert br.max_reservation_events == 1_000_000
+
+
+def test_max_reservation_events_from_options() -> None:
+    options = Options({"max_reservation_events": "5"})
+    assert max_reservation_events_from_options(options) == 5
+    br = BufferResource.from_options(rmm.mr.CudaMemoryResource(), options)
+    assert br.max_reservation_events == 5
+
+    with pytest.raises(ValueError, match="must not be negative"):
+        max_reservation_events_from_options(Options({"max_reservation_events": "-1"}))
+    with pytest.raises(ValueError, match="must not be negative"):
+        BufferResource(rmm.mr.CudaMemoryResource(), max_reservation_events=-1)
+
+
+def test_max_reservation_events_drops_excess() -> None:
+    br = BufferResource(
+        rmm.mr.CudaMemoryResource(),
+        memory_limits={MemoryType.DEVICE: KiB(1)},
+        max_reservation_events=2,
+    )
+    br.start_reservation_event_recording()
+    reservation, _ = br.reserve(MemoryType.DEVICE, 100, allow_overbooking=False)
+    br.release(reservation, 25)
+    br.release(reservation, 25)  # Dropped.
+    reservation.clear()  # Dropped.
+
+    drained = br.drain_reservation_events()
+    assert [event.byte_delta for event in drained.events] == [100, -25]
+    assert drained.dropped_event_count == 2
+
+    # Draining frees space and resets the dropped count.
+    reservation, _ = br.reserve(MemoryType.DEVICE, 10, allow_overbooking=False)
+    final = br.stop_reservation_event_recording()
+    assert [event.byte_delta for event in final.events] == [10]
+    assert final.dropped_event_count == 0
+    del reservation
 
 
 def test_spill_directory_from_options(tmp_path: pathlib.Path) -> None:

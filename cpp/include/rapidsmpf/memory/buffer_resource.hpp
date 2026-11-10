@@ -179,6 +179,10 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * See `memory_reserve_timeout_from_options()`.
      * @param allow_overbooking_by_default Overbooking policy for reservation requests
      * that don't specify one. See `allow_overbooking_by_default_from_options()`.
+     * @param max_reservation_events Maximum number of reservation event records
+     * retained between drains while recording. Further events are dropped and counted
+     * in `ReservationEventBatch::dropped_event_count`. See
+     * `max_reservation_events_from_options()`.
      * @return A newly constructed `BufferResource` owned by `std::shared_ptr`.
      * @throws std::runtime_error if `pinned_pool_properties` has a value but pinned
      * host memory is not supported on this system.
@@ -192,7 +196,8 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         std::shared_ptr<Statistics> statistics = Statistics::disabled(),
         std::optional<std::filesystem::path> spill_directory = std::nullopt,
         Duration memory_reserve_timeout = std::chrono::milliseconds{100},
-        AllowOverbooking allow_overbooking_by_default = AllowOverbooking::YES
+        AllowOverbooking allow_overbooking_by_default = AllowOverbooking::YES,
+        std::size_t max_reservation_events = 1'000'000
     );
 
     /**
@@ -385,8 +390,10 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * Recording is disabled by default.
      * While enabled, recording serializes event appends with a per-resource mutex.
-     * Events are retained without a fixed size limit until they are drained or
-     * recording is stopped.
+     * Events are retained until they are drained or recording is stopped, but at most
+     * `max_reservation_events()` are retained at a time. Once that many are held,
+     * further events are dropped and counted in
+     * `ReservationEventBatch::dropped_event_count` until the next drain frees space.
      *
      * @throws std::logic_error if recording is already active.
      */
@@ -798,6 +805,17 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         return allow_overbooking_by_default_;
     }
 
+    /**
+     * @brief Maximum number of reservation event records retained between drains.
+     *
+     * See the `max_reservation_events` option.
+     *
+     * @return The maximum number of retained events.
+     */
+    [[nodiscard]] std::size_t max_reservation_events() const noexcept {
+        return max_reservation_events_;
+    }
+
   private:
     std::uint64_t record_reservation_event(
         ReservationContext reservation_context,
@@ -815,7 +833,8 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         std::shared_ptr<Statistics> statistics,
         std::shared_ptr<DiskResource> disk_resource,
         Duration memory_reserve_timeout,
-        AllowOverbooking allow_overbooking_by_default
+        AllowOverbooking allow_overbooking_by_default,
+        std::size_t max_reservation_events
     );
 
     mutable std::mutex mutex_;
@@ -831,6 +850,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     std::shared_ptr<Statistics> statistics_;
     Duration memory_reserve_timeout_;
     AllowOverbooking allow_overbooking_by_default_;
+    std::size_t max_reservation_events_;
 
     std::optional<detail::RecordingSession> recording_;
     std::mutex recording_mutex_;
@@ -900,6 +920,16 @@ Duration memory_reserve_timeout_from_options(config::Options options);
  * @return The overbooking policy for reservation requests that don't specify one.
  */
 AllowOverbooking allow_overbooking_by_default_from_options(config::Options options);
+
+/**
+ * @brief Get the `max_reservation_events` parameter from configuration options.
+ *
+ * @param options Configuration options.
+ * @return The maximum number of reservation event records retained between drains.
+ *
+ * @throws std::invalid_argument If the value is negative or cannot be parsed.
+ */
+std::size_t max_reservation_events_from_options(config::Options options);
 
 
 }  // namespace rapidsmpf

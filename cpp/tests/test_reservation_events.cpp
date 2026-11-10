@@ -99,6 +99,52 @@ TEST(ReservationEvents, ZeroByteOperationsEmitNothing) {
     EXPECT_EQ(batch.dropped_event_count, 0);
 }
 
+TEST(ReservationEvents, MaxEventsDropsAndCountsExcess) {
+    auto br = BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        PinnedMemoryDisabled,
+        {{MemoryType::DEVICE, 1024}},
+        std::chrono::milliseconds{1},
+        std::make_shared<StreamPool>(1),
+        Statistics::disabled(),
+        std::nullopt,
+        std::chrono::milliseconds{100},
+        AllowOverbooking::YES,
+        /*max_reservation_events=*/2
+    );
+    EXPECT_EQ(br->max_reservation_events(), 2);
+    br->start_reservation_event_recording();
+    auto reservation = br->reserve_or_fail(100, MemoryType::DEVICE);
+    br->release(reservation, 25);
+    br->release(reservation, 25);  // Dropped.
+    reservation.clear();  // Dropped.
+
+    auto drained = br->drain_reservation_events();
+    ASSERT_EQ(drained.events.size(), 2);
+    EXPECT_EQ(drained.dropped_event_count, 2);
+    EXPECT_EQ(drained.events[0].byte_delta, 100);
+    EXPECT_EQ(drained.events[1].byte_delta, -25);
+
+    // Draining frees space, and the dropped count was reset.
+    auto reservation2 = br->reserve_or_fail(10, MemoryType::DEVICE);
+    auto final = br->stop_reservation_event_recording();
+    ASSERT_EQ(final.events.size(), 1);
+    EXPECT_EQ(final.dropped_event_count, 0);
+}
+
+TEST(ReservationEvents, MaxEventsFromOptions) {
+    EXPECT_EQ(max_reservation_events_from_options(config::Options{}), 1'000'000);
+    using Map = std::unordered_map<std::string, std::string>;
+    config::Options options{Map{{"max_reservation_events", "7"}}};
+    EXPECT_EQ(max_reservation_events_from_options(options), 7);
+    EXPECT_THROW(
+        max_reservation_events_from_options(
+            config::Options{Map{{"max_reservation_events", "-1"}}}
+        ),
+        std::invalid_argument
+    );
+}
+
 TEST(ReservationEvents, ConcurrentProducersAndDrainsLoseNoEvents) {
     auto br = make_resource(1 << 20);
     br->start_reservation_event_recording();

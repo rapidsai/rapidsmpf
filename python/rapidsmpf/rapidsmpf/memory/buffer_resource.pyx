@@ -293,6 +293,11 @@ cdef class BufferResource:
     allow_overbooking_by_default
         Whether reservation requests that don't specify an overbooking policy may
         overbook memory. See the ``allow_overbooking_by_default`` configuration option.
+    max_reservation_events
+        Maximum number of reservation event records retained between drains while
+        recording. Further events are dropped and counted in
+        :attr:`ReservationEventBatch.dropped_event_count`. See the
+        ``max_reservation_events`` configuration option.
 
     Notes
     -----
@@ -319,7 +324,10 @@ cdef class BufferResource:
         spill_directory = None,
         memory_reserve_timeout = 0.1,
         allow_overbooking_by_default = True,
+        max_reservation_events = 1_000_000,
     ):
+        if max_reservation_events < 0:
+            raise ValueError("max_reservation_events must not be negative")
         cdef unordered_map[MemoryType, int64_t] _mem_limits
         if memory_limits is not None:
             for mem_type, limit in memory_limits.items():
@@ -374,6 +382,7 @@ cdef class BufferResource:
         cdef AllowOverbooking cpp_allow_overbooking = (
             AllowOverbooking.YES if allow_overbooking_by_default else AllowOverbooking.NO
         )
+        cdef size_t cpp_max_reservation_events = <size_t>max_reservation_events
         cdef optional[cpp_path] cpp_spill_directory
         if spill_directory is not None:
             cpp_spill_directory = cpp_path(<string>os.fsencode(spill_directory))
@@ -390,6 +399,7 @@ cdef class BufferResource:
                 cpp_spill_directory,
                 cpp_memory_reserve_timeout,
                 cpp_allow_overbooking,
+                cpp_max_reservation_events,
             )
         self.spill_manager = SpillManager._create(self)
 
@@ -449,6 +459,7 @@ cdef class BufferResource:
             allow_overbooking_by_default=allow_overbooking_by_default_from_options(
                 options
             ),
+            max_reservation_events=max_reservation_events_from_options(options),
         )
 
     def __dealloc__(self):
@@ -596,6 +607,17 @@ cdef class BufferResource:
             deref(self._handle).allow_overbooking_by_default()
             == AllowOverbooking.YES
         )
+
+    @property
+    def max_reservation_events(self):
+        """
+        Maximum number of reservation event records retained between drains.
+
+        Returns
+        -------
+        The maximum number of retained events.
+        """
+        return deref(self._handle).max_reservation_events()
 
     def memory_available_for_reservation(self, MemoryType mem_type):
         """
@@ -949,6 +971,11 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
             cpp_Options options
         ) except +ex_handler
 
+    cdef size_t cpp_max_reservation_events_from_options \
+        "rapidsmpf::max_reservation_events_from_options"(
+            cpp_Options options
+        ) except +ex_handler
+
 
 cdef extern from "<rapidsmpf/disk/disk_resource.hpp>" nogil:
     cdef optional[cpp_path] cpp_spill_dir_from_options \
@@ -1069,6 +1096,30 @@ def allow_overbooking_by_default_from_options(Options options not None):
     with nogil:
         ret = cpp_allow_overbooking_by_default_from_options(options._handle)
     return ret == AllowOverbooking.YES
+
+
+def max_reservation_events_from_options(Options options not None):
+    """
+    Get the ``max_reservation_events`` parameter from configuration options.
+
+    Parameters
+    ----------
+    options
+        Configuration options.
+
+    Returns
+    -------
+    The maximum number of reservation event records retained between drains.
+
+    Raises
+    ------
+    ValueError
+        If the value is negative or cannot be parsed.
+    """
+    cdef size_t ret
+    with nogil:
+        ret = cpp_max_reservation_events_from_options(options._handle)
+    return ret
 
 
 def spill_dir_from_options(Options options not None):

@@ -36,6 +36,7 @@ inline const std::unordered_map<std::string, std::string> DEFAULTS{
     {"num_streaming_threads", "1"},
     {"memory_reserve_timeout", "100ms"},
     {"allow_overbooking_by_default", "true"},
+    {"max_reservation_events", "1000000"},
     {"log", "WARN"},
     {"ucxx_progress_mode", "thread-blocking"},
     {"disk_spill_dir", "false"},

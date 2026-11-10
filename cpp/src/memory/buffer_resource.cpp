@@ -39,7 +39,8 @@ BufferResource::BufferResource(
     std::shared_ptr<Statistics> statistics,
     std::shared_ptr<DiskResource> disk_resource,
     Duration memory_reserve_timeout,
-    AllowOverbooking allow_overbooking_by_default
+    AllowOverbooking allow_overbooking_by_default,
+    std::size_t max_reservation_events
 )
     : owning_mr_{std::move(device_mr)},
       pinned_mr_{std::move(pinned_mr)},
@@ -49,7 +50,8 @@ BufferResource::BufferResource(
       spill_manager_{this, periodic_spill_check},
       statistics_{std::move(statistics)},
       memory_reserve_timeout_{memory_reserve_timeout},
-      allow_overbooking_by_default_{allow_overbooking_by_default} {
+      allow_overbooking_by_default_{allow_overbooking_by_default},
+      max_reservation_events_{max_reservation_events} {
     // Default every limit to unlimited, then apply caller overrides.
     for (auto& limit : memory_limits_) {
         limit.store(std::numeric_limits<std::int64_t>::max(), std::memory_order_relaxed);
@@ -72,7 +74,8 @@ std::shared_ptr<BufferResource> BufferResource::create(
     std::shared_ptr<Statistics> statistics,
     std::optional<std::filesystem::path> spill_directory,
     Duration memory_reserve_timeout,
-    AllowOverbooking allow_overbooking_by_default
+    AllowOverbooking allow_overbooking_by_default,
+    std::size_t max_reservation_events
 ) {
     std::optional<PinnedMemoryResource> pinned_mr;
     if (pinned_pool_properties.has_value()) {
@@ -107,7 +110,8 @@ std::shared_ptr<BufferResource> BufferResource::create(
         std::move(statistics),
         std::move(disk_res),
         memory_reserve_timeout,
-        allow_overbooking_by_default
+        allow_overbooking_by_default,
+        max_reservation_events
     }};
 
     // Install the back-reference on the owned resources *after* construction so
@@ -144,7 +148,8 @@ std::shared_ptr<BufferResource> BufferResource::from_options(
         std::move(statistics),
         spill_dir_from_options(options),
         memory_reserve_timeout_from_options(options),
-        allow_overbooking_by_default_from_options(options)
+        allow_overbooking_by_default_from_options(options),
+        max_reservation_events_from_options(options)
     );
 }
 
@@ -595,6 +600,20 @@ AllowOverbooking allow_overbooking_by_default_from_options(config::Options optio
     return options.get<bool>("allow_overbooking_by_default", parse_string<bool>)
                ? AllowOverbooking::YES
                : AllowOverbooking::NO;
+}
+
+std::size_t max_reservation_events_from_options(config::Options options) {
+    return options.get<std::size_t>("max_reservation_events", [](auto const& s) {
+        // Parse as signed so that a negative value is rejected instead of wrapping
+        // around to an effectively unlimited cap.
+        auto const value = parse_string<std::int64_t>(s);
+        RAPIDSMPF_EXPECTS(
+            value >= 0,
+            "The `max_reservation_events` option must not be negative",
+            std::invalid_argument
+        );
+        return static_cast<std::size_t>(value);
+    });
 }
 
 }  // namespace rapidsmpf

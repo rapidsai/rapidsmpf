@@ -36,6 +36,10 @@ std::uint64_t BufferResource::record_reservation_event(
     if (!recording_ || (expected_session != 0 && recording_->id != expected_session)) {
         return 0;
     }
+    if (recording_->events.size() >= max_reservation_events_) {
+        ++recording_->dropped_event_count;
+        return recording_->id;
+    }
     try {
         auto const elapsed =
             clock_now_ns<std::chrono::steady_clock>() - recording_->steady_time_anchor_ns;
