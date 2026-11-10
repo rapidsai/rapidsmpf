@@ -258,18 +258,20 @@ TEST_F(RrunSignalTest, TerminalSigintNotForwarded) {
         GTEST_SKIP() << "No pseudo-terminal available";
     }
     std::string const log = ::testing::TempDir() + "rrun_terminal_sigint.log";
+    // The ranks ignore SIGINT, so they are still running when rrun handles it,
+    // and rrun kills them right after.
     pid_t const rrun = launch(
         2,
-        {"sleep", "60"},
+        {"sh", "-c", "trap '' INT; exec sleep 60"},
         "sleep",
-        {"--kill-after", "3600"},
+        {"--kill-after", "0"},
         {.tty = ptsname(terminal), .stderr_path = log}
     );
     if (rrun > 0) {
         // The terminal sends SIGINT to its foreground process group, which is
         // rrun and its ranks.
         EXPECT_EQ(::write(terminal, "\x03", 1), 1);
-        expect_exit_code(rrun, 128 + SIGINT);
+        expect_exit_code(rrun, 128 + SIGKILL);
     }
     ::close(terminal);
     ASSERT_GT(rrun, 0) << "ranks did not start";
