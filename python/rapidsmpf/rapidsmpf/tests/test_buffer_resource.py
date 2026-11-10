@@ -154,10 +154,10 @@ def test_memory_resource_introspection() -> None:
         periodic_spill_check=None,
     )
     assert br.memory_limit(MemoryType.HOST) == 123
-    assert br.has_memory_resource(MemoryType.DEVICE)
-    assert br.has_memory_resource(MemoryType.HOST)
-    assert not br.has_memory_resource(MemoryType.PINNED_HOST)
-    assert not br.has_memory_resource(MemoryType.DISK)
+    assert br.is_reservable(MemoryType.DEVICE)
+    assert br.is_reservable(MemoryType.HOST)
+    assert not br.is_reservable(MemoryType.PINNED_HOST)
+    assert not br.is_reservable(MemoryType.DISK)
 
 
 def test_host_memory_availability_tracks_live_allocations() -> None:

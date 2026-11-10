@@ -365,14 +365,6 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     [[nodiscard]] std::int64_t memory_limit(MemoryType mem_type) const noexcept;
 
     /**
-     * @brief Test whether this buffer resource owns a given memory resource.
-     *
-     * @param mem_type The memory type to query.
-     * @return Whether reservations can target this memory type.
-     */
-    [[nodiscard]] bool has_memory_resource(MemoryType mem_type) const noexcept;
-
-    /**
      * @brief Updates the memory limit for a given memory type at runtime.
      *
      * The store is atomic, but readers (e.g. `memory_available()` and `reserve()`)

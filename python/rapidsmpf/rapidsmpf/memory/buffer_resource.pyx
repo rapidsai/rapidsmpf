@@ -656,13 +656,6 @@ cdef class BufferResource:
             ret = deref(self._handle).memory_limit(mem_type)
         return ret
 
-    def has_memory_resource(self, MemoryType mem_type):
-        """Return whether the specified memory type has a backing resource."""
-        cdef bool_t ret
-        with nogil:
-            ret = deref(self._handle).has_memory_resource(mem_type)
-        return ret
-
     def set_memory_limit(self, MemoryType mem_type, int64_t limit):
         """
         Set the byte limit for the specified memory type.

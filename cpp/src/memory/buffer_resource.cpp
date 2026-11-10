@@ -188,17 +188,6 @@ std::int64_t BufferResource::memory_limit(MemoryType mem_type) const noexcept {
     );
 }
 
-bool BufferResource::has_memory_resource(MemoryType mem_type) const noexcept {
-    switch (mem_type) {
-    case MemoryType::PINNED_HOST:
-        return pinned_mr_.has_value();
-    case MemoryType::DISK:
-        return disk_resource_ != nullptr;
-    default:
-        return true;
-    }
-}
-
 void BufferResource::set_memory_limit(MemoryType mem_type, std::int64_t limit) noexcept {
     memory_limits_[static_cast<std::size_t>(mem_type)].store(
         limit, std::memory_order_release
