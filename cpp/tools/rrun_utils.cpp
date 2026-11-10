@@ -100,6 +100,10 @@ void kill_all(Ranks& r) {
     if (!r.coord_dir.empty()) {
         std::error_code ec;
         std::filesystem::remove_all(r.coord_dir, ec);
+        if (ec) {
+            std::cerr << "[rrun] Warning: Failed to cleanup directory: " << r.coord_dir
+                      << ": " << ec.message() << std::endl;
+        }
     }
     ::signal(sig, SIG_DFL);
     sigset_t set;
