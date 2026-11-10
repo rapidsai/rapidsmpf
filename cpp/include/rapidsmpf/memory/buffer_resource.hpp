@@ -197,7 +197,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         std::optional<std::filesystem::path> spill_directory = std::nullopt,
         Duration memory_reserve_timeout = std::chrono::milliseconds{100},
         AllowOverbooking allow_overbooking_by_default = AllowOverbooking::YES,
-        std::size_t max_reservation_events = 1'000'000
+        std::size_t max_reservation_events = 1000000
     );
 
     /**

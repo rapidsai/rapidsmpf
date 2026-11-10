@@ -296,7 +296,7 @@ cdef class BufferResource:
     max_reservation_events
         Maximum number of reservation event records retained between drains while
         recording. Further events are dropped and counted in
-        :attr:`ReservationEventBatch.dropped_event_count`. See the
+        ``ReservationEventBatch.dropped_event_count``. See the
         ``max_reservation_events`` configuration option.
 
     Notes
