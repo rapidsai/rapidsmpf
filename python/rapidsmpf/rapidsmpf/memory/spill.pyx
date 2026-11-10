@@ -41,9 +41,10 @@ cdef extern from "<rapidsmpf/memory/spill.hpp>" nogil:
         ) except +ex_handler
 
 
-cpdef object spill_partitions(
+def spill_partitions(
     object partitions,
     BufferResource br,
+    *,
     uint64_t reservation_context=0,
 ):
     """
@@ -89,10 +90,11 @@ cpdef object spill_partitions(
     return packed_data_vector_to_list(move(_ret), br)
 
 
-cpdef object unspill_partitions(
+def unspill_partitions(
     object partitions,
     BufferResource br,
     object allow_overbooking,
+    *,
     uint64_t reservation_context=0,
 ):
     """
