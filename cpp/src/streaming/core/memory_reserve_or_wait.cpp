@@ -500,23 +500,6 @@ coro::task<MemoryReservation> reserve_memory(
     std::size_t size,
     std::int64_t net_memory_delta,
     MemoryType mem_type,
-    std::optional<AllowOverbooking> allow_overbooking
-) {
-    co_return co_await reserve_memory(
-        std::move(ctx),
-        size,
-        net_memory_delta,
-        mem_type,
-        allow_overbooking,
-        std::uint64_t{}
-    );
-}
-
-coro::task<MemoryReservation> reserve_memory(
-    std::shared_ptr<Context> ctx,
-    std::size_t size,
-    std::int64_t net_memory_delta,
-    MemoryType mem_type,
     std::optional<AllowOverbooking> allow_overbooking,
     std::uint64_t reservation_context
 ) {
