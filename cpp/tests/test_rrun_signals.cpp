@@ -16,6 +16,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <functional>
+#include <iterator>
 #include <string>
 #include <thread>
 #include <vector>
@@ -54,9 +55,21 @@ std::string rrun_binary() {
     return binary != nullptr ? binary : "rrun";
 }
 
+struct SpawnOptions {
+    // If set, start in a new session with this terminal as stdin and controlling
+    // terminal.
+    std::string tty;
+    // If set, write stderr to this file instead of discarding it.
+    std::string stderr_path;
+};
+
 // Start `binary` with `args`, with its output discarded. Returns the pid, or -1
 // if it could not be started, e.g. because `binary` was not found.
-pid_t spawn(std::string const& binary, std::vector<std::string> const& args) {
+pid_t spawn(
+    std::string const& binary,
+    std::vector<std::string> const& args,
+    SpawnOptions const& options = {}
+) {
     std::vector<char*> argv;
     argv.push_back(const_cast<char*>(binary.c_str()));
     for (auto const& arg : args) {
@@ -64,14 +77,32 @@ pid_t spawn(std::string const& binary, std::vector<std::string> const& args) {
     }
     argv.push_back(nullptr);
 
+    posix_spawnattr_t attr;
+    posix_spawnattr_init(&attr);
     posix_spawn_file_actions_t actions;
     posix_spawn_file_actions_init(&actions);
+    if (!options.tty.empty()) {
+        posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSID);
+        posix_spawn_file_actions_addopen(
+            &actions, STDIN_FILENO, options.tty.c_str(), O_RDWR, 0
+        );
+    }
     posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
-    posix_spawn_file_actions_adddup2(&actions, STDOUT_FILENO, STDERR_FILENO);
+    if (options.stderr_path.empty()) {
+        posix_spawn_file_actions_adddup2(&actions, STDOUT_FILENO, STDERR_FILENO);
+    } else {
+        posix_spawn_file_actions_addopen(
+            &actions,
+            STDERR_FILENO,
+            options.stderr_path.c_str(),
+            O_WRONLY | O_CREAT | O_TRUNC,
+            0644
+        );
+    }
     pid_t pid = -1;
-    int const err =
-        ::posix_spawnp(&pid, argv[0], &actions, nullptr, argv.data(), environ);
+    int const err = ::posix_spawnp(&pid, argv[0], &actions, &attr, argv.data(), environ);
     posix_spawn_file_actions_destroy(&actions);
+    posix_spawnattr_destroy(&attr);
     return err == 0 ? pid : -1;
 }
 
@@ -145,12 +176,13 @@ class RrunSignalTest : public ::testing::Test {
         int nranks,
         std::vector<std::string> const& command,
         std::string const& comm,
-        std::vector<std::string> const& options = {}
+        std::vector<std::string> const& options = {},
+        SpawnOptions const& spawn_options = {}
     ) {
         std::vector<std::string> args{"-n", std::to_string(nranks), "--bind-to", "none"};
         args.insert(args.end(), options.begin(), options.end());
         args.insert(args.end(), command.begin(), command.end());
-        pid_t const pid = spawn(binary_, args);
+        pid_t const pid = spawn(binary_, args, spawn_options);
         if (pid < 0) {
             return -1;
         }
@@ -214,4 +246,34 @@ TEST_F(RrunSignalTest, RanksDieWithRrun) {
         EXPECT_TRUE(wait_for([&] { return exited(rank); }))
             << "rank " << rank << " still running";
     }
+}
+
+// A Ctrl-C in a terminal reaches the ranks directly, so rrun does not forward
+// it, and the ranks get it only once.
+TEST_F(RrunSignalTest, TerminalSigintNotForwarded) {
+    int const terminal = posix_openpt(O_RDWR | O_NOCTTY);
+    if (terminal < 0 || grantpt(terminal) != 0 || unlockpt(terminal) != 0) {
+        GTEST_SKIP() << "No pseudo-terminal available";
+    }
+    std::string const log = ::testing::TempDir() + "rrun_terminal_sigint.log";
+    pid_t const rrun = launch(
+        2,
+        {"sleep", "60"},
+        "sleep",
+        {"--kill-after", "3600"},
+        {.tty = ptsname(terminal), .stderr_path = log}
+    );
+    if (rrun > 0) {
+        // The terminal sends SIGINT to its foreground process group, which is
+        // rrun and its ranks.
+        EXPECT_EQ(::write(terminal, "\x03", 1), 1);
+        expect_exit_code(rrun, 128 + SIGINT);
+    }
+    ::close(terminal);
+    ASSERT_GT(rrun, 0) << "ranks did not start";
+    std::ifstream log_file(log);
+    std::string const output{
+        std::istreambuf_iterator<char>(log_file), std::istreambuf_iterator<char>()
+    };
+    EXPECT_NE(output.find("from the terminal"), std::string::npos) << output;
 }

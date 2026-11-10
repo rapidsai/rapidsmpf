@@ -341,6 +341,7 @@ int main(int argc, char* argv[]) {
     try {
         // Parse arguments
         rrun::Config cfg = rrun::parse_args(argc, argv);
+        rrun::start_signal_thread(cfg.kill_after_seconds);
 
         if (cfg.verbose) {
             std::cout << "rrun configuration:\n";
