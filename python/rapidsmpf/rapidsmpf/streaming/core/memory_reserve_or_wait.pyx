@@ -671,10 +671,14 @@ async def reserve_memory(
     memory = ctx.memory(mem_type)
     if allow_overbooking:
         ret, _ = await memory.reserve_or_wait_or_overbook(
-            size=size, net_memory_delta=net_memory_delta, reservation_context=reservation_context
+            size=size,
+            net_memory_delta=net_memory_delta,
+            reservation_context=reservation_context
         )
     else:
         ret = await memory.reserve_or_wait_or_fail(
-            size=size, net_memory_delta=net_memory_delta, reservation_context=reservation_context
+            size=size,
+            net_memory_delta=net_memory_delta,
+            reservation_context=reservation_context
         )
     return ret
