@@ -36,13 +36,16 @@ class SparseAlltoall {
      * @param op_id Unique identifier for the collective.
      * @param srcs Ranks this rank expects to receive from.
      * @param dsts Ranks this rank may send to.
+     * @param reservation_context Opaque telemetry attribution token for internal
+     * reservations.
      */
     SparseAlltoall(
         std::shared_ptr<Context> ctx,
         std::shared_ptr<Communicator> comm,
         OpID op_id,
         std::vector<Rank> srcs,
-        std::vector<Rank> dsts
+        std::vector<Rank> dsts,
+        ReservationContext reservation_context = 0
     );
 
     SparseAlltoall(SparseAlltoall const&) = delete;

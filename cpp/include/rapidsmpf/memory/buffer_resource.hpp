@@ -688,6 +688,8 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @param buffer The buffer. Must not be `nullptr`.
      * @param accepted The accepted memory types in decreasing order of preference.
      * Must not be empty.
+     * @param reservation_context Opaque telemetry attribution token for the
+     * reservation made if the buffer has to be moved.
      * @return @p buffer, unchanged if it is already in one of @p accepted, otherwise
      * moved into one of them.
      *
@@ -696,7 +698,9 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @p accepted fits, and overbooking is not allowed.
      */
     [[nodiscard]] std::unique_ptr<Buffer> ensure_memory_type(
-        std::unique_ptr<Buffer> buffer, std::span<MemoryType const> accepted
+        std::unique_ptr<Buffer> buffer,
+        std::span<MemoryType const> accepted,
+        ReservationContext reservation_context = 0
     );
 
     /**

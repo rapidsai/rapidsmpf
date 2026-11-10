@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <limits>
 #include <optional>
 #include <vector>
@@ -22,6 +23,7 @@
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
+#include <rapidsmpf/memory/reservation_events.hpp>
 #include <rapidsmpf/statistics.hpp>
 
 #include "environment.hpp"
@@ -59,7 +61,8 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
         BufferResource* exchange_br = nullptr,
         std::optional<std::vector<Rank>> peers = std::nullopt,
         TagMetadataPayloadExchange::ForcedReceive forced_receive =
-            TagMetadataPayloadExchange::ForcedReceive::MOVE_TO_DISK
+            TagMetadataPayloadExchange::ForcedReceive::MOVE_TO_DISK,
+        ReservationContext reservation_context = 0
     ) {
         finish_and_wait();
         comm_interface = std::make_unique<TagMetadataPayloadExchange>(
@@ -69,7 +72,8 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
             std::move(allocate_fn),
             allocation_timeout,
             exchange_br != nullptr ? exchange_br : br.get(),
-            forced_receive
+            forced_receive,
+            reservation_context
         );
     }
 
@@ -750,6 +754,57 @@ TEST_F(MetadataPayloadExchangeTest, MovesForcedReceiveToDisk) {
         );
     }
     finish_and_wait();
+}
+
+// The reservation that moves a forced payload to disk carries the exchange's context.
+TEST_F(MetadataPayloadExchangeTest, MovesForcedReceiveToDiskWithReservationContext) {
+    if (comm->nranks() < 2) {
+        GTEST_SKIP() << "Test requires at least 2 ranks";
+    }
+    Rank next_rank = (comm->rank() + 1) % comm->nranks();
+    constexpr std::size_t data_size = 64;
+    constexpr ReservationContext context = 42;
+
+    TempDir temp_dir;
+    auto disk_br = make_disk_br(temp_dir);
+    reset_exchange(
+        [&](BufferResource*,
+            std::size_t size,
+            AllocationMode mode) -> std::unique_ptr<Buffer> {
+            if (mode == AllocationMode::MAY_FAIL) {
+                return nullptr;
+            }
+            return allocate_receive_buffer(size);
+        },
+        std::chrono::milliseconds{10},
+        OpID{42},
+        disk_br.get(),
+        std::nullopt,
+        TagMetadataPayloadExchange::ForcedReceive::MOVE_TO_DISK,
+        context
+    );
+    GlobalEnvironment->barrier();
+
+    // The message is created from `br`, so only the move to disk is recorded on
+    // `disk_br`.
+    auto message = create_test_message(next_rank, {0x01}, data_size);
+    disk_br->start_reservation_event_recording();
+    comm_interface->send(std::move(message));
+    auto received = receive(1);
+    ASSERT_EQ(received.size(), 1);
+    EXPECT_EQ(received[0]->data()->mem_type(), MemoryType::DISK);
+    auto batch = disk_br->stop_reservation_event_recording();
+    finish_and_wait();
+
+    ASSERT_FALSE(batch.events.empty());
+    EXPECT_EQ(batch.dropped_event_count, 0);
+    std::int64_t delta_sum = 0;
+    for (auto const& event : batch.events) {
+        EXPECT_EQ(event.reservation_context, context);
+        EXPECT_EQ(event.memory_type, MemoryType::DISK);
+        delta_sum += event.byte_delta;
+    }
+    EXPECT_EQ(delta_sum, 0);
 }
 
 TEST_F(MetadataPayloadExchangeTest, KeepsForcedReceiveInMemoryWithoutDiskSpace) {

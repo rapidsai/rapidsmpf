@@ -16,6 +16,8 @@ class SparseAlltoall:
         br: BufferResource,
         srcs: Iterable[int],
         dsts: Iterable[int],
+        *,
+        reservation_context: int = 0,
     ) -> None: ...
     @property
     def comm(self) -> Communicator: ...

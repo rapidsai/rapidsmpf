@@ -5,8 +5,10 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <iterator>
+#include <thread>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -23,6 +25,7 @@
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
+#include <rapidsmpf/memory/reservation_events.hpp>
 #include <rapidsmpf/memory/spill.hpp>
 #include <rapidsmpf/statistics.hpp>
 
@@ -162,6 +165,60 @@ TEST_P(AllGatherTest, basic_allgather) {
     } else {  // n_inserts == 0. No data is inserted.
         EXPECT_EQ(0, results.size());
     }
+}
+
+// The reservations made by an AllGather carry the context it was constructed with. They
+// come from spilling, which the spill manager runs on the calling thread, and, with more
+// than one rank, from the receive buffers that the progress thread allocates.
+TEST_F(BaseAllGatherTest, reservation_context_is_recorded) {
+    constexpr rapidsmpf::ReservationContext context = 42;
+    constexpr int n_elements = 100;
+    constexpr int n_inserts = 4;
+    auto const& comm = GlobalEnvironment->comm_;
+
+    // Generate the data first, since `generate_packed_data()` makes its own reservations
+    // without a context.
+    std::vector<rapidsmpf::PackedData> inputs;
+    for (int i = 0; i < n_inserts; i++) {
+        inputs.push_back(
+            generate_packed_data(n_elements, gen_offset(i, comm->rank()), stream, *br)
+        );
+    }
+
+    br->start_reservation_event_recording();
+    {
+        AllGather allgather{comm, 0, br.get(), nullptr, context};
+        for (int i = 0; i < n_inserts; i++) {
+            allgather.insert(i, std::move(inputs[static_cast<std::size_t>(i)]));
+        }
+        allgather.insert_finished();
+
+        // The progress thread moves the chunks between internal buffers, and a chunk is
+        // briefly in none of them. Retry until a device chunk has been spilled.
+        std::size_t spilled = 0;
+        auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{30};
+        while (spilled == 0 && std::chrono::steady_clock::now() < deadline) {
+            spilled = br->spill_manager().spill(1, rapidsmpf::MemoryType::DEVICE);
+            if (spilled == 0) {
+                std::this_thread::yield();
+            }
+        }
+        EXPECT_GT(spilled, 0);
+
+        auto results =
+            allgather.wait_and_extract(AllGather::Ordered::YES, std::chrono::seconds{30});
+        EXPECT_EQ(results.size(), static_cast<std::size_t>(n_inserts * comm->nranks()));
+    }
+    auto batch = br->stop_reservation_event_recording();
+
+    ASSERT_FALSE(batch.events.empty());
+    EXPECT_EQ(batch.dropped_event_count, 0);
+    std::int64_t delta_sum = 0;
+    for (auto const& event : batch.events) {
+        EXPECT_EQ(event.reservation_context, context);
+        delta_sum += event.byte_delta;
+    }
+    EXPECT_EQ(delta_sum, 0);
 }
 
 TEST_F(BaseAllGatherTest, payload_statistics) {

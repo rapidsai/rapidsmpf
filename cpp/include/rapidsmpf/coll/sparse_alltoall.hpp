@@ -49,6 +49,8 @@ class SparseAlltoall {
      * is locally complete. The callback should be fast and non-blocking. Ideally it
      * should only be used to signal a thread to do the actual work of extraction. Note in
      * particular that the callback should not extract any data.
+     * @param reservation_context Opaque telemetry attribution token for internal
+     * reservations.
      *
      * @throws std::out_of_range If either `srcs` or `dsts` have invalid values. All
      * source and destination ranks must be in `[0, ..., comm->nranks())`, and not equal
@@ -77,7 +79,8 @@ class SparseAlltoall {
         BufferResource* br,
         std::vector<Rank> srcs,
         std::vector<Rank> dsts,
-        std::function<void()>&& finished_callback = nullptr
+        std::function<void()>&& finished_callback = nullptr,
+        ReservationContext reservation_context = 0
     );
 
     ~SparseAlltoall() noexcept;
@@ -180,6 +183,7 @@ class SparseAlltoall {
 
     std::shared_ptr<Communicator> comm_;
     BufferResource* br_;
+    ReservationContext reservation_context_;
     std::vector<Rank> srcs_;
     std::vector<Rank> dsts_;
     std::unordered_map<Rank, std::atomic<std::uint64_t>> next_ordinal_per_dst_;

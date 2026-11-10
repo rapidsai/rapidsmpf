@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
 #include <cstring>
 #include <mutex>
 #include <stdexcept>
@@ -25,6 +26,7 @@
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
+#include <rapidsmpf/memory/reservation_events.hpp>
 #include <rapidsmpf/memory/spill_manager.hpp>
 
 #include "environment.hpp"
@@ -644,6 +646,58 @@ TEST_F(SparseAlltoallTest, simultaneous_different_tags) {
             EXPECT_EQ(decode_payload(received1[i]), src * 1000 + 200 + i);
         }
     }
+}
+
+// The reservations made by a SparseAlltoall carry the context it was constructed with:
+// the receive buffers allocated by the progress thread and the spill of received chunks.
+TEST_F(SparseAlltoallTest, reservation_context_is_recorded) {
+    constexpr rapidsmpf::ReservationContext context = 42;
+    constexpr int n_messages = 3;
+    auto const& comm = GlobalEnvironment->comm_;
+    if (comm->nranks() < 2) {
+        GTEST_SKIP() << "Test requires at least 2 ranks";
+    }
+    auto [srcs, dsts] = ring_peers(comm);
+
+    // Generate the payloads first, since `make_payload()` makes its own reservations
+    // without a context.
+    std::vector<rapidsmpf::PackedData> payloads;
+    for (int i = 0; i < n_messages; ++i) {
+        payloads.push_back(make_payload(
+            comm->rank() * 10 + i,
+            comm->rank() * 100 + i,
+            rapidsmpf::MemoryType::DEVICE,
+            *br,
+            br->stream_pool()->get_stream()
+        ));
+    }
+
+    br->start_reservation_event_recording();
+    {
+        rapidsmpf::coll::SparseAlltoall exchange(
+            comm, 0, br.get(), srcs, dsts, nullptr, context
+        );
+        for (auto& payload : payloads) {
+            exchange.insert(dsts.front(), std::move(payload));
+        }
+        exchange.insert_finished();
+        exchange.wait(std::chrono::seconds{30});
+        EXPECT_EQ(
+            br->spill_manager().spill(1 << 20, rapidsmpf::MemoryType::DEVICE),
+            n_messages * sizeof(int)
+        );
+        EXPECT_EQ(exchange.extract(srcs.front()).size(), n_messages);
+    }
+    auto batch = br->stop_reservation_event_recording();
+
+    ASSERT_FALSE(batch.events.empty());
+    EXPECT_EQ(batch.dropped_event_count, 0);
+    std::int64_t delta_sum = 0;
+    for (auto const& event : batch.events) {
+        EXPECT_EQ(event.reservation_context, context);
+        delta_sum += event.byte_delta;
+    }
+    EXPECT_EQ(delta_sum, 0);
 }
 
 TEST_F(SparseAlltoallTest, forces_receive_allocations_without_memory) {

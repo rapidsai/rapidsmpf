@@ -52,6 +52,9 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      * communication operations. Must not be `nullptr`.
      * @param forced_receive What happens to the payload of a message whose receive
      * buffer was forced.
+     * @param reservation_context Opaque telemetry attribution token for the reservations
+     * that move payloads to disk. Receive buffers are allocated by
+     * @p allocate_buffer_fn, which is responsible for their attribution.
      *
      * @throws std::out_of_range If a peer is not a rank of @p comm.
      * @throws std::invalid_argument If @p peers contains the calling rank or duplicates.
@@ -63,7 +66,8 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
         AllocateBufferFn allocate_buffer_fn,
         Duration allocation_timeout,
         BufferResource* br,
-        ForcedReceive forced_receive = ForcedReceive::MOVE_TO_DISK
+        ForcedReceive forced_receive = ForcedReceive::MOVE_TO_DISK,
+        ReservationContext reservation_context = 0
     );
 
     /**
@@ -243,6 +247,7 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
     Duration const allocation_timeout_;
     BufferResource* br_;
     ForcedReceive const forced_receive_;
+    ReservationContext const reservation_context_;
 
     // The state of each peer.
     std::unordered_map<Rank, PeerState> peers_;

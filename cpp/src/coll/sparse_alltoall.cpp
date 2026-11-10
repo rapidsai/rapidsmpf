@@ -31,10 +31,12 @@ SparseAlltoall::SparseAlltoall(
     BufferResource* br,
     std::vector<Rank> srcs,
     std::vector<Rank> dsts,
-    std::function<void()>&& finished_callback
+    std::function<void()>&& finished_callback,
+    ReservationContext reservation_context
 )
     : comm_{std::move(comm)},
       br_{br},
+      reservation_context_{reservation_context},
       srcs_{std::move(srcs)},
       dsts_{std::move(dsts)},
       finished_callback_{std::move(finished_callback)} {
@@ -82,11 +84,15 @@ SparseAlltoall::SparseAlltoall(
         comm_,
         op_id,
         std::vector<Rank>(peers.begin(), peers.end()),
-        [](BufferResource* resource, std::size_t size, auto mode) {
-            return communicator::default_allocate_buffer(resource, size, mode);
+        [reservation_context](BufferResource* resource, std::size_t size, auto mode) {
+            return communicator::default_allocate_buffer(
+                resource, size, mode, reservation_context
+            );
         },
         br_->memory_reserve_timeout(),
-        br_
+        br_,
+        communicator::TagMetadataPayloadExchange::ForcedReceive::MOVE_TO_DISK,
+        reservation_context
     );
     function_id_ =
         comm_->progress_thread()->add_function([this]() { return event_loop(); });
@@ -116,7 +122,9 @@ void SparseAlltoall::insert(Rank dst, PackedData&& packed_data) {
         "SparseAlltoall::insert destination is not a valid destination"
     );
     packed_data.data = br_->ensure_memory_type(
-        std::move(packed_data.data), exchange_->sendable_memory_types(dst)
+        std::move(packed_data.data),
+        exchange_->sendable_memory_types(dst),
+        reservation_context_
     );
     outgoing_.insert(
         detail::Chunk::from_packed_data(
@@ -183,7 +191,10 @@ std::size_t SparseAlltoall::spill(std::size_t amount, MemoryType mem_type) {
         }
         // Ready chunks are at rest, so they may spill all the way to disk.
         spilled += chunks.spill(
-            br_, amount - spilled, preference_lt(MemoryType::DEVICE, MEMORY_TYPES)
+            br_,
+            amount - spilled,
+            preference_lt(MemoryType::DEVICE, MEMORY_TYPES),
+            reservation_context_
         );
     }
     return spilled;

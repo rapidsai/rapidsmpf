@@ -52,7 +52,8 @@ TagMetadataPayloadExchange::TagMetadataPayloadExchange(
     AllocateBufferFn allocate_buffer_fn,
     Duration allocation_timeout,
     BufferResource* br,
-    ForcedReceive forced_receive
+    ForcedReceive forced_receive,
+    ReservationContext reservation_context
 )
     : comm_(std::move(comm)),
       nranks_(comm_->nranks()),
@@ -62,7 +63,8 @@ TagMetadataPayloadExchange::TagMetadataPayloadExchange(
       allocate_buffer_fn_(std::move(allocate_buffer_fn)),
       allocation_timeout_(allocation_timeout),
       br_(br),
-      forced_receive_(forced_receive) {
+      forced_receive_(forced_receive),
+      reservation_context_(reservation_context) {
     RAPIDSMPF_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be NULL");
     for (Rank peer : peers) {
         RAPIDSMPF_EXPECTS(
@@ -528,7 +530,8 @@ void TagMetadataPayloadExchange::try_move_to_disk(std::unique_ptr<Buffer>& buffe
     if (br_->disk_resource() == nullptr) {
         return;
     }
-    auto reservation = br_->try_reserve(buffer->size, MemoryType::DISK);
+    auto reservation =
+        br_->try_reserve(buffer->size, MemoryType::DISK, reservation_context_);
     if (!reservation.has_value()) {
         return;
     }

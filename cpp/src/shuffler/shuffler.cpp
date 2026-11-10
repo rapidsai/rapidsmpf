@@ -249,7 +249,9 @@ Shuffler::Shuffler(
               );
           },
           br->memory_reserve_timeout(),
-          br
+          br,
+          communicator::TagMetadataPayloadExchange::ForcedReceive::MOVE_TO_DISK,
+          reservation_context
       )},
       local_partitions_{local_partitions(comm_, total_num_partitions, partition_owner)},
       finish_counter_{comm_->nranks(), safe_cast<PartID>(local_partitions_.size())},
@@ -358,7 +360,9 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
         bool const is_remote = dst_rank != comm_->rank();
         if (is_remote) {
             packed_data.data = br_->ensure_memory_type(
-                std::move(packed_data.data), mpe_->sendable_memory_types(dst_rank)
+                std::move(packed_data.data),
+                mpe_->sendable_memory_types(dst_rank),
+                reservation_context_
             );
         }
 

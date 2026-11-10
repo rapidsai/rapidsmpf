@@ -29,7 +29,9 @@ void AllGather::insert(std::uint64_t sequence_number, PackedData&& packed_data) 
     // With more than one rank, the data is sent, so it must be in a sendable memory type.
     if (comm_->nranks() > 1) {
         packed_data.data = br_->ensure_memory_type(
-            std::move(packed_data.data), exchange_->sendable_memory_types(next_rank())
+            std::move(packed_data.data),
+            exchange_->sendable_memory_types(next_rank()),
+            reservation_context_
         );
     }
     nlocal_insertions_.fetch_add(1, std::memory_order_relaxed);
@@ -178,7 +180,8 @@ AllGather::AllGather(
         },
         br_->memory_reserve_timeout(),
         br_,
-        communicator::TagMetadataPayloadExchange::ForcedReceive::KEEP_IN_MEMORY
+        communicator::TagMetadataPayloadExchange::ForcedReceive::KEEP_IN_MEMORY,
+        reservation_context
     );
     function_id_ =
         comm_->progress_thread()->add_function([this]() { return event_loop(); });

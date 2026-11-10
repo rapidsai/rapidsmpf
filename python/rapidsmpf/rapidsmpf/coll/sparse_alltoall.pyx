@@ -4,6 +4,7 @@
 
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int32_t
+from libcpp cimport nullptr
 from libcpp.memory cimport make_unique
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
@@ -14,6 +15,7 @@ from rapidsmpf.memory.buffer_resource cimport (BufferResource,
                                                cpp_BufferResource)
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
+from rapidsmpf.memory.reservation_events cimport ReservationContext
 
 
 cdef class SparseAlltoall:
@@ -42,6 +44,8 @@ cdef class SparseAlltoall:
         Sources to receive from
     dsts
         Destinations to send to
+    reservation_context
+        Optional telemetry attribution token for internal memory reservations.
 
     Notes
     -----
@@ -56,7 +60,9 @@ cdef class SparseAlltoall:
         int32_t op_id,
         BufferResource br not None,
         srcs,
-        dsts
+        dsts,
+        *,
+        ReservationContext reservation_context=0,
     ):
         self._br = br
         self._comm = comm
@@ -70,6 +76,8 @@ cdef class SparseAlltoall:
                 br_,
                 move(c_srcs),
                 move(c_dsts),
+                nullptr,
+                reservation_context,
             )
 
     def __dealloc__(self):

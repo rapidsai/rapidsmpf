@@ -30,6 +30,7 @@
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
+#include <rapidsmpf/memory/reservation_events.hpp>
 #include <rapidsmpf/memory/spill.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
@@ -550,6 +551,43 @@ TEST(BufferResource, EnsureMemoryTypeTriesInReverseOrder) {
     EXPECT_EQ(
         br->move_to_host_buffer(std::move(ret), host_res)->copy_to_uint8_vector(), payload
     );
+}
+
+TEST(BufferResource, EnsureMemoryTypeRecordsReservationContext) {
+    constexpr ReservationContext context = 42;
+    TempDir temp_dir;
+    auto br = create_br(temp_dir.path());
+    cuda::stream_ref stream{cudaStreamLegacy};
+    std::vector<std::uint8_t> metadata{1};
+    std::vector<std::uint8_t> payload{10, 20, 30};
+    auto make_disk_data = [&] {
+        return move_to_disk(create_packed_data(metadata, payload, stream, br.get()), *br)
+            .data;
+    };
+    auto check_events = [&](ReservationEventBatch const& batch, MemoryType mem_type) {
+        ASSERT_FALSE(batch.events.empty());
+        EXPECT_EQ(batch.dropped_event_count, 0);
+        for (auto const& event : batch.events) {
+            EXPECT_EQ(event.reservation_context, context);
+            EXPECT_EQ(event.memory_type, mem_type);
+        }
+    };
+
+    // The data is created first, since that makes reservations without a context.
+    auto data = make_disk_data();
+    br->start_reservation_event_recording();
+    auto ret = br->ensure_memory_type(std::move(data), ADDRESSABLE_MEMORY_TYPES, context);
+    ASSERT_EQ(ret->mem_type(), MemoryType::HOST);
+    check_events(br->stop_reservation_event_recording(), MemoryType::HOST);
+
+    // The overbooking fallback carries the context too.
+    br->set_memory_limit(MemoryType::DEVICE, 0);
+    br->set_memory_limit(MemoryType::HOST, 0);
+    data = make_disk_data();
+    br->start_reservation_event_recording();
+    ret = br->ensure_memory_type(std::move(data), ADDRESSABLE_MEMORY_TYPES, context);
+    ASSERT_EQ(ret->mem_type(), MemoryType::HOST);
+    check_events(br->stop_reservation_event_recording(), MemoryType::HOST);
 }
 
 TEST(BufferResource, EnsureMemoryTypeThrowsWithoutOverbooking) {

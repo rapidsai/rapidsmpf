@@ -22,6 +22,7 @@
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
+#include <rapidsmpf/memory/reservation_events.hpp>
 #include <rapidsmpf/memory/spill.hpp>
 #include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/shuffler/finish_counter.hpp>
@@ -992,6 +993,61 @@ TEST(Shuffler, SpillOnInsertAccountsForReservations) {
     EXPECT_EQ(mr.get_main_record().num_current_allocs(), 0);
 
     shuffler.insert_finished();
+}
+
+// The reservations made by a Shuffler carry the context it was constructed with. With a
+// negative device limit, insert() spills every chunk through such a reservation. With
+// more than one rank, the receive buffers that the progress thread allocates carry it
+// too.
+TEST(Shuffler, ReservationContextIsRecorded) {
+    constexpr rapidsmpf::ReservationContext context = 42;
+    constexpr std::size_t n_elements = 100;
+    auto const& comm = GlobalEnvironment->comm_;
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+    auto br = create_br();
+    auto const total_num_partitions =
+        rapidsmpf::safe_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
+
+    // Generate the data first, since `generate_packed_data()` makes its own reservations
+    // without a context.
+    std::unordered_map<rapidsmpf::shuffler::PartID, rapidsmpf::PackedData> chunks;
+    for (rapidsmpf::shuffler::PartID pid = 0; pid < total_num_partitions; ++pid) {
+        chunks.emplace(pid, generate_packed_data(n_elements, 0, stream, *br));
+    }
+
+    br->start_reservation_event_recording();
+    {
+        rapidsmpf::shuffler::Shuffler shuffler(
+            comm,
+            0,
+            total_num_partitions,
+            br.get(),
+            rapidsmpf::shuffler::Shuffler::round_robin,
+            context
+        );
+        br->set_memory_limit(rapidsmpf::MemoryType::DEVICE, -(1LL << 40));
+        shuffler.insert(std::move(chunks));
+        br->set_memory_limit(rapidsmpf::MemoryType::DEVICE, 1LL << 40);
+
+        shuffler.insert_finished();
+        shuffler.wait(wait_timeout);
+        for (auto pid : shuffler.local_partitions()) {
+            EXPECT_EQ(
+                shuffler.extract(pid).size(),
+                rapidsmpf::safe_cast<std::size_t>(comm->nranks())
+            );
+        }
+    }
+    auto batch = br->stop_reservation_event_recording();
+
+    ASSERT_FALSE(batch.events.empty());
+    EXPECT_EQ(batch.dropped_event_count, 0);
+    std::int64_t delta_sum = 0;
+    for (auto const& event : batch.events) {
+        EXPECT_EQ(event.reservation_context, context);
+        delta_sum += event.byte_delta;
+    }
+    EXPECT_EQ(delta_sum, 0);
 }
 
 TEST(FinishCounterTests, zero_local_partitions_immediately_finished) {
