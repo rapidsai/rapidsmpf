@@ -133,10 +133,11 @@ class MemoryReservation {
           observed_session_{observed_session} {}
 
   private:
-    MemoryType mem_type_;
-    BufferResource* br_;
-    std::size_t size_;
-    std::uint64_t reservation_context_;
-    std::uint64_t observed_session_;
+    MemoryType mem_type_;  ///< The type of memory for this reservation.
+    BufferResource* br_;  ///< The buffer resource that manages this reservation.
+    std::size_t size_;  ///< The remaining size of the reserved memory in bytes.
+    std::uint64_t reservation_context_;  ///< Opaque telemetry attribution token.
+    std::uint64_t observed_session_;  ///< Recording session that observed creation, or
+                                      ///< zero.
 };
 }  // namespace rapidsmpf
