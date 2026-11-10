@@ -20,6 +20,7 @@ jobs:
       packages: read
       pull-requests: read
     needs:
+      - burndown-pr
       - build-details
       - changed-files
       - checks
@@ -41,6 +42,13 @@ jobs:
     if: always()
     with:
       needs: ${{ toJSON(needs) }}
+  burndown-pr:
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    uses: rapidsai/shared-workflows/.github/workflows/burndown-pr.yaml@main
+
   changed-files:
     permissions:
       actions: read
@@ -178,7 +186,9 @@ jobs:
       # duplicate archives that are inaccessible to other PRs.
       pre-commit-cache-read-only: true
   wheel-build-librapidsmpf:
-    needs: [build-details, checks]
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true'
+    needs: [burndown-pr, build-details, checks]
     permissions:
       actions: read
       contents: read
@@ -198,7 +208,9 @@ jobs:
       matrix_filter: group_by([.ARCH, (.CUDA_VER|split(".")|map(tonumber)|.[0])]) | map(max_by(.PY_VER|split(".")|map(tonumber)))
       matrix_type: pull-request
   wheel-build-rapidsmpf:
-    needs: [build-details, checks, wheel-build-librapidsmpf]
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true'
+    needs: [burndown-pr, build-details, checks, wheel-build-librapidsmpf]
     permissions:
       actions: read
       contents: read
@@ -218,7 +230,9 @@ jobs:
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
       matrix_type: pull-request
   wheel-build-rapidsmpf-singlecomm:
-    needs: [build-details, checks, wheel-build-librapidsmpf]
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true'
+    needs: [burndown-pr, build-details, checks, wheel-build-librapidsmpf]
     permissions:
       actions: read
       contents: read
@@ -238,8 +252,9 @@ jobs:
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
       matrix_type: pull-request
   wheel-test:
-    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_python_wheels
-    needs: [changed-files, wheel-build-rapidsmpf]
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true' && (fromJSON(needs.changed-files.outputs.changed_file_groups).test_python_wheels)
+    needs: [burndown-pr, changed-files, wheel-build-rapidsmpf]
     permissions:
       actions: read
       contents: read
@@ -254,7 +269,9 @@ jobs:
       script: ci/test_wheel.sh
       matrix_type: pull-request
   conda-cpp-build:
-    needs: [build-details, checks]
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true'
+    needs: [burndown-pr, build-details, checks]
     permissions:
       actions: read
       contents: read
@@ -284,8 +301,9 @@ jobs:
       script: "ci/cpp_linters.sh"
       node_type: "cpu16"
   conda-cpp-tests:
-    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
-    needs: [changed-files, conda-cpp-build]
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true' && (fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp)
+    needs: [burndown-pr, changed-files, conda-cpp-build]
     permissions:
       actions: read
       contents: read
@@ -300,7 +318,9 @@ jobs:
       script: ci/test_cpp.sh
       matrix_type: pull-request
   conda-cpp-memcheck:
-    needs: conda-cpp-build
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true'
+    needs: [burndown-pr, conda-cpp-build]
     permissions:
       actions: read
       contents: read
@@ -314,7 +334,9 @@ jobs:
       script: "ci/test_cpp_memcheck.sh"
       node_type: "gpu-rtxpro6000-latest-1"
   conda-python-build:
-    needs: [build-details, conda-cpp-build]
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true'
+    needs: [burndown-pr, build-details, conda-cpp-build]
     permissions:
       actions: read
       contents: read
@@ -331,8 +353,9 @@ jobs:
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
       matrix_type: pull-request
   conda-python-tests:
-    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_python_conda
-    needs: [changed-files, conda-python-build]
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true' && (fromJSON(needs.changed-files.outputs.changed_file_groups).test_python_conda)
+    needs: [burndown-pr, changed-files, conda-python-build]
     permissions:
       actions: read
       contents: read
@@ -348,7 +371,7 @@ jobs:
       script: ci/test_python.sh
       matrix_type: pull-request
   docs-build:
-    needs: [conda-python-build, changed-files]
+    needs: [burndown-pr, conda-python-build, changed-files]
     permissions:
       actions: read
       contents: read
@@ -357,7 +380,8 @@ jobs:
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
-    if: fromJSON(needs.changed-files.outputs.changed_file_groups).build_docs
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true' && (fromJSON(needs.changed-files.outputs.changed_file_groups).build_docs)
     with:
       build_type: pull-request
       node_type: "cpu8"
@@ -365,7 +389,9 @@ jobs:
       container_image: "rapidsai/ci-conda:26.12-latest"
       script: "ci/build_docs.sh"
   publish-api-docs:
-    needs: [docs-build]
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true'
+    needs: [burndown-pr, docs-build]
     permissions:
       contents: read
       id-token: write
@@ -385,6 +411,9 @@ jobs:
       docs-projects: rapidsmpf
       dry-run: true
   devcontainer:
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true'
+    needs: [burndown-pr]
     permissions:
       actions: read
       contents: read
