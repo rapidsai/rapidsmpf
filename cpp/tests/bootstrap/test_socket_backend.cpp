@@ -163,9 +163,8 @@ std::string send_recv_line(int fd, std::string const& line) {
     return response;
 }
 
-// Wait until the server has no open connection. A closed connection keeps its
-// slot until its handler sees EOF. Returns false if that does not happen
-// within `timeout`.
+// Poll `cond` until it holds. Returns false if it does not hold within
+// `timeout`.
 [[nodiscard]] bool wait_until(
     std::function<bool()> const& cond,
     std::chrono::milliseconds timeout = std::chrono::seconds{10}
@@ -180,6 +179,9 @@ std::string send_recv_line(int fd, std::string const& line) {
     return true;
 }
 
+// Wait until the server has no open connection. A closed connection keeps its
+// slot until its handler sees EOF. Returns false if that does not happen
+// within `timeout`.
 [[nodiscard]] bool wait_until_idle(
     SocketServer const& server,
     std::chrono::milliseconds timeout = std::chrono::seconds{10}
