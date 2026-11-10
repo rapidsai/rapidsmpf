@@ -13,7 +13,9 @@
 
 #include <chrono>
 #include <csignal>
+#include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <iterator>
@@ -249,7 +251,7 @@ TEST_F(RrunSignalTest, RanksDieWithRrun) {
 }
 
 // A Ctrl-C in a terminal reaches the ranks directly, so rrun does not forward
-// it, and the ranks get it only once.
+// it.
 TEST_F(RrunSignalTest, TerminalSigintNotForwarded) {
     int const terminal = posix_openpt(O_RDWR | O_NOCTTY);
     if (terminal < 0 || grantpt(terminal) != 0 || unlockpt(terminal) != 0) {
@@ -276,4 +278,53 @@ TEST_F(RrunSignalTest, TerminalSigintNotForwarded) {
         std::istreambuf_iterator<char>(log_file), std::istreambuf_iterator<char>()
     };
     EXPECT_NE(output.find("from the terminal"), std::string::npos) << output;
+}
+
+// A signal while no rank is running ends rrun, which first removes its
+// coordination directory. The rank leaves a background `sleep` behind that
+// holds its output pipe open, so rrun is still waiting for the rank's output
+// after it has reaped the rank.
+TEST_F(RrunSignalTest, SignalWithoutRanksEndsRrun) {
+    std::string const dir = ::testing::TempDir() + "rrun_signal_coord_dir";
+    std::string const pid_file = ::testing::TempDir() + "rrun_signal_sleep_pid";
+    std::remove(pid_file.c_str());
+    pid_t const rrun = spawn(
+        binary_,
+        {"-n",
+         "1",
+         "--bind-to",
+         "none",
+         "--file-backend",
+         "-d",
+         dir,
+         "sh",
+         "-c",
+         "sleep 60 & echo $! > " + pid_file}
+    );
+    ASSERT_GT(rrun, 0) << "cannot start rrun";
+
+    // Wait until the rank has started the `sleep` and rrun has reaped the rank.
+    pid_t sleep_pid = 0;
+    bool const reaped = wait_for([&] {
+        std::ifstream pid_stream(pid_file);
+        return (pid_stream >> sleep_pid) && children(rrun, "sh").empty();
+    });
+    bool const dir_created = std::filesystem::exists(dir);
+    int status = 0;
+    bool ended = false;
+    if (reaped) {
+        ::kill(rrun, SIGTERM);
+        ended = wait_for([&] { return ::waitpid(rrun, &status, WNOHANG) == rrun; });
+    }
+    if (!ended) {
+        kill_and_reap(rrun);
+    }
+    if (sleep_pid > 0) {
+        ::kill(sleep_pid, SIGKILL);
+    }
+    ASSERT_TRUE(reaped) << "rrun did not reap the rank";
+    ASSERT_TRUE(ended) << "rrun did not exit";
+    EXPECT_TRUE(dir_created);
+    EXPECT_TRUE(WIFSIGNALED(status) && WTERMSIG(status) == SIGTERM);
+    EXPECT_FALSE(std::filesystem::exists(dir));
 }
