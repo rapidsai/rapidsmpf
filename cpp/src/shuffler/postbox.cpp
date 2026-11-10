@@ -95,30 +95,32 @@ std::size_t ReceivedChunks::data_size(MemoryType mem_type) const {
 }
 
 std::size_t ReceivedChunks::spill(
-    BufferResource* br, std::size_t amount, ReservationContext reservation_context
+    BufferResource* br,
+    std::size_t amount,
+    MemoryType mem_type,
+    ReservationContext reservation_context
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE(amount);
-    std::lock_guard lock(mutex_);
-    // Return early if there is no device data to spill
-    if (data_sizes_[MemoryType::DEVICE] == 0) {
+    std::lock_guard const lock(mutex_);
+    auto const spill_targets = preference_lt(mem_type, MEMORY_TYPES);
+    // Return early if there is no data to spill from `mem_type` or nowhere to spill to.
+    if (data_sizes_[mem_type] == 0 || spill_targets.empty()) {
         return 0;
     }
     // TODO: use a clever strategy to decided which chunks to spill.
     std::size_t total_spilled{0};
     for (auto& [_, chunks] : pigeonhole_) {
         for (auto& chunk : chunks) {
-            if (!has_data(chunk) || chunk.data_memory_type() != MemoryType::DEVICE) {
+            if (!has_data(chunk) || chunk.data_memory_type() != mem_type) {
                 continue;
             }
             auto const size = chunk.data_size();
-            auto reservation = br->try_reserve(
-                size, preference_lt(MemoryType::DEVICE, MEMORY_TYPES), reservation_context
-            );
+            auto reservation = br->try_reserve(size, spill_targets, reservation_context);
             if (!reservation) {
                 continue;  // No target has room, leave the chunk where it is.
             }
             chunk.set_data_buffer(br->move(chunk.release_data_buffer(), *reservation));
-            data_sizes_[MemoryType::DEVICE] -= size;
+            data_sizes_[mem_type] -= size;
             data_sizes_[chunk.data_memory_type()] += size;
             if ((total_spilled += size) >= amount) {
                 break;

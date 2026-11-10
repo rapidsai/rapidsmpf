@@ -333,16 +333,20 @@ class PostBox {
     [[nodiscard]] bool empty() const noexcept;
 
     /**
-     * @brief Spill device data from the post box.
+     * @brief Spill data of memory type @p mem_type from the post box.
+     *
+     * Chunks for which no target in @p spill_target_types has room are left where they
+     * are, so the spill may be partial.
      *
      * The spilling is stream ordered by the spilled buffers' CUDA streams.
      *
      * @param br The buffer resource for host and device allocations.
      * @param amount Requested amount of data to spill in bytes.
-     * @param reservation_context Opaque telemetry attribution token for the spill
-     * reservation.
+     * @param mem_type The memory type to spill from.
      * @param spill_target_types Memory types to spill to, in decreasing order of
      * preference. Types without a backing resource are skipped.
+     * @param reservation_context Opaque telemetry attribution token for the spill
+     * reservation.
      * @return Actual amount of data spilled in bytes.
      *
      * @note We attempt to minimise the number of individual buffers
@@ -351,6 +355,7 @@ class PostBox {
     [[nodiscard]] std::size_t spill(
         BufferResource* br,
         std::size_t amount,
+        MemoryType mem_type,
         std::span<MemoryType const> spill_target_types,
         ReservationContext reservation_context = 0
     );

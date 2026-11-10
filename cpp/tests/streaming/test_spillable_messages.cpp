@@ -187,6 +187,49 @@ TEST_F(StreamingSpillableMessages, DiskSpill) {
     validate_packed_data(std::move(spilled), n_elements, 0, stream, *disk_br);
 }
 
+TEST_F(StreamingSpillableMessages, SpillFromHostToDisk) {
+    TempDir disk_dir;
+    auto disk_br = create_br(disk_dir.path());
+    constexpr std::size_t n_elements = 64;
+    constexpr std::size_t size = n_elements * sizeof(int);
+
+    SpillableMessages msgs;
+    auto mid = msgs.insert(to_message(
+        0,
+        std::make_unique<PackedData>(
+            generate_packed_data(n_elements, 0, stream, *disk_br, MemoryType::HOST)
+        )
+    ));
+
+    // Nothing on the device.
+    EXPECT_EQ(msgs.spill(mid, disk_br.get()), 0);
+    EXPECT_EQ(msgs.spill(mid, disk_br.get(), MemoryType::HOST), size);
+    EXPECT_EQ(msgs.get_content_description(mid).content_size(MemoryType::DISK), size);
+    // DISK has no spill target.
+    EXPECT_EQ(msgs.spill(mid, disk_br.get(), MemoryType::DISK), 0);
+
+    auto spilled = msgs.extract(mid).release<PackedData>();
+    EXPECT_EQ(spilled.data->mem_type(), MemoryType::DISK);
+    validate_packed_data(std::move(spilled), n_elements, 0, stream, *disk_br);
+}
+
+TEST_F(StreamingSpillableMessages, SpillToFullTargetIsPartial) {
+    // The host limit is zero and there is no disk, so the message has nowhere to go.
+    auto no_room_br = create_br(std::nullopt, 0);
+    constexpr std::size_t n_elements = 64;
+
+    SpillableMessages msgs;
+    auto mid = msgs.insert(to_message(
+        0,
+        std::make_unique<PackedData>(
+            generate_packed_data(n_elements, 0, stream, *no_room_br)
+        )
+    ));
+    std::size_t spilled{1};
+    EXPECT_NO_THROW(spilled = msgs.spill(mid, no_room_br.get()));
+    EXPECT_EQ(spilled, 0);
+}
+
 TEST_F(StreamingSpillableMessages, MultiThreadedRandomInsertSpillExtract) {
     using MID = SpillableMessages::MessageId;
 

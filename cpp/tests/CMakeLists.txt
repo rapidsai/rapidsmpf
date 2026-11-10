@@ -61,7 +61,11 @@ set_target_properties(
              CUDA_STANDARD 20
              CUDA_STANDARD_REQUIRED ON
 )
-target_include_directories(test_sources PRIVATE "${PROJECT_SOURCE_DIR}/include")
+# The tests also include internal headers of the library, see e.g.
+# `pausable_thread_loop_internal.hpp`.
+target_include_directories(
+  test_sources PRIVATE "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src"
+)
 target_compile_options(
   test_sources PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
                        "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
