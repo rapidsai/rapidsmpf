@@ -66,6 +66,7 @@ struct Ranks {
     std::set<pid_t> running;
     int forwarded_signal{0};  // Signal the ranks were sent, or 0.
     bool killed{false};  // The ranks were sent SIGKILL.
+    std::string coord_dir;  // Removed if a signal ends rrun, or empty.
 };
 
 // Never destroyed, so the signal thread can use it until rrun exits.
@@ -93,8 +94,13 @@ void kill_all(Ranks& r) {
     r.killed = true;
 }
 
-// Ends rrun by `sig`, as if it had not been blocked.
-[[noreturn]] void exit_by_signal(int sig) {
+// Removes the coordination directory and ends rrun by `sig`, as if it had not
+// been blocked. Must be called with `r.mutex` held.
+[[noreturn]] void exit_by_signal(Ranks& r, int sig) {
+    if (!r.coord_dir.empty()) {
+        std::error_code ec;
+        std::filesystem::remove_all(r.coord_dir, ec);
+    }
     ::signal(sig, SIG_DFL);
     sigset_t set;
     sigemptyset(&set);
@@ -141,7 +147,7 @@ void kill_all(Ranks& r) {
             continue;
         }
         if (r.running.empty()) {
-            exit_by_signal(sig);
+            exit_by_signal(r, sig);
         }
         if (r.forwarded_signal == 0) {
             suppress_rank_output.store(true, std::memory_order_relaxed);
@@ -599,6 +605,11 @@ int setup_launch_and_cleanup(
 
     if (cfg.file_backend) {
         std::filesystem::create_directories(cfg.coord_dir);
+        if (cfg.cleanup) {
+            Ranks& r = ranks();
+            std::lock_guard<std::mutex> lock(r.mutex);
+            r.coord_dir = cfg.coord_dir;
+        }
         cfg.env_vars["RRUN_COORD_DIR"] = cfg.coord_dir;
         if (cfg.verbose) {
             std::cout << "[rrun] File coordination directory: " << cfg.coord_dir
@@ -623,6 +634,11 @@ int setup_launch_and_cleanup(
         launch_ranks_fork_based(cfg, rank_offset, ranks_per_task, total_ranks);
 
     if (cfg.file_backend && cfg.cleanup) {
+        {
+            Ranks& r = ranks();
+            std::lock_guard<std::mutex> lock(r.mutex);
+            r.coord_dir.clear();
+        }
         if (cfg.verbose) {
             std::cout << "[rrun] Cleaning up coordination directory: " << cfg.coord_dir
                       << std::endl;
