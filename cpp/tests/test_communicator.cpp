@@ -3,7 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
+#include <limits>
 #include <stdexcept>
+#include <thread>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -104,4 +110,129 @@ TEST_P(BasicCommunicatorTest, SendToSelf) {
     auto recv_data_h = br->move_to_host_buffer(std::move(recv_buf), host_reservation);
     stream.sync();
     EXPECT_EQ(send_data_h, recv_data_h->copy_to_uint8_vector());
+}
+
+namespace {
+// MPI counts are `int`, so a message larger than INT_MAX bytes takes a different path
+// (#78).
+constexpr std::size_t large_message_nbytes =
+    std::size_t{std::numeric_limits<int>::max()} + 12345;
+// A multiple of 251 lets every staging chunk use the same pattern.
+constexpr std::size_t pattern_chunk_nbytes = 251 * 16384;
+constexpr auto large_message_timeout = std::chrono::minutes{5};
+
+[[noreturn]] void fail_large_message_timeout(char const* message) {
+    // A pending request can still reference a future's buffer, and some sends
+    // cannot be cancelled. Do not unwind those futures on timeout.
+    try {
+        ADD_FAILURE() << message;
+    } catch (...) {
+        // GTest can be configured to throw when recording a failure.
+    }
+    std::fflush(nullptr);
+    std::_Exit(EXIT_FAILURE);
+}
+
+std::vector<std::uint8_t> large_message_pattern_chunk() {
+    std::vector<std::uint8_t> data(pattern_chunk_nbytes);
+    for (std::size_t i = 0; i < data.size(); ++i) {
+        data[i] = static_cast<std::uint8_t>(i % 251);
+    }
+    return data;
+}
+}  // namespace
+
+TEST_F(BaseCommunicatorTest, LargeMessageSendToSelf) {
+    if (GlobalEnvironment->type() == TestEnvironmentType::SINGLE) {
+        GTEST_SKIP() << "Unsupported send to self";
+    }
+    if (comm->rank() != 0) {
+        GTEST_SKIP() << "Large transfer runs on rank 0 only";
+    }
+    auto const nbytes = large_message_nbytes;
+    auto const pattern = large_message_pattern_chunk();
+    auto send_buf =
+        br->make_buffer(stream, br->reserve_or_fail(nbytes, rapidsmpf::MemoryType::HOST));
+    send_buf->stream().sync();
+    send_buf->write_access([&](std::byte* send_buf_data, cuda::stream_ref) {
+        auto* data = reinterpret_cast<std::uint8_t*>(send_buf_data);
+        for (std::size_t offset = 0; offset < nbytes; offset += pattern.size()) {
+            auto const length = std::min(pattern.size(), nbytes - offset);
+            std::copy_n(pattern.data(), length, data + offset);
+        }
+    });
+    send_buf->stream().sync();
+    rapidsmpf::Tag tag{0, 0};
+    auto send_fut = comm->send(std::move(send_buf), comm->rank(), tag);
+
+    auto recv_buf =
+        br->make_buffer(stream, br->reserve_or_fail(nbytes, rapidsmpf::MemoryType::HOST));
+    recv_buf->stream().sync();
+    auto recv_fut = comm->recv(comm->rank(), tag, std::move(recv_buf));
+    auto const deadline = std::chrono::steady_clock::now() + large_message_timeout;
+    while (!comm->test(send_fut)) {
+        if (std::chrono::steady_clock::now() >= deadline) {
+            fail_large_message_timeout("Large send timed out");
+        }
+        std::this_thread::yield();
+    }
+    std::ignore = comm->wait(std::move(send_fut));
+    while (!comm->test(recv_fut)) {
+        if (std::chrono::steady_clock::now() >= deadline) {
+            fail_large_message_timeout("Large receive timed out");
+        }
+        std::this_thread::yield();
+    }
+    recv_buf = comm->wait(std::move(recv_fut));
+    for (std::size_t offset = 0; offset < nbytes; offset += pattern.size()) {
+        auto const length = std::min(pattern.size(), nbytes - offset);
+        auto const* received =
+            reinterpret_cast<std::uint8_t const*>(recv_buf->data()) + offset;
+        auto const mismatch =
+            std::mismatch(pattern.begin(), pattern.begin() + length, received);
+        ASSERT_EQ(mismatch.first, pattern.begin() + length)
+            << "Large-message data mismatch at byte "
+            << offset + (mismatch.first - pattern.begin());
+    }
+}
+
+TEST_F(BaseCommunicatorTest, LargeHostMessageRecvFrom) {
+    if (GlobalEnvironment->type() == TestEnvironmentType::SINGLE) {
+        GTEST_SKIP() << "Unsupported send to self";
+    }
+    if (comm->rank() != 0) {
+        GTEST_SKIP() << "Large transfer runs on rank 0 only";
+    }
+    auto send_data = std::make_unique<std::vector<std::uint8_t>>(large_message_nbytes);
+    for (std::size_t i = 0; i < send_data->size(); ++i) {
+        (*send_data)[i] = static_cast<std::uint8_t>(i % 251);
+    }
+    rapidsmpf::Tag tag{0, 1};
+    auto send_fut = comm->send(std::move(send_data), comm->rank(), tag);
+    auto received = comm->recv_from(comm->rank(), tag);
+    auto const deadline = std::chrono::steady_clock::now() + large_message_timeout;
+    while (!received) {
+        if (std::chrono::steady_clock::now() >= deadline) {
+            fail_large_message_timeout("Large receive timed out");
+        }
+        std::this_thread::yield();
+        received = comm->recv_from(comm->rank(), tag);
+    }
+    while (!comm->test(send_fut)) {
+        if (std::chrono::steady_clock::now() >= deadline) {
+            fail_large_message_timeout("Large send timed out");
+        }
+        std::this_thread::yield();
+    }
+    ASSERT_EQ(received->size(), large_message_nbytes);
+    auto const pattern = large_message_pattern_chunk();
+    for (std::size_t offset = 0; offset < received->size(); offset += pattern.size()) {
+        auto const length = std::min(pattern.size(), received->size() - offset);
+        auto const mismatch = std::mismatch(
+            pattern.begin(), pattern.begin() + length, received->data() + offset
+        );
+        ASSERT_EQ(mismatch.first, pattern.begin() + length)
+            << "Large-message data mismatch at byte "
+            << offset + (mismatch.first - pattern.begin());
+    }
 }

@@ -270,6 +270,10 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
     // Futures corresponding to in-transit messages.
     std::unordered_map<std::uint64_t, std::unique_ptr<Communicator::Future>>
         in_transit_futures_;
+    // Completed futures of in-transit messages that wait for an earlier message from
+    // the same peer to complete.
+    std::unordered_map<std::uint64_t, std::unique_ptr<Communicator::Future>>
+        finished_futures_;
     // Messages that have completed and are ready to be retrieved.
     std::vector<std::unique_ptr<Message>> received_messages_;
 
