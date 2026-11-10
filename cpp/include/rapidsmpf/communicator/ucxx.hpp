@@ -126,9 +126,16 @@ class UCXX final : public Communicator {
          *
          * @param req The UCXX request handle for the operation.
          * @param data_buffer A unique pointer to the data buffer.
+         * @param direction Whether this is a send or a receive.
          */
-        Future(std::shared_ptr<::ucxx::Request> req, std::unique_ptr<Buffer> data_buffer)
-            : req_{std::move(req)}, data_buffer_{std::move(data_buffer)} {}
+        Future(
+            std::shared_ptr<::ucxx::Request> req,
+            std::unique_ptr<Buffer> data_buffer,
+            Direction direction
+        )
+            : req_{std::move(req)},
+              direction_{direction},
+              data_buffer_{std::move(data_buffer)} {}
 
         /**
          * @brief Construct a Future from synchronized host data.
@@ -138,18 +145,23 @@ class UCXX final : public Communicator {
          *
          * @param req The UCXX request handle for the operation.
          * @param synced_host_data A unique pointer to a vector containing host memory.
+         * @param direction Whether this is a send or a receive.
          */
         Future(
             std::shared_ptr<::ucxx::Request> req,
-            std::unique_ptr<std::vector<std::uint8_t>> synced_host_data
+            std::unique_ptr<std::vector<std::uint8_t>> synced_host_data,
+            Direction direction
         )
-            : req_{std::move(req)}, synced_host_data_{std::move(synced_host_data)} {}
+            : req_{std::move(req)},
+              direction_{direction},
+              synced_host_data_{std::move(synced_host_data)} {}
 
         /// @brief Destructor.
         ~Future() noexcept override = default;
 
       private:
         std::shared_ptr<::ucxx::Request> req_;
+        Direction const direction_;  ///< Whether this is a send or a receive.
         std::unique_ptr<Buffer> data_buffer_;
         // Dedicated storage for host data that is valid at the time of construction.
         std::unique_ptr<std::vector<std::uint8_t>> synced_host_data_;
@@ -337,6 +349,22 @@ class UCXX final : public Communicator {
      * @return A new UCXX communicator with a single rank.
      */
     std::shared_ptr<UCXX> split();
+
+  protected:
+    /**
+     * @copydoc Communicator::retired_future_completed
+     */
+    [[nodiscard]] bool retired_future_completed(
+        Communicator::Future& future
+    ) noexcept override;
+
+    /**
+     * @copydoc Communicator::cancel_retired_future
+     *
+     * Cancels the UCXX request of receives, `retired_future_completed()` progresses
+     * the worker.
+     */
+    void cancel_retired_future(Communicator::Future& future) noexcept override;
 
   private:
     std::shared_ptr<SharedResources> shared_resources_;

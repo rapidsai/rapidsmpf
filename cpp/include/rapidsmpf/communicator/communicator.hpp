@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <memory>
+#include <mutex>
 #include <ostream>
 #include <stdexcept>
 #include <string>
@@ -185,9 +186,22 @@ class Tag {
  *
  * Sends and receives are matched on `(rank, tag)` pairs. The concrete implementation
  * _must_ provide that there is no message overtaking.
+ *
+ * Implementing a backend: besides the communication operations, a backend implements
+ * `retired_future_completed()` and `cancel_retired_future()`, and _must_ call
+ * `release_retired_futures()` from its destructor, see `retire_futures()`. Otherwise,
+ * the retired futures still held when the communicator is destroyed are leaked.
  */
 class Communicator {
   public:
+    /**
+     * @brief The direction of a communication operation.
+     */
+    enum class Direction : std::uint8_t {
+        Send,  ///< A send, never cancelled once retired.
+        Receive,  ///< A receive, cancelled once retired, see `retire_futures()`.
+    };
+
     /**
      * @brief Abstract base class for asynchronous operation within the communicator.
      *
@@ -214,7 +228,12 @@ class Communicator {
     Communicator() = default;
 
   public:
-    virtual ~Communicator() noexcept = default;
+    /**
+     * @brief Destructor.
+     *
+     * Leaks the retired futures still held, see `retire_futures()`.
+     */
+    virtual ~Communicator() noexcept;
 
     /**
      * @brief Retrieves the rank of the current node.
@@ -431,6 +450,89 @@ class Communicator {
      * @return A string describing the communicator.
      */
     [[nodiscard]] virtual std::string str() const = 0;
+
+    /**
+     * @brief Keep the futures of possibly in-flight communication alive.
+     *
+     * Destroying a future does not cancel nor wait for its communication, so the
+     * communication library may still access its buffer. Operations that are destroyed
+     * with communication possibly in flight, e.g., after a failure, can hand their
+     * futures over instead. The communicator keeps them until their communication
+     * completes:
+     * - Retired receives can no longer be consumed, so their cancellation is requested
+     *   right away, which narrows the window in which they can match a later message
+     *   with the same tag.
+     * - Retired sends are not cancelled, since their peer may still expect them.
+     * - Retired futures are released once their communication completed: right away if
+     *   it already did, otherwise by a later call to `retire_futures()`. Those that
+     *   still did not complete when the communicator is destroyed are leaked. A buffer
+     *   that may still be accessed is never freed.
+     *
+     * @note The buffers of retired futures keep their `BufferResource` alive, and are
+     * freed on their stream, which must remain valid until then: at the latest until
+     * the communicator is destroyed.
+     *
+     * @note Retired communication may still match later messages with the same tag:
+     * a retired receive whose cancellation loses the race against a matching message
+     * consumes that message, and a retired send may still be delivered and match a
+     * receive on its peer. So the `OpID` of an operation that retired communication
+     * still in flight, e.g., after a failure, must not be reused.
+     *
+     * @param futures The futures, null futures are ignored.
+     */
+    void retire_futures(std::vector<std::unique_ptr<Future>>&& futures) noexcept;
+
+    /**
+     * @brief Keep the future of possibly in-flight communication alive.
+     *
+     * See `retire_futures()`.
+     *
+     * @param future The future, ignored if null.
+     */
+    void retire_future(std::unique_ptr<Future>&& future) noexcept;
+
+  protected:
+    /**
+     * @brief Check whether the communication of a retired future has completed.
+     *
+     * Must not wait for the communication to complete. It may make a progress call
+     * that returns once the pending events are processed, e.g., `MPI_Test()` or
+     * `ucp_worker_progress()`. See `retire_futures()`.
+     *
+     * @param future A retired future, returned by this communicator.
+     * @return True if the communication has completed and its buffer may be freed.
+     */
+    [[nodiscard]] virtual bool retired_future_completed(Future& future) noexcept = 0;
+
+    /**
+     * @brief Request the cancellation of a retired future, if it is a receive.
+     *
+     * Called by `retire_futures()` for every retired future. Receives can no longer be
+     * consumed and must be cancelled, to narrow the window in which they can match later
+     * messages. Sends must not be cancelled, since their peer may still expect them.
+     * Must not block: whether the cancellation completed is observed through
+     * `retired_future_completed()`.
+     *
+     * @param future A retired future, returned by this communicator.
+     */
+    virtual void cancel_retired_future(Future& future) noexcept = 0;
+
+    /**
+     * @brief Release all the retired futures.
+     *
+     * Waits for the retired futures to complete against a single deadline of about one
+     * second, however many there are, and leaks those that still did not complete,
+     * e.g., sends to a dead peer.
+     *
+     * Every backend _must_ call this from its destructor: it relies on the functions
+     * above, which cannot be called from the destructor of the base class. The futures
+     * still retired when the base class is destroyed are leaked.
+     */
+    void release_retired_futures() noexcept;
+
+  private:
+    std::mutex retired_futures_mutex_;  ///< Protects `retired_futures_`.
+    std::vector<std::unique_ptr<Future>> retired_futures_;  ///< See `retire_futures()`.
 };
 
 /// @brief Whether RapidsMPF was built with the UCXX Communicator.

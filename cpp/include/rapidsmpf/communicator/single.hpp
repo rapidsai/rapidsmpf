@@ -52,7 +52,7 @@ class Single final : public Communicator {
         std::shared_ptr<ProgressThread> progress_thread, std::shared_ptr<Logger> logger
     );
 
-    ~Single() noexcept override = default;
+    ~Single() noexcept override;
 
     /**
      * @copydoc Communicator::rank
@@ -210,6 +210,19 @@ class Single final : public Communicator {
      * @copydoc Communicator::str
      */
     [[nodiscard]] std::string str() const override;
+
+  protected:
+    /**
+     * @copydoc Communicator::retired_future_completed
+     */
+    [[nodiscard]] bool retired_future_completed(
+        Communicator::Future& future
+    ) noexcept override;
+
+    /**
+     * @copydoc Communicator::cancel_retired_future
+     */
+    void cancel_retired_future(Communicator::Future& future) noexcept override;
 
   private:
     std::shared_ptr<Logger> logger_;

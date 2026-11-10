@@ -87,9 +87,10 @@ class MPI final : public Communicator {
          *
          * @param req The MPI request handle for the operation.
          * @param data_buffer A unique pointer to the data buffer.
+         * @param direction Whether this is a send or a receive.
          */
-        Future(MPI_Request req, std::unique_ptr<Buffer> data_buffer)
-            : req_{req}, data_buffer_{std::move(data_buffer)} {}
+        Future(MPI_Request req, std::unique_ptr<Buffer> data_buffer, Direction direction)
+            : req_{req}, direction_{direction}, data_buffer_{std::move(data_buffer)} {}
 
         /**
          * @brief Construct a Future from synchronized host data.
@@ -99,17 +100,23 @@ class MPI final : public Communicator {
          *
          * @param req The MPI request handle for the operation.
          * @param synced_host_data A unique pointer to a vector containing host memory.
+         * @param direction Whether this is a send or a receive.
          */
         Future(
-            MPI_Request req, std::unique_ptr<std::vector<std::uint8_t>> synced_host_data
+            MPI_Request req,
+            std::unique_ptr<std::vector<std::uint8_t>> synced_host_data,
+            Direction direction
         )
-            : req_{std::move(req)}, synced_host_data_{std::move(synced_host_data)} {}
+            : req_{std::move(req)},
+              direction_{direction},
+              synced_host_data_{std::move(synced_host_data)} {}
 
         /// @brief Destructor.
         ~Future() noexcept override = default;
 
       private:
         MPI_Request req_;
+        Direction const direction_;  ///< Whether this is a send or a receive.
         // TODO: these buffers are mutually exclusive and looks similar to
         // Buffer::storage_.
         std::unique_ptr<Buffer> data_buffer_;
@@ -130,7 +137,7 @@ class MPI final : public Communicator {
         std::shared_ptr<ProgressThread> progress_thread,
         std::shared_ptr<Logger> logger);
 
-    ~MPI() noexcept override = default;
+    ~MPI() noexcept override;
 
     /**
      * @copydoc Communicator::rank
@@ -266,6 +273,21 @@ class MPI final : public Communicator {
      * @copydoc Communicator::str
      */
     [[nodiscard]] std::string str() const override;
+
+  protected:
+    /**
+     * @copydoc Communicator::retired_future_completed
+     */
+    [[nodiscard]] bool retired_future_completed(
+        Communicator::Future& future
+    ) noexcept override;
+
+    /**
+     * @copydoc Communicator::cancel_retired_future
+     *
+     * Receives are cancelled with `MPI_Cancel()`.
+     */
+    void cancel_retired_future(Communicator::Future& future) noexcept override;
 
   private:
     MPI_Comm comm_;

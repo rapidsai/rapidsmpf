@@ -1304,7 +1304,7 @@ std::unique_ptr<Communicator::Future> UCXX::send(
                        tag_with_rank(shared_resources_->rank(), static_cast<int>(tag))
                    )
                    .build();
-    return std::make_unique<Future>(req, std::move(msg));
+    return std::make_unique<Future>(req, std::move(msg), Direction::Send);
 }
 
 std::unique_ptr<Communicator::Future> UCXX::send(
@@ -1318,7 +1318,7 @@ std::unique_ptr<Communicator::Future> UCXX::send(
                 msg->data(), msg->size, tag_with_rank(shared_resources_->rank(), tag)
             )
             .build();
-    return std::make_unique<Future>(req, std::move(msg));
+    return std::make_unique<Future>(req, std::move(msg), Direction::Send);
 }
 
 std::unique_ptr<Communicator::Future> UCXX::recv(
@@ -1338,7 +1338,7 @@ std::unique_ptr<Communicator::Future> UCXX::recv(
                        ::ucxx::TagMaskFull
                    )
                    .build();
-    return std::make_unique<Future>(req, std::move(recv_buffer));
+    return std::make_unique<Future>(req, std::move(recv_buffer), Direction::Receive);
 }
 
 std::unique_ptr<Communicator::Future> UCXX::recv_sync_host_data(
@@ -1355,7 +1355,7 @@ std::unique_ptr<Communicator::Future> UCXX::recv_sync_host_data(
                        ::ucxx::TagMaskFull
                    )
                    .build();
-    return std::make_unique<Future>(req, std::move(synced_buffer));
+    return std::make_unique<Future>(req, std::move(synced_buffer), Direction::Receive);
 }
 
 std::pair<std::unique_ptr<std::vector<std::uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
@@ -1554,7 +1554,39 @@ std::string UCXX::str() const {
 UCXX::~UCXX() noexcept {
     auto& log = logger();
     log->trace("UCXX destructor");
+    // Before stopping the progress thread, which progresses the retired futures.
+    release_retired_futures();
     shared_resources_->get_worker()->stopProgressThread();
+}
+
+bool UCXX::retired_future_completed(Communicator::Future& future) noexcept {
+    auto* ucxx_future = dynamic_cast<Future*>(&future);
+    if (ucxx_future == nullptr) {
+        return false;
+    }
+    try {
+        if (!ucxx_future->req_->isCompleted()) {
+            // Without a UCX progress thread, nothing else may progress the request.
+            shared_resources_->progress_worker();
+        }
+        return ucxx_future->req_->isCompleted();
+    } catch (...) {
+        return false;
+    }
+}
+
+void UCXX::cancel_retired_future(Communicator::Future& future) noexcept {
+    auto* ucxx_future = dynamic_cast<Future*>(&future);
+    if (ucxx_future == nullptr || ucxx_future->direction_ != Direction::Receive) {
+        return;
+    }
+    try {
+        if (!ucxx_future->req_->isCompleted()) {
+            ucxx_future->req_->cancel();
+        }
+    } catch (...) {
+        // Best effort, the future is leaked if it does not complete.
+    }
 }
 
 void UCXX::progress_worker() {
