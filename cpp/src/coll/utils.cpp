@@ -216,14 +216,20 @@ bool PostBox::empty() const noexcept {
 }
 
 std::size_t PostBox::spill(
-    BufferResource* br, std::size_t amount, std::span<MemoryType const> spill_target_types
+    BufferResource* br,
+    std::size_t amount,
+    MemoryType mem_type,
+    std::span<MemoryType const> spill_target_types
 ) {
-    std::lock_guard lock(mutex_);
+    if (spill_target_types.empty() || amount == 0) {
+        return 0;
+    }
+    std::lock_guard const lock(mutex_);
     std::vector<Chunk*> spillable_chunks;
     std::size_t max_spillable{0};
     std::size_t total_spilled{0};
     for (auto&& chunk : chunks_) {
-        if (chunk->memory_type() == MemoryType::DEVICE) {
+        if (chunk->memory_type() == mem_type) {
             spillable_chunks.push_back(chunk.get());
             max_spillable += chunk->data_size();
         }
