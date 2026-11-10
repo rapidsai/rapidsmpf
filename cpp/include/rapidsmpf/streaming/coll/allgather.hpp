@@ -38,7 +38,7 @@ class AllGather {
      * @param ctx Streaming context
      * @param comm Communicator for the collective operation.
      * @param op_id Unique identifier for the allgather.
-     * @param reservation_context Immutable telemetry reservation_context for internal
+     * @param reservation_context Opaque telemetry attribution token for internal
      * reservations.
      */
     AllGather(
@@ -117,7 +117,7 @@ namespace actor {
  * sequence numbers of the extracted data will be ordered first by rank and then by input
  * sequence number. If no, the sequence number of the extracted chunks will have no
  * relation to any input sequence order.
- * @param reservation_context Immutable telemetry reservation_context for internal
+ * @param reservation_context Opaque telemetry attribution token for internal
  * reservations.
  *
  * @return A streaming actor that completes when the allgather is finished and the output

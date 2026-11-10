@@ -111,7 +111,7 @@ class AllGather {
      * @param finished_callback Optional callback run when partitions are locally
      * finished. The callback is guaranteed to be called by the progress thread exactly
      * once when the allgather is locally ready.
-     * @param reservation_context Immutable telemetry reservation_context for internal
+     * @param reservation_context Opaque telemetry attribution token for internal
      * reservations.
      *
      * @note It is safe to reuse the `op_id` as soon as `wait_and_extract` has completed

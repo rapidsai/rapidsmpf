@@ -53,7 +53,7 @@ enum class FanoutPolicy : std::uint8_t {
  * @param ch_in Input channel from which messages are received.
  * @param chs_out Output channels to which messages are broadcast. Must be at least 2.
  * @param policy The fanout strategy to use (see ::FanoutPolicy).
- * @param reservation_context Immutable telemetry reservation_context for copy
+ * @param reservation_context Opaque telemetry attribution token for copy
  * reservations.
  *
  * @return Streaming actor representing the fanout operation.

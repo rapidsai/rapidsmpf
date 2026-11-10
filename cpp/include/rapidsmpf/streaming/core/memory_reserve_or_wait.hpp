@@ -413,7 +413,7 @@ coro::task<MemoryReservation> reserve_memory(
  * allocated and the dependent operation completes.
  * @param mem_type Memory type for which to reserve memory.
  * @param allow_overbooking Controls whether the request may overbook memory.
- * @param reservation_context Immutable telemetry context for the request.
+ * @param reservation_context Opaque telemetry attribution token for the request.
  * @return The allocated memory reservation.
  */
 coro::task<MemoryReservation> reserve_memory(

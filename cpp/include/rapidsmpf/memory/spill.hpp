@@ -25,7 +25,7 @@ namespace rapidsmpf {
  *
  * @param partitions The partitions to spill.
  * @param br Buffer resource used to reserve host memory and perform the move.
- * @param reservation_context Immutable telemetry reservation context for the spill.
+ * @param reservation_context Opaque telemetry attribution token for the spill.
  *
  * @return A vector of `PackedData`, where each buffer resides in host memory.
  *
@@ -53,7 +53,7 @@ std::vector<PackedData> spill_partitions(
  * @param br Buffer resource responsible for memory reservation and spills.
  * @param allow_overbooking If false, ensures enough memory is freed to satisfy the
  * reservation; otherwise, allows overbooking even if spilling was insufficient.
- * @param reservation_context Immutable telemetry reservation_context for the unspill
+ * @param reservation_context Opaque telemetry attribution token for the unspill
  * reservation.
  *
  * @return A vector of `PackedData`, each with a buffer in device memory.

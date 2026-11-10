@@ -54,7 +54,7 @@ class ShufflerAsync {
      * @param total_num_partitions Total number of partitions to shuffle data into.
      * @param partition_owner Function that maps a partition ID to its owning rank/node.
      * Defaults to round-robin distribution.
-     * @param reservation_context Immutable telemetry reservation_context for internal
+     * @param reservation_context Opaque telemetry attribution token for internal
      * reservations.
      *
      * @note The caller promises that inserted buffers are stream-ordered with respect
@@ -170,7 +170,7 @@ namespace actor {
  * actors have called `Shuffler::shutdown()`.
  * @param total_num_partitions Total number of partitions to shuffle the data into.
  * @param partition_owner Function that maps a partition ID to its owning rank/node.
- * @param reservation_context Immutable telemetry reservation_context for internal
+ * @param reservation_context Opaque telemetry attribution token for internal
  * reservations.
  *
  * @return A streaming actor that completes when the shuffling has finished and the

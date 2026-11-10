@@ -235,7 +235,7 @@ class Chunk {
      * @param data Optional pre-existing data buffer to use instead of allocating a new
      * one. When non-null, the buffer resource allocation is skipped entirely, avoiding
      * unnecessary memory pressure from a temporary allocation.
-     * @param reservation_context Immutable telemetry reservation_context for any
+     * @param reservation_context Opaque telemetry attribution token for any
      * allocation.
      * @return The chunk.
      *

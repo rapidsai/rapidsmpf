@@ -219,7 +219,7 @@ class Chunk {
      * chunk without data.
      * @param br Buffer resource used to allocate an empty data buffer for a data chunk
      * without data.
-     * @param reservation_context Immutable telemetry reservation context for an empty
+     * @param reservation_context Opaque telemetry attribution token for an empty
      * data buffer allocation.
      * @return A unique pointer to the deserialized chunk.
      *
@@ -339,7 +339,7 @@ class PostBox {
      *
      * @param br The buffer resource for host and device allocations.
      * @param amount Requested amount of data to spill in bytes.
-     * @param reservation_context Immutable telemetry reservation_context for the spill
+     * @param reservation_context Opaque telemetry attribution token for the spill
      * reservation.
      * @param spill_target_types Memory types to spill to, in decreasing order of
      * preference. Types without a backing resource are skipped.

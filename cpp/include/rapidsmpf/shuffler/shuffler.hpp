@@ -120,7 +120,7 @@ class Shuffler {
      * @param br Buffer resource used to allocate temporary and the shuffle result.
      * @param finished_callback Callback to notify when all partitions are finished.
      * @param partition_owner Function to determine partition ownership.
-     * @param reservation_context Immutable telemetry reservation_context for internal
+     * @param reservation_context Opaque telemetry attribution token for internal
      * reservations.
      *
      * @note It is safe to reuse the `op_id` as soon as `wait` has completed
@@ -149,7 +149,7 @@ class Shuffler {
      * @param total_num_partitions Total number of partitions in the shuffle.
      * @param br Buffer resource used to allocate temporary and the shuffle result.
      * @param partition_owner Function to determine partition ownership.
-     * @param reservation_context Immutable telemetry reservation_context for internal
+     * @param reservation_context Opaque telemetry attribution token for internal
      * reservations.
      *
      * @note The caller promises that inserted buffers are stream-ordered with respect
