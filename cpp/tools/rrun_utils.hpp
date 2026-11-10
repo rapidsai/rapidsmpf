@@ -53,7 +53,33 @@ pid_t fork_with_piped_stdio(
 );
 
 /**
+ * @brief Block the signals rrun forwards to its ranks (SIGINT and SIGTERM).
+ *
+ * Must be called at the start of `main()`, before any thread is created, so
+ * that every thread inherits the blocked mask and only the thread started by
+ * `start_signal_thread()` receives these signals. The original mask is saved
+ * and restored by `exec_application()`.
+ */
+void block_forwarded_signals();
+
+/**
+ * @brief Start the thread that handles SIGINT and SIGTERM until rrun exits.
+ *
+ * While no rank is running, a signal ends rrun. Otherwise the first signal is
+ * forwarded to the ranks, unless it came from the terminal, which also sends it
+ * to the ranks. Ranks still running `kill_after_seconds` later, or after
+ * another signal, are sent SIGKILL.
+ *
+ * @param kill_after_seconds Seconds between the first signal and SIGKILL.
+ */
+void start_signal_thread(int kill_after_seconds);
+
+/**
  * @brief Execute application via execvp (never returns).
+ *
+ * Restores the signal mask saved by `block_forwarded_signals()` first, so the
+ * application starts with the signal mask rrun was started with.
+ *
  * @param cfg Configuration containing application binary and arguments.
  */
 [[noreturn]] void exec_application(Config const& cfg);
