@@ -271,6 +271,31 @@ def test_cancelled_aclose_with_stuck_peer(
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("factory", FACTORIES.values(), ids=FACTORIES.keys())
+def test_aclose_after_wait_left_pending_on_closed_loop(
+    context: Context, comm: Communicator, factory: Callable[..., Any]
+) -> None:
+    if comm.nranks < 2:
+        pytest.skip("Need at least two ranks")
+
+    async def finish_and_close(coll: Any) -> None:
+        await insert_finished(coll)
+        await coll.aclose()
+
+    coll = factory(context, comm, 0)
+    if comm.rank == 0:
+        # Rank 1 inserts its finish markers only after the barrier, so the wait is
+        # still pending when the first event loop is closed.
+        with pytest.raises(TimeoutError):
+            asyncio.run(asyncio.wait_for(finish_and_close(coll), timeout=0.1))
+        barrier()
+        asyncio.run(coll.aclose())
+    else:
+        barrier()
+        asyncio.run(finish_and_close(coll))
+    asyncio.run(assert_closed(coll))
+
+
 @pytest.mark.parametrize(
     "factory,op_id",
     [(f, i) for i, f in enumerate(FACTORIES.values(), start=10)],

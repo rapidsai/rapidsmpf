@@ -39,14 +39,17 @@ cdef class Collective:
         pass
 
     async def _wait(self):
-        if self._complete is None:
-            future = asyncio.get_running_loop().create_future()
-            self._cpp_spawn_wait(future)
-            self._complete = future
-        elif self._complete.done():
+        if self._complete is not None and self._complete.done():
             # The future may belong to an event loop that has since been closed.
             self._complete.result()
             return
+        loop = asyncio.get_running_loop()
+        if self._complete is None or self._complete.get_loop() is not loop:
+            # A pending future of another event loop cannot be awaited here, so
+            # start a new wait on the running loop.
+            future = loop.create_future()
+            self._cpp_spawn_wait(future)
+            self._complete = future
         # A cancelled waiter must not cancel the shared future.
         await asyncio.shield(self._complete)
 
