@@ -89,5 +89,8 @@ cdef class Collective:
         ------
         RuntimeError
             If ``insert_finished()`` was not called before ``aclose()``.
+        ValueError
+            If called on an :class:`~rapidsmpf.streaming.coll.AllGather` inside its
+            ``with`` block.
         """
         await self._aclose(True)
