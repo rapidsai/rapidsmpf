@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <ranges>
+
 #include <rapidsmpf/streaming/core/spillable_messages.hpp>
 
 namespace rapidsmpf::streaming {
@@ -48,7 +50,9 @@ Message SpillableMessages::copy(MessageId mid, MemoryReservation& reservation) {
     return item->message->copy(reservation);
 }
 
-std::size_t SpillableMessages::spill(MessageId mid, BufferResource* br) const {
+std::size_t SpillableMessages::spill(
+    MessageId mid, BufferResource* br, MemoryType mem_type
+) const {
     // Find item, if it exist.
     std::unique_lock global_lock(global_mutex_);
     auto item_it = items_.find(mid);
@@ -71,13 +75,12 @@ std::size_t SpillableMessages::spill(MessageId mid, BufferResource* br) const {
     // Ensure the item still contains something to spill.
     auto& msg = item->message.value();
     auto const old_cd = msg.content_description();
-    if (!old_cd.spillable() || old_cd.content_size(MemoryType::DEVICE) == 0) {
+    if (!old_cd.spillable() || old_cd.content_size(mem_type) == 0) {
         return 0;
     }
 
     // Spill item in-place.
-    auto res =
-        br->try_reserve(msg.copy_cost(), preference_lt(MemoryType::DEVICE, MEMORY_TYPES));
+    auto res = br->try_reserve(msg.copy_cost(), preference_lt(mem_type, MEMORY_TYPES));
     if (!res) {
         return 0;  // No target has room, leave the message where it is.
     }
@@ -93,7 +96,32 @@ std::size_t SpillableMessages::spill(MessageId mid, BufferResource* br) const {
     if (auto it = content_descriptions_.find(mid); it != content_descriptions_.end()) {
         it->second = new_cd;
     }
-    return old_cd.content_size(MemoryType::DEVICE);
+    return old_cd.content_size(mem_type);
+}
+
+std::size_t SpillableMessages::try_spill(
+    BufferResource* br, std::size_t amount, MemoryType mem_type
+) const {
+    // Recall that std::map is sorted by key, so iteration follows the order in which
+    // messages were inserted.
+    std::map<MessageId, ContentDescription> cds = get_content_descriptions();
+
+    // Spill messages from `range` until the target amount is reached.
+    auto spill_range = [&](auto&& range) {
+        std::size_t total_spilled = 0;
+        for (auto const& [id, cd] : range) {
+            if (total_spilled >= amount) {
+                break;
+            }
+            if (cd.spillable() && cd.content_size(mem_type) > 0) {
+                total_spilled += spill(id, br, mem_type);
+            }
+        }
+        return total_spilled;
+    };
+    return spill_order_ == SpillOrder::EARLIEST_FIRST
+               ? spill_range(cds)
+               : spill_range(cds | std::views::reverse);
 }
 
 std::map<SpillableMessages::MessageId, ContentDescription>

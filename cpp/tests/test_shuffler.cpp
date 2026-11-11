@@ -34,6 +34,16 @@
 
 extern Environment* GlobalEnvironment;
 
+namespace {
+
+// Upper bound on how long a test waits for a shuffle to complete. A shuffle in these
+// tests normally completes in milliseconds. The bound is long because a slow or
+// oversubscribed CI node can stall a shuffle for seconds, and a test that times out
+// fails. On a node so slow that even this bound is too short, we accept the failure.
+constexpr auto wait_timeout = std::chrono::seconds{30};
+
+}  // namespace
+
 TEST(ReceivedChunks, spill_skips_control_messages) {
     auto mr = rmm::mr::get_current_device_resource_ref();
     auto br = rapidsmpf::BufferResource::create(mr);
@@ -190,6 +200,82 @@ TEST(ReceivedChunks, spill_to_disk_and_unspill) {
     EXPECT_EQ(restored[0].data->mem_type(), MemoryType::DEVICE);
     EXPECT_FALSE(std::filesystem::exists(path));
     validate_packed_data(std::move(restored[0]), n_elements, 0, stream, *br);
+}
+
+TEST(ReceivedChunks, spill_from_host_to_disk) {
+    using rapidsmpf::MemoryType;
+    constexpr std::size_t n_elements = 100;
+    constexpr std::size_t data_size = n_elements * sizeof(int);
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+    TempDir temp_dir;
+    auto br = create_br(temp_dir.path());
+
+    rapidsmpf::shuffler::detail::ReceivedChunks received;
+    for (rapidsmpf::shuffler::PartID pid = 0; pid < 2; ++pid) {
+        received.insert(
+            rapidsmpf::shuffler::detail::Chunk::from_packed_data(
+                0, pid, generate_packed_data(n_elements, 0, stream, *br, MemoryType::HOST)
+            )
+        );
+    }
+    EXPECT_EQ(received.data_size(MemoryType::HOST), 2 * data_size);
+
+    // Nothing on the device to spill.
+    EXPECT_EQ(received.spill(br.get(), data_size), 0UL);
+
+    EXPECT_EQ(received.spill(br.get(), data_size, MemoryType::HOST), data_size);
+    EXPECT_EQ(received.data_size(MemoryType::HOST), data_size);
+    EXPECT_EQ(received.data_size(MemoryType::DISK), data_size);
+
+    // DISK has no spill target.
+    EXPECT_EQ(received.spill(br.get(), data_size, MemoryType::DISK), 0UL);
+}
+
+TEST(ReceivedChunks, spill_to_full_target_is_partial_without_throwing) {
+    using rapidsmpf::MemoryType;
+    constexpr std::size_t n_elements = 100;
+    constexpr std::size_t data_size = n_elements * sizeof(int);
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+    // The host limit is zero and there is no disk, so DEVICE has no target with room.
+    auto br = create_br(std::nullopt, 0);
+
+    rapidsmpf::shuffler::detail::ReceivedChunks received;
+    received.insert(
+        rapidsmpf::shuffler::detail::Chunk::from_packed_data(
+            0, 0, generate_packed_data(n_elements, 0, stream, *br)
+        )
+    );
+    std::size_t spilled{1};
+    EXPECT_NO_THROW(spilled = received.spill(br.get(), data_size));
+    EXPECT_EQ(spilled, 0UL);
+    EXPECT_EQ(received.data_size(MemoryType::DEVICE), data_size);
+}
+
+TEST(ReceivedChunks, spill_from_pinned_host_to_host) {
+    using rapidsmpf::MemoryType;
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        GTEST_SKIP() << "PinnedMemoryResource is not supported";
+    }
+    constexpr std::size_t n_elements = 100;
+    constexpr std::size_t data_size = n_elements * sizeof(int);
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+    auto br = rapidsmpf::BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(), rapidsmpf::PinnedPoolProperties{}
+    );
+
+    rapidsmpf::shuffler::detail::ReceivedChunks received;
+    received.insert(
+        rapidsmpf::shuffler::detail::Chunk::from_packed_data(
+            0,
+            0,
+            generate_packed_data(n_elements, 0, stream, *br, MemoryType::PINNED_HOST)
+        )
+    );
+    EXPECT_EQ(received.data_size(MemoryType::PINNED_HOST), data_size);
+
+    EXPECT_EQ(received.spill(br.get(), data_size, MemoryType::PINNED_HOST), data_size);
+    EXPECT_EQ(received.data_size(MemoryType::PINNED_HOST), 0UL);
+    EXPECT_EQ(received.data_size(MemoryType::HOST), data_size);
 }
 
 TEST(MetadataMessage, round_trip) {
@@ -401,7 +487,6 @@ void test_shuffler(
 ) {
     // To expose unexpected deadlocks, we use a 30s timeout. In a normal run, the
     // shuffle shouldn't get near 30s.
-    std::chrono::seconds const wait_timeout(30);
 
     for (rapidsmpf::shuffler::PartID local_pidx : shuffler.local_partitions()) {
         shuffler.insert(make_partition_data(
@@ -509,7 +594,7 @@ TEST(Shuffler, payload_statistics) {
     }
     shuffler.insert(std::move(chunks));
     shuffler.insert_finished();
-    shuffler.wait(std::chrono::seconds{30});
+    shuffler.wait(wait_timeout);
 
     auto const local_pid =
         rapidsmpf::safe_cast<rapidsmpf::shuffler::PartID>(comm->rank());
@@ -561,7 +646,7 @@ TEST(Shuffler, progress_stops_when_complete) {
     }
     shuffler.insert(std::move(chunks));
     shuffler.insert_finished();
-    shuffler.wait(std::chrono::seconds{30});
+    shuffler.wait(wait_timeout);
 
     // The probe runs once per progress iteration, after the shuffler's function. It
     // records the poll count of the shuffler's exchange in its first and third run.
@@ -736,7 +821,7 @@ TEST(Shuffler, InsertSpillsOnlyLocalChunksToDisk) {
     progress_thread->resume();
 
     shuffler.insert_finished();
-    shuffler.wait(std::chrono::seconds{30});
+    shuffler.wait(wait_timeout);
     for (auto pid : shuffler.local_partitions()) {
         auto extracted = rapidsmpf::unspill_partitions(
             shuffler.extract(pid), br.get(), rapidsmpf::AllowOverbooking::YES
@@ -780,15 +865,18 @@ TEST(Shuffler, InsertsDiskBackedData) {
     for (rapidsmpf::shuffler::PartID pid = 0; pid < total_num_partitions; ++pid) {
         chunks.emplace(
             pid,
-            move_to_disk(
-                generate_packed_data(n_elements, offset(comm->rank(), pid), stream, *br),
-                *br
+            generate_packed_data(
+                n_elements,
+                offset(comm->rank(), pid),
+                stream,
+                *br,
+                rapidsmpf::MemoryType::DISK
             )
         );
     }
     shuffler.insert(std::move(chunks));
     shuffler.insert_finished();
-    shuffler.wait(std::chrono::seconds{30});
+    shuffler.wait(wait_timeout);
 
     for (auto pid : shuffler.local_partitions()) {
         auto extracted = shuffler.extract(pid);
@@ -1179,7 +1267,6 @@ TEST(Shuffler, ShutdownWhilePaused) {
 class ExtractEmptyPartitionsTest : public ::testing::Test {
   public:
     static constexpr rapidsmpf::shuffler::PartID nparts = 10;
-    static constexpr auto wait_timeout = std::chrono::seconds(30);
 
     void SetUp() override {
         stream = cuda::stream_ref{cudaStreamLegacy};
@@ -1290,7 +1377,7 @@ TEST(ShufflerTest, multiple_shutdowns) {
     );
 
     shuffler->insert_finished();
-    EXPECT_NO_THROW(shuffler->wait(std::chrono::seconds(30)));
+    EXPECT_NO_THROW(shuffler->wait(wait_timeout));
     for (auto pid : shuffler->local_partitions()) {
         std::ignore = shuffler->extract(pid);
     }
@@ -1316,7 +1403,6 @@ TEST(Shuffler, concurrent_wait) {
     auto const total_num_partitions =
         rapidsmpf::safe_cast<rapidsmpf::shuffler::PartID>(comm->nranks()) * 8;
     constexpr std::size_t total_num_rows = 1000;
-    constexpr auto wait_timeout = std::chrono::seconds{30};
 
     rapidsmpf::shuffler::Shuffler shuffler(comm, 0, total_num_partitions, br.get());
 
@@ -1370,7 +1456,6 @@ TEST(Shuffler, opid_reuse) {
         rapidsmpf::safe_cast<rapidsmpf::shuffler::PartID>(comm->nranks());
     constexpr std::size_t total_num_rows = 1000;
     constexpr rapidsmpf::OpID op_id = 0;
-    constexpr auto wait_timeout = std::chrono::seconds{30};
 
     rmm::mr::cuda_memory_resource mr;
     auto br = rapidsmpf::BufferResource::create(mr);
@@ -1436,7 +1521,6 @@ TEST(Shuffler, opid_reuse_with_empty_partitions) {
     constexpr rapidsmpf::shuffler::PartID total_num_partitions = 1;
     constexpr std::size_t total_num_rows = 1000;
     constexpr rapidsmpf::OpID op_id = 0;
-    constexpr auto wait_timeout = std::chrono::seconds{30};
 
     rmm::mr::cuda_memory_resource mr;
     auto br = rapidsmpf::BufferResource::create(mr);

@@ -151,29 +151,33 @@ class Shuffler::Progress {
             }
         }
 
+        // `insert_finished()` runs concurrently with this function, so read
+        // `locally_finished_` once. All control chunks from `insert_finished()` are
+        // inserted, into `to_send_` or `received_`, before the flag is set.
+        bool const locally_finished =
+            shuffler_.locally_finished_.load(std::memory_order_acquire);
+
         // Signal the MPE that no more messages will be sent once all application
         // messages have been flushed from to_send_ into the MPE.
-        if (shuffler_.locally_finished_.load(std::memory_order_acquire)
-            && shuffler_.to_send_.empty())
-        {
+        if (locally_finished && shuffler_.to_send_.empty()) {
             shuffler_.mpe_->finish();
         }
 
-        // There are no messages to be posted, or waiting to be completed.
-        bool const containers_empty =
-            shuffler_.mpe_->is_idle() && shuffler_.to_send_.empty();
+        // The MPE is finished and idle, and nothing is left to send.
+        bool const exchange_drained = shuffler_.mpe_->is_finished()
+                                      && shuffler_.mpe_->is_idle()
+                                      && shuffler_.to_send_.empty();
         // We've inserted a finish message and we've received everything we expect.
         bool const is_finished =
-            shuffler_.locally_finished_.load(std::memory_order_acquire)
-            && shuffler_.finish_counter_.all_finished();
+            locally_finished && shuffler_.finish_counter_.all_finished();
         // The shuffle is complete on this rank and no further message for this op_id
         // can arrive.
-        bool const is_done = is_finished && containers_empty;
-        // Signal can_extract_ when all chunks have been received and all internal
-        // containers are drained. If we own no partitions we "can-extract" immediately,
-        // but we only wake a waiter once we've drained internal containers so that we can
-        // reuse the op_id for a subsequent shuffle.
-        if (!shuffler_.can_extract_ && is_finished && containers_empty) {
+        bool const is_done = is_finished && exchange_drained;
+        // Signal can_extract_ when all chunks have been received and the exchange is
+        // drained. If we own no partitions we "can-extract" immediately, but we only
+        // wake a waiter once the exchange is drained so that we can reuse the op_id for
+        // a subsequent shuffle.
+        if (!shuffler_.can_extract_ && is_done) {
             {
                 std::lock_guard lock(shuffler_.mutex_);
                 shuffler_.can_extract_ = true;
@@ -447,11 +451,7 @@ void Shuffler::wait(std::optional<std::chrono::milliseconds> timeout) {
 
 std::size_t Shuffler::spill(std::size_t amount, MemoryType mem_type) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    // TODO(stage 3): spill from non-DEVICE memory types.
-    if (mem_type != MemoryType::DEVICE) {
-        return 0;
-    }
-    return received_.spill(br_, amount);
+    return received_.spill(br_, amount, mem_type);
 }
 
 detail::ChunkID Shuffler::get_new_cid() {

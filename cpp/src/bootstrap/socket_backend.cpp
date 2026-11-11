@@ -40,15 +40,16 @@
 
 namespace {
 
+// Writes to a socket. A peer that has closed raises an exception, not SIGPIPE.
 void write_all(int fd, void const* buf, std::size_t n) {
     auto const* ptr = static_cast<char const*>(buf);
     while (n > 0) {
-        ssize_t w = ::write(fd, ptr, n);
+        ssize_t w = ::send(fd, ptr, n, MSG_NOSIGNAL);
         if (w < 0) {
             if (errno == EINTR)
                 continue;
             throw std::runtime_error(
-                "write() failed: " + std::string{std::strerror(errno)}
+                "send() failed: " + std::string{std::strerror(errno)}
             );
         }
         ptr += w;
@@ -178,6 +179,12 @@ struct SocketServer::State {
     // Open client connections, authenticated or not.
     int active_connections{0};
 
+    // Client sockets of running handlers, shut down by the destructor.
+    std::set<int> client_fds;
+
+    // Handlers waiting in a barrier, a sync or a get.
+    int waiting_handlers{0};
+
     int nranks;
     std::string token;  // 64-char hex
     std::atomic<bool> shutdown{false};
@@ -265,6 +272,23 @@ SocketServer::~SocketServer() {
         wakeup_pipe_[0] = -1;
     }
 
+    // Unblock every handler: shut down the client sockets it may be reading
+    // from, and wake the ones waiting for other ranks. Since `mu` is taken
+    // after `shutdown` is set, a waiting handler has either seen `shutdown` or
+    // is already waiting and gets the notification. The notifications are sent
+    // under `mu`, which guards `sessions`.
+    {
+        std::lock_guard<std::mutex> lk(state_->mu);
+        for (int fd : state_->client_fds) {
+            ::shutdown(fd, SHUT_RDWR);
+        }
+        for (auto& [id, session] : state_->sessions) {
+            session.kv_cv.notify_all();
+            session.barrier_cv.notify_all();
+            session.sync_cv.notify_all();
+        }
+    }
+
     std::lock_guard<std::mutex> lk(handler_mutex_);
     for (auto& h : handler_threads_) {
         if (h.thread.joinable()) {
@@ -276,6 +300,11 @@ SocketServer::~SocketServer() {
 int SocketServer::num_open_connections() const {
     std::lock_guard<std::mutex> lk(state_->mu);
     return state_->active_connections;
+}
+
+int SocketServer::num_waiting_handlers() const {
+    std::lock_guard<std::mutex> lk(state_->mu);
+    return state_->waiting_handlers;
 }
 
 std::size_t SocketServer::num_handler_threads() const {
@@ -356,13 +385,47 @@ void SocketServer::accept_loop() {
 }
 
 void SocketServer::handle_connection(int fd) {
-    struct FdGuard {
-        int fd;
+    // Register the socket so the destructor can shut it down. It is
+    // unregistered before it is closed, so the destructor never touches a
+    // reused fd number.
+    {
+        std::lock_guard<std::mutex> lk(state_->mu);
+        if (state_->shutdown.load(std::memory_order_acquire)) {
+            ::close(fd);
+            return;
+        }
+        state_->client_fds.insert(fd);
+    }
+
+    class FdGuard {
+      public:
+        FdGuard(State& state, int fd) : state_{state}, fd_{fd} {}
 
         ~FdGuard() {
-            ::close(fd);
+            {
+                std::lock_guard<std::mutex> lk(state_.mu);
+                state_.client_fds.erase(fd_);
+            }
+            ::close(fd_);
         }
-    } guard{fd};
+
+        FdGuard(FdGuard const&) = delete;
+        FdGuard& operator=(FdGuard const&) = delete;
+        FdGuard(FdGuard&&) = delete;
+        FdGuard& operator=(FdGuard&&) = delete;
+
+      private:
+        State& state_;
+        int fd_;
+    };
+
+    FdGuard const guard{*state_, fd};
+
+    // After shutdown, a handler returns without writing to its client, whose
+    // socket the destructor has shut down.
+    auto const shutting_down = [&] {
+        return state_->shutdown.load(std::memory_order_acquire);
+    };
 
     try {
         // Enforce a short timeout for AUTH so lingering connections don't block.
@@ -504,8 +567,13 @@ void SocketServer::handle_connection(int fd) {
                     auto deadline = std::chrono::steady_clock::now()
                                     + std::chrono::milliseconds(timeout_ms);
                     while (session->kv.find(key) == session->kv.end()) {
-                        if (session->kv_cv.wait_until(lk, deadline)
-                            == std::cv_status::timeout)
+                        if (shutting_down()) {
+                            return;
+                        }
+                        ++state_->waiting_handlers;
+                        auto const status = session->kv_cv.wait_until(lk, deadline);
+                        --state_->waiting_handlers;
+                        if (status == std::cv_status::timeout)
                             break;
                     }
                     auto it = session->kv.find(key);
@@ -532,9 +600,14 @@ void SocketServer::handle_connection(int fd) {
                     session->barrier_count = 0;
                     session->barrier_cv.notify_all();
                 } else {
+                    ++state_->waiting_handlers;
                     session->barrier_cv.wait(lk, [&] {
-                        return session->barrier_gen != gen;
+                        return session->barrier_gen != gen || shutting_down();
                     });
+                    --state_->waiting_handlers;
+                    if (session->barrier_gen == gen) {
+                        return;  // woken by shutdown
+                    }
                 }
                 lk.unlock();
                 write_all(fd, "OK\n", 3);
@@ -547,7 +620,14 @@ void SocketServer::handle_connection(int fd) {
                     session->sync_count = 0;
                     session->sync_cv.notify_all();
                 } else {
-                    session->sync_cv.wait(lk, [&] { return session->sync_gen != gen; });
+                    ++state_->waiting_handlers;
+                    session->sync_cv.wait(lk, [&] {
+                        return session->sync_gen != gen || shutting_down();
+                    });
+                    --state_->waiting_handlers;
+                    if (session->sync_gen == gen) {
+                        return;  // woken by shutdown
+                    }
                 }
                 lk.unlock();
                 write_all(fd, "OK\n", 3);
