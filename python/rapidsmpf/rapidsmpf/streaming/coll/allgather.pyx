@@ -102,7 +102,8 @@ cdef class AllGather(Collective):
     """
     An asynchronous AllGather.
 
-    Release the allgather with :meth:`aclose`.
+    Release the allgather with :meth:`aclose`, after the ``with`` block if one is
+    used.
 
     Parameters
     ----------
@@ -128,6 +129,8 @@ cdef class AllGather(Collective):
             self._handle.reset()
 
     cdef void _cpp_insert_finished(self) except *:
+        if self.in_context:
+            raise ValueError("Cannot call aclose() from within a context")
         with nogil:
             deref(self._handle).insert_finished()
 

@@ -160,6 +160,17 @@ def test_aclose_before_insert_finished_on_one_rank(
     asyncio.run(run())
 
 
+def test_allgather_aclose_in_context(context: Context, comm: Communicator) -> None:
+    async def run() -> None:
+        allgather = AllGather(context, comm, 0)
+        with allgather, pytest.raises(ValueError, match="aclose"):
+            await allgather.aclose()
+        await allgather.aclose()
+        await assert_closed(allgather)
+
+    asyncio.run(run())
+
+
 @pytest.mark.parametrize(
     "factory", ASYNC_WITH_FACTORIES.values(), ids=ASYNC_WITH_FACTORIES.keys()
 )
