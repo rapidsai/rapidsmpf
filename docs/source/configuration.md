@@ -73,18 +73,36 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
     This option ensures forward progress under memory pressure and prevents the
     system from stalling indefinitely when memory availability fluctuates.
 
+    A spill frees memory in whole buffers and can take longer than this timeout.
+    So when the timeout expires while a spill is executing, the request keeps
+    waiting for as long as spilling keeps increasing the memory available, then
+    takes one more admission attempt before forcing progress. This extra wait is
+    capped at ten times this timeout, which only matters if a spill never finishes.
+    Nothing is spilled on behalf of the request, so a workload that does not
+    spill sees the timeout unchanged.
+
+    The shuffler uses the same timeout for receive buffers. When no incoming
+    payload could get a buffer for this long, the shuffler allocates one in host
+    memory, even beyond the host memory limit, if `allow_overbooking_by_default`
+    allows it, and fails with an error otherwise. Only one payload is forced per
+    timeout, so under sustained memory pressure N waiting payloads take about N
+    timeouts to get their buffers. Receive buffers only have to wait when host
+    memory is limited too (see `spill_host_limit`), since otherwise they always fit
+    in host memory.
+
 - **`allow_overbooking_by_default`**
   - **Environment Variable**: `RAPIDSMPF_ALLOW_OVERBOOKING_BY_DEFAULT`
   - **Default**: `true`
   - **Description**: Controls the default overbooking behavior for *high-level*
-    memory reservation APIs, such as `reserve_memory()`.
+    memory reservation APIs, such as `reserve_memory()`, and for receive buffers
+    in the shuffler.
 
-    When enabled, high-level memory reservation requests may overbook memory
-    after the global `memory_reserve_timeout` expires, allowing forward
-    progress under memory pressure.
+    When enabled, high-level memory reservation requests and shuffler receives
+    may overbook memory after the global `memory_reserve_timeout` expires,
+    allowing forward progress under memory pressure.
 
-    When disabled, high-level memory reservation requests fail with an error if
-    no progress is possible within the timeout.
+    When disabled, they fail with an error if no progress is possible within
+    the timeout.
 
     This option is only used when a high-level API does not explicitly specify
     an overbooking policy. It does **not** change the behavior of lower-level
@@ -114,7 +132,10 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
   - **Description**: Maximum size of the pinned host memory pool when `pinned_memory` is
     enabled. When unset or empty, the pool is capped at 80% of total host memory
     available in the current NUMA node divided by the number of GPUs in that NUMA node.
-    Accepts byte counts or percentage (e.g. `"4GiB"`, `"2048MiB"`).
+    Accepts positive byte counts or percentages (e.g. `"4GiB"`, `"2048MiB"`).
+    Use `"disabled"` for an unbounded pool; zero is not valid. The value cannot exceed the host memory of the
+    current NUMA node. See also `spill_host_limit`, which limits pageable host memory
+    separately and shares the same percentage base.
 
 - **`spill_device_limit`**
   - **Environment Variable**: `RAPIDSMPF_SPILL_DEVICE_LIMIT`
@@ -125,12 +146,29 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
     count (e.g. `"10GiB"`, `"512MB"`) or as a percentage of the total memory of the
     current device (e.g. `"80%"`).
 
+- **`spill_host_limit`**
+  - **Environment Variable**: `RAPIDSMPF_SPILL_HOST_LIMIT`
+  - **Default**: disabled (unbounded)
+  - **Description**: Soft upper limit on pageable host memory used by RapidsMPF
+    for spilling. Accepts byte counts (e.g. `"10GiB"`, `"512MB"`) or a percentage
+    of the host memory available per GPU, the same base as `pinned_max_pool_size`
+    (e.g. `"40%"`). Use `"disabled"` for an unbounded limit; zero is not valid.
+    This limit is what makes host data spill to disk: once it is exceeded, host data
+    is spilled to disk (if `disk_spill_dir` is set). With the default unbounded limit,
+    host data is never spilled to disk. This limit is
+    independent of `pinned_max_pool_size` and is not validated against it. Keep the
+    two at or below 80% combined (e.g. `pinned_max_pool_size=40%` and
+    `spill_host_limit=40%`), leaving 20% of the host memory available per GPU for the
+    OS and any other untracked host allocations. Since `pinned_max_pool_size`
+    defaults to 80%, lower it when setting this limit with `pinned_memory` enabled.
+
 - **`periodic_spill_check`**
   - **Environment Variable**: `RAPIDSMPF_PERIODIC_SPILL_CHECK`
   - **Default**: `1ms`
   - **Description**: Enable periodic spill checks. A dedicated thread continuously
     checks and performs spilling based on the current available memory as reported by
-    the buffer resource. The value of `periodic_spill_check` specifies the pause
+    the buffer resource, making headroom in every addressable memory type (device,
+    pinned host and host). The value of `periodic_spill_check` specifies the pause
     between checks and supports time units, e.g. `us` or `ms`. If no unit is
     specified, seconds are assumed. Use `"disabled"` to disable periodic spill checks.
 
@@ -142,27 +180,8 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
     Disabled values (`false`, `none`, `off`, …) leave disk spilling disabled. A
     whitespace-only value is invalid.
 
-- **`unbounded_file_read_cache`**
-  - **Environment Variable**: `RAPIDSMPF_UNBOUNDED_FILE_READ_CACHE`
-  - **Default**: `"disabled"`
-  - **Description**: Configure caching of file read results for file-backed messages.
-
-    When set to a memory type (for example `host`, `pinned`, or `device`), the
-    first read of a specific file slice is cached by storing a copy of the data
-    in the associated Context's message storage using the specified memory type.
-    Subsequent reads of the exact same slice reuse the cached copy instead of
-    re-reading from disk.
-
-    When set to `"disabled"`, no caching is performed.
-
-    This option is primarily intended for benchmarking and performance analysis.
-    After an initial warm-up run, subsequent runs can avoid most disk I/O (metadata
-    access and file listing will still occur).
-
-    Cached data is scoped to the Context that performed the read, and its lifetime
-    matches the lifetime of that Context. The cache is unbounded, and entries are
-    only released when the Context is destroyed.
-
-    **Warning:** This feature assumes that each file slice is always read with
-    identical read parameters, such as filters and schemas. No validation is
-    performed. If these parameters differ, incorrect data may be returned.
+    Disk is the last resort for spilling. Device data reaches disk only when pinned
+    and host memory are both full, and host data reaches disk only once
+    `spill_host_limit` is exceeded. With the default unbounded `spill_host_limit`,
+    nothing is ever spilled to disk, so set `spill_host_limit` as well when you expect
+    disk spilling.

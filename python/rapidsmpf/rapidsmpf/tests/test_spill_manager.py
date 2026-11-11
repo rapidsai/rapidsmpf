@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
@@ -123,30 +123,6 @@ def test_periodic_spill_check(
     assert track_spilled[0] > 1
 
 
-def test_spill_to_make_headroom(
-    device_mr: rmm.mr.CudaMemoryResource,
-) -> None:
-    # Create a buffer resource with a fixed limit of 100 bytes.
-    br = BufferResource(
-        device_mr,
-        memory_limits={MemoryType.DEVICE: 100},
-        periodic_spill_check=None,
-    )
-
-    track_spilled = [0]
-
-    def spill(amount: int) -> int:
-        track_spilled[0] += amount
-        return amount
-
-    br.spill_manager.add_spill_function(spill, priority=0)
-    # We expect to spill on the amount over 100 bytes (the fixed limit).
-    assert br.spill_manager.spill_to_make_headroom(10) == 0
-    assert br.spill_manager.spill_to_make_headroom(100) == 0
-    assert br.spill_manager.spill_to_make_headroom(101) == 1
-    assert br.spill_manager.spill_to_make_headroom(110) == 10
-
-
 def test_reserve_device_memory_and_spill(
     device_mr: rmm.mr.CudaMemoryResource,
 ) -> None:
@@ -171,3 +147,28 @@ def test_reserve_device_memory_and_spill(
     res = br.reserve_device_memory_and_spill(1000, allow_overbooking=True)
     assert track_spilled[0] == 1000
     del res
+
+
+def test_spill_function_only_called_for_device(
+    device_mr: rmm.mr.CudaMemoryResource,
+) -> None:
+    br = BufferResource(device_mr, periodic_spill_check=None)
+    calls: list[int] = []
+
+    def spill(amount: int) -> int:
+        calls.append(amount)
+        return amount
+
+    br.spill_manager.add_spill_function(spill, priority=0)
+    assert br.spill_manager.spill(10) == 10
+    # Python spill functions are not invoked for other memory types.
+    assert br.spill_manager.spill(20, mem_type=MemoryType.HOST) == 0
+    assert calls == [10]
+
+
+def test_spill_rejects_unspillable_mem_type(
+    device_mr: rmm.mr.CudaMemoryResource,
+) -> None:
+    br = BufferResource(device_mr, periodic_spill_check=None)
+    with pytest.raises(ValueError):
+        br.spill_manager.spill(10, mem_type=MemoryType.DISK)

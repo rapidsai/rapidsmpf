@@ -14,6 +14,7 @@
 
 #include <rapidsmpf/coll/utils.hpp>
 #include <rapidsmpf/error.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf::coll::detail {
 
@@ -126,32 +127,37 @@ std::unique_ptr<std::vector<std::uint8_t>> Chunk::serialize() const {
 }
 
 std::unique_ptr<Chunk> Chunk::deserialize(
-    std::vector<std::uint8_t>& data, BufferResource* br
+    std::vector<std::uint8_t>&& metadata, std::unique_ptr<Buffer> data, BufferResource* br
 ) {
     ChunkID id;
-    std::uint64_t data_size;
-    std::memcpy(&id, data.data(), sizeof(ChunkID));
-    if (data.size() == sizeof(id)) {
+    std::memcpy(&id, metadata.data(), sizeof(ChunkID));
+    if (metadata.size() == sizeof(id)) {
+        RAPIDSMPF_EXPECTS(
+            data == nullptr, "finish chunk cannot have data", std::invalid_argument
+        );
         return std::unique_ptr<Chunk>(new Chunk(id, Chunk::INVALID_RANK));
     }
-    std::memcpy(&data_size, data.data() + sizeof(ChunkID), sizeof(data_size));
-    auto metadata = std::make_unique<std::vector<std::uint8_t>>(
-        data.size() - sizeof(ChunkID) - sizeof(data_size)
-    );
-    std::memcpy(
-        metadata->data(),
-        data.data() + sizeof(ChunkID) + sizeof(data_size),
-        metadata->size()
-    );
-    return std::unique_ptr<Chunk>(new Chunk(
-        id,
-        Chunk::INVALID_RANK,
-        std::move(metadata),
-        br->make_buffer(
+    std::uint64_t data_size;
+    std::memcpy(&data_size, metadata.data() + sizeof(ChunkID), sizeof(data_size));
+    auto const offset = safe_cast<std::ptrdiff_t>(sizeof(ChunkID) + sizeof(data_size));
+    metadata.erase(metadata.begin(), metadata.begin() + offset);
+    auto chunk_metadata =
+        std::make_unique<std::vector<std::uint8_t>>(std::move(metadata));
+    if (data == nullptr) {
+        RAPIDSMPF_EXPECTS(
+            data_size == 0, "data chunk is missing its data", std::invalid_argument
+        );
+        data = br->make_buffer(
             br->stream_pool()->get_stream(),
             br->reserve_or_fail(data_size, ADDRESSABLE_MEMORY_TYPES)
-        )
-    ));
+        );
+    }
+    RAPIDSMPF_EXPECTS(
+        data->size == data_size, "Mismatching data size", std::invalid_argument
+    );
+    return std::unique_ptr<Chunk>(
+        new Chunk(id, Chunk::INVALID_RANK, std::move(chunk_metadata), std::move(data))
+    );
 }
 
 PackedData Chunk::release() {
@@ -209,21 +215,31 @@ bool PostBox::empty() const noexcept {
     return chunks_.empty();
 }
 
-std::size_t PostBox::spill(BufferResource* br, std::size_t amount) {
-    std::lock_guard lock(mutex_);
+std::size_t PostBox::spill(
+    BufferResource* br,
+    std::size_t amount,
+    MemoryType mem_type,
+    std::span<MemoryType const> spill_target_types
+) {
+    if (spill_target_types.empty() || amount == 0) {
+        return 0;
+    }
+    std::lock_guard const lock(mutex_);
     std::vector<Chunk*> spillable_chunks;
     std::size_t max_spillable{0};
     std::size_t total_spilled{0};
     for (auto&& chunk : chunks_) {
-        if (chunk->memory_type() == MemoryType::DEVICE) {
+        if (chunk->memory_type() == mem_type) {
             spillable_chunks.push_back(chunk.get());
             max_spillable += chunk->data_size();
         }
     }
     auto spill_chunk = [&](Chunk* chunk) -> std::size_t {
-        auto reservation =
-            br->reserve_or_fail(chunk->data_size(), SPILL_TARGET_MEMORY_TYPES);
-        chunk->attach_data_buffer(br->move(chunk->release_data_buffer(), reservation));
+        auto reservation = br->try_reserve(chunk->data_size(), spill_target_types);
+        if (!reservation) {
+            return 0;  // No target has room, leave the chunk where it is.
+        }
+        chunk->attach_data_buffer(br->move(chunk->release_data_buffer(), *reservation));
         return chunk->data_size();
     };
     if (max_spillable < amount) {
@@ -253,31 +269,6 @@ std::size_t PostBox::spill(BufferResource* br, std::size_t amount) {
         spillable_chunks.pop_back();
     }
     return total_spilled;
-}
-
-std::vector<std::unique_ptr<Chunk>> test_some(
-    std::vector<std::unique_ptr<Chunk>>& chunks,
-    std::vector<std::unique_ptr<Communicator::Future>>& futures,
-    Communicator* comm
-) {
-    RAPIDSMPF_EXPECTS(
-        chunks.size() == futures.size(), "Mismatching size for chunks and futures"
-    );
-    if (chunks.empty()) {
-        return {};
-    }
-    auto [complete_futures, indices] = comm->test_some(futures);
-    std::vector<std::unique_ptr<Chunk>> result;
-    result.reserve(complete_futures.size());
-    std::ranges::transform(
-        indices, complete_futures, std::back_inserter(result), [&](auto i, auto&& fut) {
-            auto chunk = std::move(chunks[i]);
-            chunk->attach_data_buffer(comm->release_data(std::move(fut)));
-            return std::move(chunk);
-        }
-    );
-    std::erase(chunks, nullptr);
-    return result;
 }
 
 }  // namespace rapidsmpf::coll::detail

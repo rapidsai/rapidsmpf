@@ -38,10 +38,24 @@ namespace rapidsmpf::streaming {
  */
 class SpillableMessages {
   public:
+    /// @brief Order in which messages are chosen for spilling.
+    enum class SpillOrder : std::uint8_t {
+        EARLIEST_FIRST,  ///< Spill the earliest inserted messages first.
+        LATEST_FIRST  ///< Spill the most recently inserted messages first.
+    };
+
     /// @brief Unique identifier assigned to each message.
     using MessageId = std::uint64_t;
 
-    SpillableMessages() = default;
+    /**
+     * @brief Construct an empty container.
+     *
+     * @param spill_order Order in which `try_spill()` picks
+     * messages. Defaults to earliest inserted first.
+     */
+    explicit SpillableMessages(SpillOrder spill_order = SpillOrder::EARLIEST_FIRST)
+        : spill_order_{spill_order} {}
+
     SpillableMessages(SpillableMessages const&) = delete;
     SpillableMessages& operator=(SpillableMessages const&) = delete;
     SpillableMessages(SpillableMessages&&) noexcept = delete;
@@ -91,10 +105,14 @@ class SpillableMessages {
     [[nodiscard]] Message copy(MessageId mid, MemoryReservation& reservation);
 
     /**
-     * @brief Spill a message's device memory to host memory.
+     * @brief Spill a message's memory of type @p mem_type to the lower memory types.
      *
-     * Performs an in-place deep copy of the message's payload from device to
-     * host memory using the specified buffer resource.
+     * Moves the message in-place into the first memory type in
+     * `preference_lt(mem_type, MEMORY_TYPES)` that has room for it.
+     *
+     * @note `Message::move()` moves the whole message, so a message with content in
+     * several memory types (e.g. device and host) that is spilled from `HOST` also
+     * moves its device content to the target.
      *
      * If the message is currently being accessed by another thread, is already
      * spilled, not spillable, or does not exist, the operation returns immediately
@@ -102,11 +120,33 @@ class SpillableMessages {
      *
      * @param mid Message identifier. If the message does not exist, zero is returned.
      * @param br Buffer resource used for allocations during the spill operation.
-     * @return Number of bytes released from device memory (0 if nothing was spilled).
-     *
-     * @throws std::runtime_error If there is insufficient host memory to reserve.
+     * @param mem_type The memory type to spill from.
+     * @return Number of bytes released from @p mem_type (0 if nothing was spilled, e.g.
+     * when no target has room).
      */
-    [[nodiscard]] std::size_t spill(MessageId mid, BufferResource* br) const;
+    [[nodiscard]] std::size_t spill(
+        MessageId mid, BufferResource* br, MemoryType mem_type = MemoryType::DEVICE
+    ) const;
+
+    /**
+     * @brief Spill messages until the target amount of memory has been released.
+     *
+     * Messages are spilled in the order given by the `SpillOrder` passed at
+     * construction (earliest inserted first by default). The function stops once
+     * the cumulative amount of spilled memory reaches or exceeds `amount`, or when no
+     * further spillable messages remain.
+     *
+     * @param br Buffer resource used for spill allocations.
+     * @param amount Target number of bytes to spill.
+     * @param mem_type The memory type to spill from.
+     * @return The total number of bytes actually spilled.
+     *
+     * @todo Support additional spilling strategies (e.g., size-based or
+     * priority-based).
+     */
+    [[nodiscard]] std::size_t try_spill(
+        BufferResource* br, std::size_t amount, MemoryType mem_type
+    ) const;
 
     /**
      * @brief Get a snapshot of current messages' content descriptions.
@@ -167,6 +207,7 @@ class SpillableMessages {
 
     // Never lock the global mutex and an item's mutex at the same time!
     mutable std::mutex global_mutex_;
+    SpillOrder spill_order_;
     MessageId counter_{0};
     std::unordered_map<MessageId, std::shared_ptr<Item>> items_;
     mutable std::map<MessageId, ContentDescription> content_descriptions_;

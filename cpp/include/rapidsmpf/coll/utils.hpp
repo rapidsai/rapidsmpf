@@ -7,11 +7,13 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <span>
 #include <vector>
 
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
+#include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
 
 namespace rapidsmpf::coll::detail {
@@ -210,17 +212,22 @@ class Chunk {
     [[nodiscard]] std::unique_ptr<std::vector<std::uint8_t>> serialize() const;
 
     /**
-     * @brief Deserialize a chunk from a byte vector of its metadata.
+     * @brief Deserialize a chunk from its metadata and its received data.
      *
-     * @param data The serialized chunk data.
-     * @param br Buffer resource for memory allocation.
+     * @param metadata The serialized chunk metadata, which is consumed.
+     * @param data The received data buffer, or `nullptr` for a finish chunk or a data
+     * chunk without data.
+     * @param br Buffer resource used to allocate an empty data buffer for a data chunk
+     * without data.
      * @return A unique pointer to the deserialized chunk.
      *
-     * @note If the serialized form encodes a data chunk, this
-     * function allocates space for the data buffer.
+     * @throws std::invalid_argument If the size of @p data does not match the
+     * serialized data size, or if @p data is given for a finish chunk.
      */
     [[nodiscard]] static std::unique_ptr<Chunk> deserialize(
-        std::vector<std::uint8_t>& data, BufferResource* br
+        std::vector<std::uint8_t>&& metadata,
+        std::unique_ptr<Buffer> data,
+        BufferResource* br
     );
 
     /**
@@ -323,40 +330,33 @@ class PostBox {
     [[nodiscard]] bool empty() const noexcept;
 
     /**
-     * @brief Spill device data from the post box.
+     * @brief Spill data of memory type @p mem_type from the post box.
+     *
+     * Chunks for which no target in @p spill_target_types has room are left where they
+     * are, so the spill may be partial.
      *
      * The spilling is stream ordered by the spilled buffers' CUDA streams.
      *
      * @param br The buffer resource for host and device allocations.
      * @param amount Requested amount of data to spill in bytes.
+     * @param mem_type The memory type to spill from.
+     * @param spill_target_types Memory types to spill to, in decreasing order of
+     * preference. Types without a backing resource are skipped.
      * @return Actual amount of data spilled in bytes.
      *
      * @note We attempt to minimise the number of individual buffers
      * spilled, as well as the amount of "overspill".
      */
-    [[nodiscard]] std::size_t spill(BufferResource* br, std::size_t amount);
+    [[nodiscard]] std::size_t spill(
+        BufferResource* br,
+        std::size_t amount,
+        MemoryType mem_type,
+        std::span<MemoryType const> spill_target_types
+    );
 
   private:
     mutable std::mutex mutex_{};  ///< Mutex for thread-safe access
     std::vector<std::unique_ptr<Chunk>> chunks_{};  ///< Container for stored chunks
 };
-
-/**
- * @brief Complete posted chunk receives.
- *
- * Tests a set of outstanding communicator futures, and for every
- * completed receive, reattaches the received data buffer to the
- * corresponding chunk before returning it.
- *
- * @param chunks Chunks with receives currently in flight.
- * @param futures Receive futures corresponding 1:1 with @p chunks.
- * @param comm Communicator used to test and release completed receives.
- * @return The subset of chunks whose receives completed during this call.
- */
-[[nodiscard]] std::vector<std::unique_ptr<Chunk>> test_some(
-    std::vector<std::unique_ptr<Chunk>>& chunks,
-    std::vector<std::unique_ptr<Communicator::Future>>& futures,
-    Communicator* comm
-);
 
 }  // namespace rapidsmpf::coll::detail

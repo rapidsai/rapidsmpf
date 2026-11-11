@@ -14,6 +14,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -171,6 +172,53 @@ TEST_F(DiskResourceTest, SequentialOffsetWritesPreserveExistingBytes) {
     ASSERT_TRUE(std::filesystem::remove(path));
 }
 
+TEST_F(DiskResourceTest, CopyPreservesBytesOutsideWrittenRange) {
+    auto const src_path = test_path("copy-src");
+    auto const dst_path = test_path("copy-dst");
+    auto const src = make_pattern(8 * 1024);
+    auto const dst = make_pattern(16 * 1024);
+    constexpr std::size_t size = 2 * 1024;
+    constexpr std::ptrdiff_t src_offset = 1024;
+    constexpr std::ptrdiff_t dst_offset = 4 * 1024;
+
+    EXPECT_EQ(disk_->write(src_path, src.data(), src.size(), stream_), src.size());
+    EXPECT_EQ(disk_->write(dst_path, dst.data(), dst.size(), stream_), dst.size());
+    EXPECT_EQ(
+        disk_->copy(src_path, dst_path, size, stream_, src_offset, dst_offset), size
+    );
+
+    EXPECT_EQ(std::filesystem::file_size(dst_path), dst.size());
+    auto expected = dst;
+    std::copy_n(src.begin() + src_offset, size, expected.begin() + dst_offset);
+    check_file_contents(dst_path, 0, expected);
+
+    ASSERT_TRUE(std::filesystem::remove(src_path));
+    ASSERT_TRUE(std::filesystem::remove(dst_path));
+}
+
+TEST_F(DiskResourceTest, CopyRejectsInvalidArguments) {
+    auto const src_path = test_path("copy-invalid-src");
+    auto const dst_path = test_path("copy-invalid-dst");
+    auto const src = make_pattern(1024);
+    EXPECT_EQ(disk_->write(src_path, src.data(), src.size(), stream_), src.size());
+
+    // Negative offsets.
+    EXPECT_THROW(
+        std::ignore = disk_->copy(src_path, dst_path, 16, stream_, -1, 0),
+        std::invalid_argument
+    );
+    EXPECT_THROW(
+        std::ignore = disk_->copy(src_path, dst_path, 16, stream_, 0, -1),
+        std::invalid_argument
+    );
+    // Same source and destination path.
+    EXPECT_THROW(
+        std::ignore = disk_->copy(src_path, src_path, 16, stream_), std::invalid_argument
+    );
+
+    ASSERT_TRUE(std::filesystem::remove(src_path));
+}
+
 TEST_F(DiskResourceTest, FlushDoesNotThrow) {
     auto const path = test_path("flush");
     auto const pattern = make_pattern(4096);
@@ -213,6 +261,7 @@ TEST(DiskSpillDirectory, UsesConfiguredPath) {
 TEST(DiskResource, CreateWithoutSpillDirHasNoDiskResource) {
     auto br = BufferResource::create(rmm::mr::get_current_device_resource_ref());
     EXPECT_EQ(br->disk_resource(), nullptr);
+    EXPECT_FALSE(br->is_reservable(MemoryType::DISK));
 }
 
 TEST(DiskResource, SharedPtrKeepsDiskResourceAlive) {
@@ -225,6 +274,7 @@ TEST(DiskResource, SharedPtrKeepsDiskResourceAlive) {
         Statistics::disabled(),
         test_spill_dir()
     );
+    EXPECT_TRUE(br->is_reservable(MemoryType::DISK));
     std::weak_ptr<DiskResource> weak_disk = br->disk_resource();
     std::weak_ptr<BufferResource> weak_br = br;
 
@@ -349,6 +399,7 @@ TEST(DiskBufferFromOptions, UsesConfiguredDirectory) {
         rmm::mr::get_current_device_resource_ref(), std::move(options)
     );
     EXPECT_EQ(br->disk_resource()->directory().parent_path(), disk_dir.path());
+    EXPECT_TRUE(br->is_reservable(MemoryType::DISK));
 }
 
 TEST(DiskBufferFromOptions, UnsetOptionHasNoDiskResource) {

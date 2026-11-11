@@ -3,17 +3,33 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cstdint>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
+#include <string>
 #include <utility>
 
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/spill_manager.hpp>
 #include <rapidsmpf/nvtx.hpp>
+#include <rapidsmpf/utils/misc.hpp>
 #include <rapidsmpf/utils/string.hpp>
 
 namespace rapidsmpf {
 
+namespace {
+
+/// @brief Throw if data in @p mem_type cannot be spilled, i.e. it isn't addressable.
+void expect_spillable(MemoryType mem_type) {
+    RAPIDSMPF_EXPECTS(
+        contains(ADDRESSABLE_MEMORY_TYPES, mem_type),
+        "cannot spill from " + std::string{to_string(mem_type)},
+        std::invalid_argument
+    );
+}
+
+}  // namespace
 
 SpillManager::SpillManager(
     BufferResource* br, std::optional<Duration> periodic_spill_check
@@ -21,7 +37,12 @@ SpillManager::SpillManager(
     : br_{br} {
     if (periodic_spill_check.has_value()) {
         periodic_spill_thread_.emplace(
-            [this]() { spill_to_make_headroom(0); }, *periodic_spill_check
+            [this]() {
+                for (auto const mem_type : ADDRESSABLE_MEMORY_TYPES) {
+                    spill_to_make_headroom(0, mem_type);
+                }
+            },
+            *periodic_spill_check
         );
     }
 }
@@ -67,48 +88,63 @@ void SpillManager::remove_spill_function(SpillFunctionID fid) {
     }
 }
 
-std::size_t SpillManager::spill_unsafe(std::size_t amount) {
+std::size_t SpillManager::spill_unsafe(std::size_t amount, MemoryType mem_type) {
+    if (amount == 0) {
+        return 0;
+    }
+
+    // Marks a spill as in flight for the duration of this call, even if a spill
+    // function throws. On exit, the generation is bumped before the in-flight count
+    // drops, so an observer that sees no spill in flight also sees the new generation.
+    struct InFlightGuard {
+        SpillManager* self;
+
+        ~InFlightGuard() {
+            self->spill_generation_.fetch_add(1, std::memory_order_release);
+            self->spills_in_flight_.fetch_sub(1, std::memory_order_release);
+        }
+    };
+
+    spills_in_flight_.fetch_add(1, std::memory_order_release);
+    InFlightGuard const in_flight{this};
+
     std::size_t spilled{0};
     for (auto const [_, fid] : spill_function_priorities_) {
         if (spilled >= amount) {
             break;
         }
-        spilled += spill_functions_.at(fid)(amount - spilled);
+        spilled += spill_functions_.at(fid)(amount - spilled, mem_type);
     }
     return spilled;
 }
 
-std::size_t SpillManager::spill_to_make_headroom_unsafe(std::int64_t headroom) {
-    // TODO: check other memory types.
-    std::int64_t const available =
-        br_->memory_available_for_reservation(MemoryType::DEVICE);
-    if (headroom <= available) {
-        return 0;
-    }
-    return spill_unsafe(safe_cast<std::size_t>(headroom - available));
+bool SpillManager::spilling_now() const noexcept {
+    return spills_in_flight_.load(std::memory_order_acquire) > 0;
 }
 
-std::size_t SpillManager::spill(std::size_t amount) {
+std::uint64_t SpillManager::spill_generation() const noexcept {
+    return spill_generation_.load(std::memory_order_acquire);
+}
+
+std::size_t SpillManager::spill(std::size_t amount, MemoryType mem_type) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
+    expect_spillable(mem_type);
     std::lock_guard<std::mutex> lock(mutex_);
-    return spill_unsafe(amount);
+    return spill_unsafe(amount, mem_type);
 }
 
-std::size_t SpillManager::spill_to_make_headroom(std::int64_t headroom) {
-    RAPIDSMPF_NVTX_FUNC_RANGE();
-    std::lock_guard<std::mutex> lock(mutex_);
-    return spill_to_make_headroom_unsafe(headroom);
-}
-
-std::optional<std::size_t> SpillManager::try_spill_to_make_headroom(
-    std::int64_t headroom
+SpillManager::HeadroomResult SpillManager::spill_to_make_headroom(
+    std::int64_t headroom, MemoryType mem_type
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    std::unique_lock<std::mutex> lock(mutex_, std::try_to_lock);
-    if (!lock.owns_lock()) {
-        return std::nullopt;
+    expect_spillable(mem_type);
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::int64_t const available = br_->memory_available_for_reservation(mem_type);
+    if (headroom <= available) {
+        return {.deficit = 0, .spilled = 0};
     }
-    return spill_to_make_headroom_unsafe(headroom);
+    auto const deficit = safe_cast<std::size_t>(headroom - available);
+    return {.deficit = deficit, .spilled = spill_unsafe(deficit, mem_type)};
 }
 
 }  // namespace rapidsmpf

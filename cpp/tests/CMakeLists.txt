@@ -61,7 +61,11 @@ set_target_properties(
              CUDA_STANDARD 20
              CUDA_STANDARD_REQUIRED ON
 )
-target_include_directories(test_sources PRIVATE "${PROJECT_SOURCE_DIR}/include")
+# The tests also include internal headers of the library, see e.g.
+# `pausable_thread_loop_internal.hpp`.
+target_include_directories(
+  test_sources PRIVATE "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src"
+)
 target_compile_options(
   test_sources PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${RAPIDSMPF_CXX_FLAGS}>"
                        "$<$<COMPILE_LANGUAGE:CUDA>:${RAPIDSMPF_CUDA_FLAGS}>"
@@ -195,7 +199,10 @@ endif()
 
 # rrun_tests - Tests for rrun launcher, topology discovery and resource binding functionality. These
 # tests must be run with rrun, not via ctest/mpirun. Example: `rrun -n 1 gtests/rrun_tests`
-add_executable(rrun_tests main/rrun.cpp test_rrun.cpp test_rrun_bind.cpp)
+add_executable(
+  rrun_tests main/rrun.cpp test_rrun.cpp test_rrun_bind.cpp test_rrun_bootstrap.cpp
+             test_rrun_signals.cpp
+)
 set_target_properties(
   rrun_tests
   PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${RAPIDSMPF_BINARY_DIR}/gtests"

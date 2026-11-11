@@ -8,11 +8,14 @@
 #include <atomic>
 #include <cctype>
 #include <cerrno>
+#include <chrono>
 #include <condition_variable>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <map>
 #include <mutex>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -25,6 +28,7 @@
 #include <poll.h>
 #include <sys/random.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 #include <rapidsmpf/bootstrap/socket_backend.hpp>
@@ -36,15 +40,16 @@
 
 namespace {
 
+// Writes to a socket. A peer that has closed raises an exception, not SIGPIPE.
 void write_all(int fd, void const* buf, std::size_t n) {
     auto const* ptr = static_cast<char const*>(buf);
     while (n > 0) {
-        ssize_t w = ::write(fd, ptr, n);
+        ssize_t w = ::send(fd, ptr, n, MSG_NOSIGNAL);
         if (w < 0) {
             if (errno == EINTR)
                 continue;
             throw std::runtime_error(
-                "write() failed: " + std::string{std::strerror(errno)}
+                "send() failed: " + std::string{std::strerror(errno)}
             );
         }
         ptr += w;
@@ -71,6 +76,26 @@ void read_all(int fd, void* buf, std::size_t n) {
     }
 }
 
+/// @brief Thrown by `read_line()` when the peer closes the connection.
+struct ConnectionClosed : std::runtime_error {
+    ConnectionClosed() : std::runtime_error("Connection closed unexpectedly") {}
+};
+
+/// @brief Thrown by `read_line()` when a `SO_RCVTIMEO` timeout expires.
+struct ReadTimeout : std::runtime_error {
+    ReadTimeout() : std::runtime_error("read() timed out") {}
+};
+
+void set_recv_timeout(int fd, std::chrono::microseconds timeout) {
+    auto const seconds = std::chrono::duration_cast<std::chrono::seconds>(timeout);
+    auto const micro = timeout - seconds;
+    struct timeval tv{
+        .tv_sec = static_cast<time_t>(seconds.count()),
+        .tv_usec = static_cast<suseconds_t>(micro.count())
+    };
+    ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+}
+
 std::string read_line(int fd) {
     std::array<char, 512> buf{};
     std::size_t len = 0;
@@ -80,12 +105,14 @@ std::string read_line(int fd) {
         if (r < 0) {
             if (errno == EINTR)
                 continue;
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+                throw ReadTimeout();
             throw std::runtime_error(
                 "read() failed: " + std::string{std::strerror(errno)}
             );
         }
         if (r == 0) {
-            throw std::runtime_error("Connection closed unexpectedly");
+            throw ConnectionClosed();
         }
         if (ch == '\n')
             break;
@@ -118,9 +145,10 @@ std::string generate_token() {
 
 namespace rapidsmpf::bootstrap::detail {
 
-struct SocketServer::State {
-    std::mutex mu;
+namespace {
 
+/// @brief Coordination state of one bootstrap round.
+struct Session {
     // KV store: populated by rank 0's PUT commands
     std::map<std::string, std::string> kv;
     std::condition_variable kv_cv;
@@ -135,15 +163,39 @@ struct SocketServer::State {
     int sync_count{0};
     std::condition_variable sync_cv;
 
+    int joined{0};  // ranks that have joined this session so far
+    int open_connections{0};  // connections of this session not yet closed
+};
+
+}  // namespace
+
+struct SocketServer::State {
+    std::mutex mu;  // guards everything below except `shutdown`
+
+    // Session that the next authenticated connection of each rank joins.
+    std::vector<std::uint64_t> next_session;
+    std::map<std::uint64_t, Session> sessions;
+
+    // Open client connections, authenticated or not.
+    int active_connections{0};
+
+    // Client sockets of running handlers, shut down by the destructor.
+    std::set<int> client_fds;
+
+    // Handlers waiting in a barrier, a sync or a get.
+    int waiting_handlers{0};
+
     int nranks;
     std::string token;  // 64-char hex
     std::atomic<bool> shutdown{false};
-    std::atomic<int> authenticated_count{0};
-    std::atomic<int> active_connections{0};
 };
 
 SocketServer::SocketServer(int nranks) : state_{std::make_shared<State>()} {
+    if (nranks <= 0) {
+        throw std::invalid_argument("SocketServer: nranks must be positive");
+    }
     state_->nranks = nranks;
+    state_->next_session.resize(static_cast<std::size_t>(nranks), 0);
     state_->token = generate_token();
     token_ = state_->token;
 
@@ -220,12 +272,55 @@ SocketServer::~SocketServer() {
         wakeup_pipe_[0] = -1;
     }
 
-    std::lock_guard<std::mutex> lk(handler_mutex_);
-    for (auto& t : handler_threads_) {
-        if (t.joinable()) {
-            t.join();
+    // Unblock every handler: shut down the client sockets it may be reading
+    // from, and wake the ones waiting for other ranks. Since `mu` is taken
+    // after `shutdown` is set, a waiting handler has either seen `shutdown` or
+    // is already waiting and gets the notification. The notifications are sent
+    // under `mu`, which guards `sessions`.
+    {
+        std::lock_guard<std::mutex> lk(state_->mu);
+        for (int fd : state_->client_fds) {
+            ::shutdown(fd, SHUT_RDWR);
+        }
+        for (auto& [id, session] : state_->sessions) {
+            session.kv_cv.notify_all();
+            session.barrier_cv.notify_all();
+            session.sync_cv.notify_all();
         }
     }
+
+    std::lock_guard<std::mutex> lk(handler_mutex_);
+    for (auto& h : handler_threads_) {
+        if (h.thread.joinable()) {
+            h.thread.join();
+        }
+    }
+}
+
+int SocketServer::num_open_connections() const {
+    std::lock_guard<std::mutex> lk(state_->mu);
+    return state_->active_connections;
+}
+
+int SocketServer::num_waiting_handlers() const {
+    std::lock_guard<std::mutex> lk(state_->mu);
+    return state_->waiting_handlers;
+}
+
+std::size_t SocketServer::num_handler_threads() const {
+    std::lock_guard<std::mutex> lk(handler_mutex_);
+    return handler_threads_.size();
+}
+
+void SocketServer::reap_finished_handlers() {
+    std::lock_guard<std::mutex> lk(handler_mutex_);
+    std::erase_if(handler_threads_, [](HandlerThread& h) {
+        if (!h.done->load(std::memory_order_acquire)) {
+            return false;
+        }
+        h.thread.join();
+        return true;
+    });
 }
 
 void SocketServer::accept_loop() {
@@ -259,37 +354,82 @@ void SocketServer::accept_loop() {
         }
 
         // Reject connections beyond `2 * nranks` to prevent thread exhaustion
-        // from a flood of unauthenticated connections. Increment first and
-        // check afterwards to avoid a TOCTOU race between threads.
-        int active =
-            state_->active_connections.fetch_add(1, std::memory_order_relaxed) + 1;
-        if (active > 2 * state_->nranks) {
-            state_->active_connections.fetch_sub(1, std::memory_order_relaxed);
-            ::close(client_fd);
-            continue;
+        // from a flood of unauthenticated connections.
+        {
+            std::lock_guard<std::mutex> lk(state_->mu);
+            if (state_->active_connections >= 2 * state_->nranks) {
+                ::close(client_fd);
+                continue;
+            }
+            ++state_->active_connections;
         }
 
+        // Join handlers of closed connections so `handler_threads_` stays
+        // bounded by the number of open connections.
+        reap_finished_handlers();
+
+        auto done = std::make_shared<std::atomic<bool>>(false);
         std::lock_guard<std::mutex> lk(handler_mutex_);
-        handler_threads_.emplace_back([this, client_fd]() {
-            handle_connection(client_fd);
-            state_->active_connections.fetch_sub(1, std::memory_order_relaxed);
-        });
+        handler_threads_.push_back(
+            {.thread = std::thread([this, client_fd, done]() {
+                 handle_connection(client_fd);
+                 // Set `done` before releasing the connection slot, so that once
+                 // `num_open_connections()` drops, the handler can be reaped.
+                 done->store(true, std::memory_order_release);
+                 std::lock_guard<std::mutex> lk(state_->mu);
+                 --state_->active_connections;
+             }),
+             .done = done}
+        );
     }
 }
 
 void SocketServer::handle_connection(int fd) {
-    struct FdGuard {
-        int fd;
+    // Register the socket so the destructor can shut it down. It is
+    // unregistered before it is closed, so the destructor never touches a
+    // reused fd number.
+    {
+        std::lock_guard<std::mutex> lk(state_->mu);
+        if (state_->shutdown.load(std::memory_order_acquire)) {
+            ::close(fd);
+            return;
+        }
+        state_->client_fds.insert(fd);
+    }
+
+    class FdGuard {
+      public:
+        FdGuard(State& state, int fd) : state_{state}, fd_{fd} {}
 
         ~FdGuard() {
-            ::close(fd);
+            {
+                std::lock_guard<std::mutex> lk(state_.mu);
+                state_.client_fds.erase(fd_);
+            }
+            ::close(fd_);
         }
-    } guard{fd};
+
+        FdGuard(FdGuard const&) = delete;
+        FdGuard& operator=(FdGuard const&) = delete;
+        FdGuard(FdGuard&&) = delete;
+        FdGuard& operator=(FdGuard&&) = delete;
+
+      private:
+        State& state_;
+        int fd_;
+    };
+
+    FdGuard const guard{*state_, fd};
+
+    // After shutdown, a handler returns without writing to its client, whose
+    // socket the destructor has shut down.
+    auto const shutting_down = [&] {
+        return state_->shutdown.load(std::memory_order_acquire);
+    };
 
     try {
         // Enforce a short timeout for AUTH so lingering connections don't block.
-        struct timeval tv{.tv_sec = 2, .tv_usec = 0};
-        ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        set_recv_timeout(fd, std::chrono::seconds{2});
 
         std::string auth_line = read_line(fd);
 
@@ -308,6 +448,11 @@ void SocketServer::handle_connection(int fd) {
             return;
         }
 
+        // Join the next session of this rank. `std::map` nodes are stable, so
+        // the pointer stays valid until the session is erased, which only
+        // happens after this connection has left it.
+        Session* session = nullptr;
+        std::uint64_t session_id = 0;
         {
             std::lock_guard<std::mutex> lk(state_->mu);
             if (std::string(token_buf.data()) != state_->token) {
@@ -318,23 +463,44 @@ void SocketServer::handle_connection(int fd) {
                 write_all(fd, "ERROR invalid rank or nranks\n", 29);
                 return;
             }
+            session_id = state_->next_session[static_cast<std::size_t>(rank)]++;
+            session = &state_->sessions[session_id];
+            ++session->joined;
+            ++session->open_connections;
         }
+
+        // Leave the session when this connection closes, and erase it once
+        // every rank has joined and left.
+        class SessionGuard {
+          public:
+            SessionGuard(State& state, std::uint64_t id, Session& session)
+                : state_{state}, id_{id}, session_{session} {}
+
+            ~SessionGuard() {
+                std::lock_guard<std::mutex> lk(state_.mu);
+                if (--session_.open_connections == 0 && session_.joined == state_.nranks)
+                {
+                    state_.sessions.erase(id_);
+                }
+            }
+
+            SessionGuard(SessionGuard const&) = delete;
+            SessionGuard& operator=(SessionGuard const&) = delete;
+            SessionGuard(SessionGuard&&) = delete;
+            SessionGuard& operator=(SessionGuard&&) = delete;
+
+          private:
+            State& state_;
+            std::uint64_t id_;
+            Session& session_;
+        };
+
+        SessionGuard const session_guard{*state_, session_id, *session};
 
         // Remove timeout for normal operation.
-        tv = {.tv_sec = 0, .tv_usec = 0};
-        ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        set_recv_timeout(fd, std::chrono::microseconds{0});
 
         write_all(fd, "OK\n", 3);
-
-        // Once all ranks have authenticated there is no reason to keep the
-        // listen socket open. Signal the accept loop to stop so no further
-        // connections can be accepted.
-        if (state_->authenticated_count.fetch_add(1, std::memory_order_acq_rel) + 1
-            == state_->nranks)
-        {
-            char c = 0;
-            std::ignore = ::write(wakeup_pipe_[1], &c, 1);
-        }
 
         for (;;) {
             std::string line;
@@ -373,8 +539,8 @@ void SocketServer::handle_connection(int fd) {
                     read_all(fd, value.data(), valuelen);
                 {
                     std::lock_guard<std::mutex> lk(state_->mu);
-                    state_->kv[std::string(key_buf.data())] = std::move(value);
-                    state_->kv_cv.notify_all();
+                    session->kv[std::string(key_buf.data())] = std::move(value);
+                    session->kv_cv.notify_all();
                 }
                 write_all(fd, "OK\n", 3);
 
@@ -400,13 +566,18 @@ void SocketServer::handle_connection(int fd) {
                     std::unique_lock<std::mutex> lk(state_->mu);
                     auto deadline = std::chrono::steady_clock::now()
                                     + std::chrono::milliseconds(timeout_ms);
-                    while (state_->kv.find(key) == state_->kv.end()) {
-                        if (state_->kv_cv.wait_until(lk, deadline)
-                            == std::cv_status::timeout)
+                    while (session->kv.find(key) == session->kv.end()) {
+                        if (shutting_down()) {
+                            return;
+                        }
+                        ++state_->waiting_handlers;
+                        auto const status = session->kv_cv.wait_until(lk, deadline);
+                        --state_->waiting_handlers;
+                        if (status == std::cv_status::timeout)
                             break;
                     }
-                    auto it = state_->kv.find(key);
-                    if (it != state_->kv.end()) {
+                    auto it = session->kv.find(key);
+                    if (it != session->kv.end()) {
                         value = it->second;
                         found = true;
                     }
@@ -423,28 +594,40 @@ void SocketServer::handle_connection(int fd) {
 
             } else if (line == "BARRIER") {
                 std::unique_lock<std::mutex> lk(state_->mu);
-                int gen = state_->barrier_gen;
-                if (++state_->barrier_count == state_->nranks) {
-                    ++state_->barrier_gen;
-                    state_->barrier_count = 0;
-                    state_->barrier_cv.notify_all();
+                int gen = session->barrier_gen;
+                if (++session->barrier_count == state_->nranks) {
+                    ++session->barrier_gen;
+                    session->barrier_count = 0;
+                    session->barrier_cv.notify_all();
                 } else {
-                    state_->barrier_cv.wait(lk, [&] {
-                        return state_->barrier_gen != gen;
+                    ++state_->waiting_handlers;
+                    session->barrier_cv.wait(lk, [&] {
+                        return session->barrier_gen != gen || shutting_down();
                     });
+                    --state_->waiting_handlers;
+                    if (session->barrier_gen == gen) {
+                        return;  // woken by shutdown
+                    }
                 }
                 lk.unlock();
                 write_all(fd, "OK\n", 3);
 
             } else if (line == "SYNC") {
                 std::unique_lock<std::mutex> lk(state_->mu);
-                int gen = state_->sync_gen;
-                if (++state_->sync_count == state_->nranks) {
-                    ++state_->sync_gen;
-                    state_->sync_count = 0;
-                    state_->sync_cv.notify_all();
+                int gen = session->sync_gen;
+                if (++session->sync_count == state_->nranks) {
+                    ++session->sync_gen;
+                    session->sync_count = 0;
+                    session->sync_cv.notify_all();
                 } else {
-                    state_->sync_cv.wait(lk, [&] { return state_->sync_gen != gen; });
+                    ++state_->waiting_handlers;
+                    session->sync_cv.wait(lk, [&] {
+                        return session->sync_gen != gen || shutting_down();
+                    });
+                    --state_->waiting_handlers;
+                    if (session->sync_gen == gen) {
+                        return;  // woken by shutdown
+                    }
                 }
                 lk.unlock();
                 write_all(fd, "OK\n", 3);
@@ -458,7 +641,31 @@ void SocketServer::handle_connection(int fd) {
     }
 }
 
-SocketBackend::SocketBackend(Context ctx) : ctx_{std::move(ctx)} {
+namespace {
+
+std::mutex live_ranks_mutex;
+std::set<Rank> live_ranks;  // ranks with a live `SocketBackend` in this process
+
+}  // namespace
+
+SocketBackend::RankRegistration::RankRegistration(Rank rank) : rank_{rank} {
+    std::lock_guard<std::mutex> lk(live_ranks_mutex);
+    if (!live_ranks.insert(rank).second) {
+        throw std::runtime_error(
+            "SocketBackend: rank " + std::to_string(rank)
+            + " is already bootstrapping in this process. Concurrent bootstraps in "
+              "one process are not supported, bootstrap one communicator at a time."
+        );
+    }
+}
+
+SocketBackend::RankRegistration::~RankRegistration() {
+    std::lock_guard<std::mutex> lk(live_ranks_mutex);
+    live_ranks.erase(rank_);
+}
+
+SocketBackend::SocketBackend(Context ctx, Duration auth_timeout)
+    : registration_{ctx.rank}, ctx_{std::move(ctx)} {
     auto require_env = [](char const* name) -> std::string {
         char const* v = std::getenv(name);
         if (!v)
@@ -501,16 +708,41 @@ SocketBackend::SocketBackend(Context ctx) : ctx_{std::move(ctx)} {
         );
     }
 
-    send_line(
-        "AUTH rank=" + std::to_string(ctx_.rank)
-        + " nranks=" + std::to_string(ctx_.nranks) + " token=" + token
-    );
-
-    std::string response = recv_line();
-    if (response != "OK") {
+    // The destructor does not run if the constructor throws, so close the
+    // socket on every error path below.
+    auto fail = [&](std::string const& msg) {
         ::close(fd_);
         fd_ = -1;
-        throw std::runtime_error("SocketBackend AUTH rejected: " + response);
+        throw std::runtime_error(msg);
+    };
+
+    std::string response;
+    try {
+        set_recv_timeout(
+            fd_, std::chrono::duration_cast<std::chrono::microseconds>(auth_timeout)
+        );
+        send_line(
+            "AUTH rank=" + std::to_string(ctx_.rank)
+            + " nranks=" + std::to_string(ctx_.nranks) + " token=" + token
+        );
+        response = recv_line();
+        set_recv_timeout(fd_, std::chrono::microseconds{0});
+    } catch (ReadTimeout const&) {
+        fail(
+            "SocketBackend: the coordination server at " + addr
+            + " did not answer AUTH within " + std::to_string(auth_timeout.count()) + "s"
+        );
+    } catch (ConnectionClosed const&) {
+        fail(
+            "SocketBackend: the coordination server at " + addr
+            + " closed the connection during AUTH, possibly because it has too many "
+              "open connections"
+        );
+    } catch (std::exception const& e) {
+        fail(std::string{"SocketBackend: AUTH failed: "} + e.what());
+    }
+    if (response != "OK") {
+        fail("SocketBackend AUTH rejected: " + response);
     }
 }
 

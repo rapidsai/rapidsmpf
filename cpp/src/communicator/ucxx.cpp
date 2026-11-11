@@ -1441,18 +1441,19 @@ UCXX::test_some(std::vector<std::unique_ptr<Communicator::Future>>& future_vecto
     return {std::move(completed), std::move(indices)};
 }
 
-std::vector<std::size_t> UCXX::test_some(
-    std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> const&
-        future_map
+std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> UCXX::test_some(
+    std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>>& future_map
 ) {
     progress_worker();
-    std::vector<std::size_t> completed;
-    for (auto const& [key, future] : future_map) {
-        auto ucxx_future = dynamic_cast<Future const*>(future.get());
+    std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> completed;
+    for (auto it = future_map.begin(); it != future_map.end();) {
+        auto ucxx_future = dynamic_cast<Future const*>(it->second.get());
         RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
         if (ucxx_future->req_->isCompleted()) {
             ucxx_future->req_->checkError();
-            completed.push_back(key);
+            completed.insert(future_map.extract(it++));
+        } else {
+            ++it;
         }
     }
     return completed;
