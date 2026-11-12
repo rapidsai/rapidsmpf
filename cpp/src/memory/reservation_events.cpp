@@ -36,9 +36,12 @@ std::uint64_t BufferResource::record_reservation_event(
     if (!recording_ || (expected_session != 0 && recording_->id != expected_session)) {
         return 0;
     }
+    // Returning zero for a dropped event tells the caller the session did not observe
+    // it. A reservation stores this as `observed_session_`, and `release()` only
+    // records a release event for reservations whose creation was observed.
     if (recording_->events.size() >= max_reservation_events_) {
         ++recording_->dropped_event_count;
-        return recording_->id;
+        return 0;
     }
     try {
         auto const elapsed =
@@ -50,7 +53,9 @@ std::uint64_t BufferResource::record_reservation_event(
              byte_delta}
         );
     } catch (...) {
+        // Allocation failure while appending, dropped like a capped event (see above).
         ++recording_->dropped_event_count;
+        return 0;
     }
     return recording_->id;
 }

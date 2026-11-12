@@ -49,7 +49,8 @@ struct ReservationEvent {
 struct ReservationEventBatch {
     std::vector<ReservationEvent> events;  ///< Recorded reservation deltas.
     /// Events dropped (cap reached or append failed); nonzero means `events` is
-    /// incomplete.
+    /// incomplete. Release events skipped because their reservation's creation event
+    /// was dropped are not counted, so this is a lower bound on the missing events.
     std::uint64_t dropped_event_count{0};
 };
 
@@ -70,8 +71,11 @@ namespace detail {
  * - `start_reservation_event_recording()` constructs the session, assigns a fresh
  *   non-zero `id` and captures both time anchors.
  * - Producers append one `ReservationEvent` per reservation or release. Reservations
- *   remember the `id` of the session that saw them, so a release is only recorded
- *   into that same session and never into a later one.
+ *   remember the `id` of the session that recorded their creation, so a release event
+ *   is only recorded into that same session and never into a later one. A reservation
+ *   whose creation event was dropped (cap reached or append failed) remembers no
+ *   session, so its release event is skipped too (the memory is still released) and
+ *   the recorded stream stays balanced.
  * - `drain_reservation_events()` swaps `events` out and zeroes `dropped_event_count`,
  *   keeping the session (and its `id`) active. Draining is how callers free space
  *   under the `max_reservation_events` cap.
@@ -82,6 +86,8 @@ namespace detail {
  * `events` holds at most `BufferResource::max_reservation_events()` entries. Further
  * events are dropped and counted in `dropped_event_count` until the next drain, so
  * callers that need a complete record should drain more often than the cap fills.
+ * `dropped_event_count` counts dropped events, not the release events skipped as a
+ * result (see Lifecycle), so it is a lower bound on the events missing from the record.
  */
 struct RecordingSession {
     std::vector<ReservationEvent> events;  ///< Events recorded since the last drain.

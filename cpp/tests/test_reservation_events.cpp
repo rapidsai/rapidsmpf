@@ -99,8 +99,8 @@ TEST(ReservationEvents, ZeroByteOperationsEmitNothing) {
     EXPECT_EQ(batch.dropped_event_count, 0);
 }
 
-TEST(ReservationEvents, MaxEventsDropsAndCountsExcess) {
-    auto br = BufferResource::create(
+std::shared_ptr<BufferResource> make_capped_resource(std::size_t max_reservation_events) {
+    return BufferResource::create(
         rmm::mr::get_current_device_resource_ref(),
         PinnedMemoryDisabled,
         {{MemoryType::DEVICE, 1024}},
@@ -110,8 +110,12 @@ TEST(ReservationEvents, MaxEventsDropsAndCountsExcess) {
         std::nullopt,
         std::chrono::milliseconds{100},
         AllowOverbooking::YES,
-        /*max_reservation_events=*/2
+        max_reservation_events
     );
+}
+
+TEST(ReservationEvents, MaxEventsDropsAndCountsExcess) {
+    auto br = make_capped_resource(2);
     EXPECT_EQ(br->max_reservation_events(), 2);
     br->start_reservation_event_recording();
     auto reservation = br->reserve_or_fail(100, MemoryType::DEVICE);
@@ -129,6 +133,27 @@ TEST(ReservationEvents, MaxEventsDropsAndCountsExcess) {
     auto reservation2 = br->reserve_or_fail(10, MemoryType::DEVICE);
     auto final = br->stop_reservation_event_recording();
     ASSERT_EQ(final.events.size(), 1);
+    EXPECT_EQ(final.dropped_event_count, 0);
+}
+
+TEST(ReservationEvents, DroppedReservationAlsoSkipsItsRelease) {
+    auto br = make_capped_resource(1);
+    br->start_reservation_event_recording();
+    auto recorded = br->reserve_or_fail(10, MemoryType::DEVICE);
+    auto dropped = br->reserve_or_fail(20, MemoryType::DEVICE);  // Cap reached.
+
+    auto first = br->drain_reservation_events();
+    ASSERT_EQ(first.events.size(), 1);
+    EXPECT_EQ(first.events[0].byte_delta, 10);
+    EXPECT_EQ(first.dropped_event_count, 1);
+
+    // The drain freed space, but `dropped` was never observed by the session, so
+    // releasing it must not record a negative delta without a matching reservation.
+    dropped.clear();
+    recorded.clear();
+    auto final = br->stop_reservation_event_recording();
+    ASSERT_EQ(final.events.size(), 1);
+    EXPECT_EQ(final.events[0].byte_delta, -10);
     EXPECT_EQ(final.dropped_event_count, 0);
 }
 
