@@ -4,6 +4,7 @@
  */
 
 
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <mutex>
@@ -392,6 +393,101 @@ TEST(SpillManager, SpillRejectsDisk) {
         std::ignore = manager.spill(1_KiB, MemoryType::DISK), std::invalid_argument
     );
     EXPECT_FALSE(called);
+
+    manager.remove_spill_function(fid);
+}
+
+TEST(SpillManager, HeadroomForAnotherMemoryType) {
+    auto br = create_br(std::nullopt, 10_KiB);
+    auto& manager = br->spill_manager();
+
+    std::vector<std::pair<std::size_t, MemoryType>> calls;
+    auto const fid = manager.add_spill_function(
+        [&](std::size_t amount, MemoryType mem_type) -> std::size_t {
+            calls.emplace_back(amount, mem_type);
+            br->set_memory_limit(
+                mem_type, br->memory_available(mem_type) + safe_cast<std::int64_t>(amount)
+            );
+            return amount;
+        },
+        /* priority = */ 0
+    );
+
+    // Enough HOST headroom, nothing is spilled.
+    EXPECT_EQ(
+        manager.spill_to_make_headroom(4_KiB, MemoryType::HOST),
+        (HeadroomResult{.deficit = 0, .spilled = 0})
+    );
+    EXPECT_TRUE(calls.empty());
+
+    // The shortfall is measured on, and spilled from, HOST.
+    EXPECT_EQ(
+        manager.spill_to_make_headroom(16_KiB, MemoryType::HOST),
+        (HeadroomResult{.deficit = 6_KiB, .spilled = 6_KiB})
+    );
+    EXPECT_EQ(
+        calls,
+        (std::vector<std::pair<std::size_t, MemoryType>>{{6_KiB, MemoryType::HOST}})
+    );
+
+    // DISK cannot be spilled.
+    EXPECT_THROW(
+        std::ignore = manager.spill_to_make_headroom(0, MemoryType::DISK),
+        std::invalid_argument
+    );
+
+    manager.remove_spill_function(fid);
+}
+
+TEST(SpillManager, PeriodicSpillMakesHeadroomInHost) {
+    // Only HOST has a limit, so only HOST can fall short of its headroom.
+    auto br = BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        PinnedMemoryDisabled,
+        {{MemoryType::HOST, 10_KiB}},
+        std::chrono::milliseconds{1}
+    );
+    auto& manager = br->spill_manager();
+
+    // A spill function that simulates freeing HOST memory by raising its limit.
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::size_t host_spilled{0};
+    bool spilled_other_type{false};
+    auto const fid = manager.add_spill_function(
+        [&](std::size_t amount, MemoryType mem_type) -> std::size_t {
+            if (mem_type != MemoryType::HOST) {
+                std::lock_guard lock(mutex);
+                spilled_other_type = true;
+                return 0;
+            }
+            br->set_memory_limit(
+                mem_type, br->memory_available(mem_type) + safe_cast<std::int64_t>(amount)
+            );
+            {
+                std::lock_guard lock(mutex);
+                host_spilled += amount;
+            }
+            cv.notify_all();
+            return amount;
+        },
+        /* priority = */ 0
+    );
+
+    // Overbook HOST by 6 KiB. Nothing spills it except the periodic thread.
+    auto [reservation, overbooking] =
+        br->reserve(MemoryType::HOST, 16_KiB, AllowOverbooking::YES);
+    EXPECT_EQ(overbooking, 6_KiB);
+
+    {
+        std::unique_lock lock(mutex);
+        EXPECT_TRUE(cv.wait_for(lock, std::chrono::seconds{30}, [&] {
+            return host_spilled > 0;
+        }));
+        EXPECT_EQ(host_spilled, 6_KiB);
+        EXPECT_FALSE(spilled_other_type);
+    }
+    EXPECT_GE(br->memory_available(MemoryType::HOST), 0);
 
     manager.remove_spill_function(fid);
 }
