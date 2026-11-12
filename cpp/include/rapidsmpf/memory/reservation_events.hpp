@@ -71,11 +71,11 @@ namespace detail {
  * - `start_reservation_event_recording()` constructs the session, assigns a fresh
  *   non-zero `id` and captures both time anchors.
  * - Producers append one `ReservationEvent` per reservation or release. Reservations
- *   remember the `id` of the session that recorded their creation, so a release event
- *   is only recorded into that same session and never into a later one. A reservation
+ *   remember the `id` of the session that recorded their creation, so a release is
+ *   only recorded into that same session and never into a later one. A reservation
  *   whose creation event was dropped (cap reached or append failed) remembers no
- *   session, so its release event is skipped too (the memory is still released) and
- *   the recorded stream stays balanced.
+ *   session, so its release is skipped too. A release is never recorded without
+ *   a corresponding reservation, but a reservation might be recorded without a release.
  * - `drain_reservation_events()` swaps `events` out and zeroes `dropped_event_count`,
  *   keeping the session (and its `id`) active. Draining is how callers free space
  *   under the `max_reservation_events` cap.
