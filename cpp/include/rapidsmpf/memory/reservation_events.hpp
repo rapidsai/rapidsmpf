@@ -31,6 +31,11 @@ using ReservationContext = std::uint64_t;
  * positive delta means memory was reserved, while a negative delta means memory
  * was released.
  *
+ * Timestamps come from a steady-clock offset from a Unix-time anchor. Events
+ * in one recording session are non-decreasing. The actual reservations / releases
+ * and these reservation events are not serialized, so the order of recorded
+ * events may differ from the order in which the counter was updated when multiple
+ * reservation events occur concurrently.
  */
 struct ReservationEvent {
     std::int64_t timestamp_ns;  ///< Non-decreasing Unix timestamp in nanoseconds.
