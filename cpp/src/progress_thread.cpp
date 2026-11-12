@@ -35,6 +35,8 @@ void ProgressThread::FunctionState::operator()() {
 
 void ProgressThread::FunctionState::fail(std::exception_ptr error) noexcept {
     is_done = true;
+    // Never called again, release what it captures right away.
+    function = nullptr;
     if (!on_error) {
         RAPIDSMPF_FATAL(
             "unhandled exception in ProgressThread function: "
@@ -46,6 +48,7 @@ void ProgressThread::FunctionState::fail(std::exception_ptr error) noexcept {
     } catch (...) {
         RAPIDSMPF_FATAL("ProgressThread error callback threw an exception");
     }
+    on_error = nullptr;
 }
 
 ProgressThread::ProgressThread(std::shared_ptr<Statistics> statistics, Duration sleep)

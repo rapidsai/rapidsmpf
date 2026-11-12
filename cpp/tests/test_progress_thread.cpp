@@ -4,10 +4,9 @@
  */
 
 #include <atomic>
-#include <condition_variable>
 #include <future>
-#include <mutex>
 #include <stdexcept>
+#include <thread>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -120,13 +119,10 @@ TEST(ProgressThreadTests, RemoveFunctionWithDelayedPause) {
 
 TEST(ProgressThreadTests, FunctionErrorIsReportedToCallback) {
     ProgressThread progress_thread;
-    std::mutex mutex;
-    std::condition_variable cv;
-    int num_errors{0};
+    std::atomic<int> num_errors{0};
     std::exception_ptr reported;
     std::atomic<int> num_failing_calls{0};
     std::atomic<int> num_healthy_calls{0};
-    std::atomic<bool> healthy_done{false};
 
     auto failing = progress_thread.add_function(
         [&]() -> ProgressThread::ProgressState {
@@ -134,24 +130,20 @@ TEST(ProgressThreadTests, FunctionErrorIsReportedToCallback) {
             throw std::runtime_error("progress function failed");
         },
         [&](std::exception_ptr error) {
-            {
-                std::lock_guard lock(mutex);
-                ++num_errors;
-                reported = std::move(error);
-            }
-            cv.notify_all();
+            ++num_errors;
+            reported = std::move(error);
         }
     );
+    // Done after a fixed number of calls, which removing it waits for.
     auto healthy = progress_thread.add_function([&]() {
-        ++num_healthy_calls;
-        return healthy_done.load() ? ProgressThread::ProgressState::Done
-                                   : ProgressThread::ProgressState::InProgress;
+        return ++num_healthy_calls == 10 ? ProgressThread::ProgressState::Done
+                                         : ProgressThread::ProgressState::InProgress;
     });
 
-    {
-        std::unique_lock lock(mutex);
-        cv.wait(lock, [&] { return num_errors > 0; });
-    }
+    // Removing a failed function doesn't throw. It waits until the function failed,
+    // and so until the error was reported.
+    EXPECT_NO_THROW(progress_thread.remove_function(failing));
+    ASSERT_EQ(num_errors.load(), 1);
     EXPECT_THAT(
         [&] { std::rethrow_exception(reported); },
         ::testing::ThrowsMessage<std::runtime_error>(
@@ -159,24 +151,16 @@ TEST(ProgressThreadTests, FunctionErrorIsReportedToCallback) {
         )
     );
 
-    // Removing a failed function neither blocks nor throws.
-    EXPECT_NO_THROW(progress_thread.remove_function(failing));
-
     // The other functions keep being progressed, and new functions can be added.
-    auto const healthy_calls = num_healthy_calls.load();
-    while (num_healthy_calls.load() < healthy_calls + 10) {
-        std::this_thread::yield();
-    }
     auto another =
         progress_thread.add_function([] { return ProgressThread::ProgressState::Done; });
     progress_thread.remove_function(another);
-    healthy_done.store(true);
     progress_thread.remove_function(healthy);
+    EXPECT_EQ(num_healthy_calls.load(), 10);
 
     // The failed function was never called again and the error reported only once.
     EXPECT_EQ(num_failing_calls.load(), 1);
-    std::lock_guard lock(mutex);
-    EXPECT_EQ(num_errors, 1);
+    EXPECT_EQ(num_errors.load(), 1);
 }
 
 TEST(ProgressThreadTests, CanDoCudaWorkOnFirstCallback) {

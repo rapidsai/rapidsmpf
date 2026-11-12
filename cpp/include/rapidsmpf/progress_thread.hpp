@@ -31,6 +31,11 @@ namespace rapidsmpf {
  * progress thread itself fails, outside of any function (e.g., if it cannot initialize
  * its CUDA context), every registered function fails with that exception and no new
  * function can be added.
+ *
+ * The functions and their error callbacks are called, and destroyed, while the progress
+ * thread holds its internal lock. So they must neither call into the `ProgressThread`,
+ * nor acquire a lock that any thread may hold while calling into the `ProgressThread`,
+ * e.g., `add_function()` or `remove_function()`. Otherwise they may deadlock.
  */
 class ProgressThread {
   public:
@@ -106,9 +111,9 @@ class ProgressThread {
      * function fail.
      *
      * The callback is typically used to store the exception and wake up the threads
-     * waiting on the function, so that they can rethrow it. It is called while the
-     * progress thread holds its internal lock, so it must not call back into the
-     * `ProgressThread`. It must not throw; if it does, the process is terminated.
+     * waiting on the function, so that they can rethrow it. It is subject to the same
+     * locking constraints as the functions, see `ProgressThread`. It must not throw; if
+     * it does, the process is terminated.
      */
     using ErrorCallback = std::function<void(std::exception_ptr)>;
 
@@ -175,9 +180,9 @@ class ProgressThread {
      *
      * @param function The function to register.
      * @param on_error The callback invoked on the progress thread if `function` throws,
-     * or if the progress thread itself fails, after which `function` is considered done
-     * and is never called again. See `ErrorCallback`. If empty, an exception thrown by
-     * `function` is fatal and terminates the process.
+     * or if the progress thread itself fails while `function` is registered, after which
+     * `function` is considered done and is never called again. See `ErrorCallback`. If
+     * empty, an exception thrown by `function` is fatal and terminates the process.
      *
      * @return The unique ID of the function that was registered.
      *
