@@ -98,15 +98,16 @@ std::size_t SpillManager::spill_unsafe(std::size_t amount, MemoryType mem_type) 
     // drops, so an observer that sees no spill in flight also sees the new generation.
     struct InFlightGuard {
         SpillManager* self;
+        MemoryType mem_type;
 
         ~InFlightGuard() {
-            self->spill_generation_.fetch_add(1, std::memory_order_release);
-            self->spills_in_flight_.fetch_sub(1, std::memory_order_release);
+            self->spill_generation_[mem_type].fetch_add(1, std::memory_order_release);
+            self->spills_in_flight_[mem_type].fetch_sub(1, std::memory_order_release);
         }
     };
 
-    spills_in_flight_.fetch_add(1, std::memory_order_release);
-    InFlightGuard const in_flight{this};
+    spills_in_flight_[mem_type].fetch_add(1, std::memory_order_release);
+    InFlightGuard const in_flight{this, mem_type};
 
     std::size_t spilled{0};
     for (auto const [_, fid] : spill_function_priorities_) {
@@ -118,12 +119,12 @@ std::size_t SpillManager::spill_unsafe(std::size_t amount, MemoryType mem_type) 
     return spilled;
 }
 
-bool SpillManager::spilling_now() const noexcept {
-    return spills_in_flight_.load(std::memory_order_acquire) > 0;
+bool SpillManager::spilling_now(MemoryType mem_type) const noexcept {
+    return spills_in_flight_[mem_type].load(std::memory_order_acquire) > 0;
 }
 
-std::uint64_t SpillManager::spill_generation() const noexcept {
-    return spill_generation_.load(std::memory_order_acquire);
+std::uint64_t SpillManager::spill_generation(MemoryType mem_type) const noexcept {
+    return spill_generation_[mem_type].load(std::memory_order_acquire);
 }
 
 std::size_t SpillManager::spill(std::size_t amount, MemoryType mem_type) {

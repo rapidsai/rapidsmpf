@@ -861,9 +861,9 @@ class BlockingSpill {
     /// it keeps the admission loop from running until the next spill is in flight.
     void finish_one_and_start_next() {
         auto& spill_manager = br_->spill_manager();
-        auto const generation = spill_manager.spill_generation();
+        auto const generation = spill_manager.spill_generation(mem_type_);
         release_one();
-        while (spill_manager.spill_generation() == generation) {
+        while (spill_manager.spill_generation(mem_type_) == generation) {
             std::this_thread::yield();
         }
         start();

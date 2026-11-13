@@ -4,6 +4,7 @@
  */
 
 
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -11,6 +12,7 @@
 #include <optional>
 #include <ostream>
 #include <stdexcept>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -289,43 +291,65 @@ TEST(SpillManager, ReserveAndSpillIgnoresAnEarlierCallersOverbooking) {
     br->spill_manager().remove_spill_function(fid);
 }
 
-TEST(SpillManager, ProgressCountersTrackSpillExecution) {
+class SpillManagerProgressCounters : public ::testing::TestWithParam<MemoryType> {};
+
+INSTANTIATE_TEST_SUITE_P(
+    AddressableMemoryTypes,
+    SpillManagerProgressCounters,
+    ::testing::ValuesIn(ADDRESSABLE_MEMORY_TYPES.begin(), ADDRESSABLE_MEMORY_TYPES.end()),
+    [](::testing::TestParamInfo<MemoryType> const& info) {
+        return std::string{to_string(info.param)};
+    }
+);
+
+TEST_P(SpillManagerProgressCounters, TrackSpillExecution) {
+    auto const mem_type = GetParam();
     auto br = br_at_device_limit().first;
     auto& manager = br->spill_manager();
 
-    EXPECT_FALSE(manager.spilling_now());
-    EXPECT_EQ(manager.spill_generation(), 0u);
+    EXPECT_FALSE(manager.spilling_now(mem_type));
+    EXPECT_EQ(manager.spill_generation(mem_type), 0u);
 
     // Observed from inside the spill function, which is the window a waiter needs to
     // see. The generation only moves once the function has returned.
     bool seen_in_flight{false};
+    bool other_in_flight{false};
     std::uint64_t seen_generation{0};
     auto const fid = manager.add_spill_function(
         [&](std::size_t, MemoryType) -> std::size_t {
-            seen_in_flight = manager.spilling_now();
-            seen_generation = manager.spill_generation();
+            seen_in_flight = manager.spilling_now(mem_type);
+            seen_generation = manager.spill_generation(mem_type);
+            // Spills of other memory types must not be visible.
+            other_in_flight =
+                std::ranges::any_of(ADDRESSABLE_MEMORY_TYPES, [&](auto other) {
+                    return other != mem_type && manager.spilling_now(other);
+                });
             return 0;
         },
         /* priority = */ 0
     );
 
-    std::ignore = manager.spill(1_KiB, MemoryType::DEVICE);
+    std::ignore = manager.spill(1_KiB, mem_type);
     EXPECT_TRUE(seen_in_flight);
     EXPECT_EQ(seen_generation, 0u);
-    EXPECT_FALSE(manager.spilling_now());
-    EXPECT_EQ(manager.spill_generation(), 1u);
+    EXPECT_FALSE(manager.spilling_now(mem_type));
+    EXPECT_EQ(manager.spill_generation(mem_type), 1u);
+    EXPECT_FALSE(other_in_flight);
+    EXPECT_TRUE(std::ranges::all_of(ADDRESSABLE_MEMORY_TYPES, [&](auto other) {
+        return other == mem_type || manager.spill_generation(other) == 0;
+    }));
 
     // A zero-byte ask runs no spill function, so there is nothing for a waiter to wait
     // for and the generation must not move.
     seen_in_flight = false;
-    std::ignore = manager.spill(0, MemoryType::DEVICE);
+    std::ignore = manager.spill(0, mem_type);
     EXPECT_FALSE(seen_in_flight);
-    EXPECT_EQ(manager.spill_generation(), 1u);
+    EXPECT_EQ(manager.spill_generation(mem_type), 1u);
 
     // `spill_to_make_headroom()` returns before spilling when the headroom is already
     // available, which is a different early exit from the zero-byte ask above.
-    std::ignore = manager.spill_to_make_headroom(0);
-    EXPECT_EQ(manager.spill_generation(), 1u);
+    std::ignore = manager.spill_to_make_headroom(0, mem_type);
+    EXPECT_EQ(manager.spill_generation(mem_type), 1u);
 
     manager.remove_spill_function(fid);
 }
@@ -345,8 +369,8 @@ TEST(SpillManager, ProgressCountersSurviveAThrowingSpillFunction) {
 
     // A throwing spill function must not leave the manager looking permanently busy,
     // which would make every waiter extend its deadline forever.
-    EXPECT_FALSE(manager.spilling_now());
-    EXPECT_EQ(manager.spill_generation(), 1u);
+    EXPECT_FALSE(manager.spilling_now(MemoryType::DEVICE));
+    EXPECT_EQ(manager.spill_generation(MemoryType::DEVICE), 1u);
 
     manager.remove_spill_function(fid);
 }

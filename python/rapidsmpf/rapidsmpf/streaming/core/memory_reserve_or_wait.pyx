@@ -351,7 +351,8 @@ cdef class MemoryReserveOrWait:
         While no pending request fits, spilling is attempted to free the memory the
         highest-priority one needs, and again just before progress is forced. A request
         for any addressable memory type (everything except :attr:`~.MemoryType.DISK`)
-        keeps waiting while a spill is in flight and still freeing memory.
+        keeps waiting while a spill of that same memory type is in flight and still
+        freeing memory. Spills of other memory types do not extend the wait.
 
         The timeout does not apply specifically to this request. Instead, it bounds
         when a final recovery attempt begins, not when it completes. If no pending

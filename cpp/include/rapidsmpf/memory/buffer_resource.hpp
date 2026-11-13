@@ -316,9 +316,6 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * @return Reference to the internal `HostMemoryResource`. The reference is valid
      * for as long as this `BufferResource` is alive.
-     *
-     * @note To ensure that the allocations are properly tracked, use `host_mr()` or
-     * `host_mr_adaptor()`.
      */
     [[nodiscard]] HostMemoryResource& host_mr_adaptor() noexcept;
 
