@@ -4,6 +4,7 @@
  */
 
 #include <algorithm>
+#include <atomic>
 #include <ranges>
 
 #include <gmock/gmock.h>
@@ -41,13 +42,46 @@ TEST_F(BaseStreamingShuffle, zero_owned_partitions_completes) {
     constexpr shuffler::PartID total = 4;
     auto shuffler = std::make_unique<ShufflerAsync>(ctx, comm, op_id, total, collapse);
 
-    coro::sync_wait(shuffler->insert_finished());
+    shuffler->insert_finished();
+    coro::sync_wait(shuffler->wait());
 
     auto local_pids = shuffler->local_partitions();
     if (comm->rank() == owner) {
         EXPECT_EQ(local_pids.size(), total);
     } else {
         EXPECT_TRUE(local_pids.empty());
+    }
+}
+
+TEST_F(BaseStreamingShuffle, concurrent_wait) {
+    auto comm = GlobalEnvironment->comm_;
+    constexpr OpID op_id = 0;
+    ShufflerAsync shuffler(ctx, comm, op_id, 4);
+    std::atomic<int> num_waited{0};
+
+    auto waiter = [&]() -> coro::task<void> {
+        co_await shuffler.wait();
+        num_waited.fetch_add(1);
+    };
+    auto finisher = [&]() -> coro::task<void> {
+        shuffler.insert_finished();
+        co_await shuffler.wait();
+        num_waited.fetch_add(1);
+    };
+
+    // The finisher may run before the waiters suspend, in which case they find the
+    // event already set. Both orders are valid.
+    std::vector<coro::task<void>> pipeline{};
+    pipeline.push_back(ctx->executor()->schedule(waiter()));
+    pipeline.push_back(ctx->executor()->schedule(waiter()));
+    pipeline.push_back(ctx->executor()->schedule(finisher()));
+    run_actor_network(std::move(pipeline));
+    EXPECT_EQ(num_waited.load(), 3);
+
+    // Awaiting a completed shuffle returns immediately.
+    coro::sync_wait(shuffler.wait());
+    for (auto pid : shuffler.local_partitions()) {
+        EXPECT_TRUE(shuffler.extract(pid).empty());
     }
 }
 
@@ -229,7 +263,8 @@ TEST_P(ShufflerAsyncTest, insert_wait_extract) {
         shuffler->insert(std::move(data));
     }
 
-    coro::sync_wait(shuffler->insert_finished());
+    shuffler->insert_finished();
+    coro::sync_wait(shuffler->wait());
 
     auto local_pids = shuffler::Shuffler::local_partitions(
         comm, n_partitions, &shuffler::Shuffler::round_robin

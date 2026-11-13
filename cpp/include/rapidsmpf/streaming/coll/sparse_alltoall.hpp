@@ -23,8 +23,11 @@ namespace rapidsmpf::streaming {
  *
  * Many tasks may insert data concurrently. If multiple tasks insert data, the caller is
  * responsible for arranging that `insert_finished()` is only called after all `insert()`
- * operations have completed. Once `insert_finished()` is awaited, extraction is
- * non-blocking.
+ * operations have completed. Once `wait()` is awaited, extraction is non-blocking.
+ *
+ * @warning `insert_finished()` must be called and the collective must have completed,
+ * as signalled by `wait()`, before the object is destroyed. Otherwise destruction
+ * terminates the process.
  */
 class SparseAlltoall {
   public:
@@ -69,12 +72,21 @@ class SparseAlltoall {
     /// @copydoc rapidsmpf::coll::SparseAlltoall::insert
     void insert(Rank dst, PackedData&& packed_data);
 
+    /// @copydoc rapidsmpf::coll::SparseAlltoall::insert_finished
+    void insert_finished();
+
     /**
-     * @copydoc rapidsmpf::coll::SparseAlltoall::insert_finished
+     * @brief Wait for the collective to complete on this rank.
      *
-     * @return Coroutine that completes once all data is ready for extraction.
+     * The collective completes once every rank has called `insert_finished()` and all
+     * data addressed to this rank has arrived. After that, data can be extracted and
+     * the `op_id` may be reused.
+     *
+     * Several coroutines may await `wait()` concurrently.
+     *
+     * @return Coroutine that completes when the collective has completed.
      */
-    [[nodiscard]] coro::task<void> insert_finished();
+    [[nodiscard]] coro::task<void> wait();
 
     /// @copydoc rapidsmpf::coll::SparseAlltoall::extract
     [[nodiscard]] std::vector<PackedData> extract(Rank src);

@@ -1,13 +1,14 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from libc.stdint cimport int32_t, uint64_t
-from libcpp.memory cimport shared_ptr, unique_ptr
+from libcpp.memory cimport shared_ptr
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.coll.allgather cimport Ordered as cpp_Ordered
 from rapidsmpf.communicator.communicator cimport Communicator, cpp_Communicator
 from rapidsmpf.memory.packed_data cimport cpp_PackedData
+from rapidsmpf.streaming.coll.collective cimport Collective
 from rapidsmpf.streaming.core.actor cimport cpp_Actor
 from rapidsmpf.streaming.core.channel cimport cpp_Channel
 from rapidsmpf.streaming.core.context cimport cpp_Context
@@ -33,7 +34,7 @@ cdef extern from "<rapidsmpf/streaming/coll/allgather.hpp>" nogil:
         const shared_ptr[cpp_Communicator]& comm() except +ex_handler
 
 
-cdef class AllGather:
-    cdef unique_ptr[cpp_AllGather] _handle
+cdef class AllGather(Collective):
+    cdef shared_ptr[cpp_AllGather] _handle
     cdef Communicator _comm
     cdef bint in_context

@@ -4,6 +4,7 @@
  */
 
 #include <array>
+#include <atomic>
 #include <cstring>
 #include <tuple>
 #include <utility>
@@ -135,7 +136,8 @@ TEST_P(StreamingSparseAlltoall, basic_ring_exchange) {
                 );
             }
         }
-        co_await exchange.insert_finished();
+        exchange.insert_finished();
+        co_await exchange.wait();
         ready_to_extract.set(ctx->executor()->get());
     };
 
@@ -170,6 +172,38 @@ TEST_P(StreamingSparseAlltoall, basic_ring_exchange) {
     }
 }
 
+TEST_P(StreamingSparseAlltoall, concurrent_wait) {
+    auto comm = GlobalEnvironment->comm_;
+    auto [srcs, dsts] = ring_peers(comm);
+    streaming::SparseAlltoall exchange(ctx, comm, OpID{0}, srcs, dsts);
+    std::atomic<int> num_waited{0};
+
+    auto waiter = [&]() -> coro::task<void> {
+        co_await exchange.wait();
+        num_waited.fetch_add(1);
+    };
+    auto finisher = [&]() -> coro::task<void> {
+        exchange.insert_finished();
+        co_await exchange.wait();
+        num_waited.fetch_add(1);
+    };
+
+    // The finisher may run before the waiters suspend, in which case they find the
+    // event already set. Both orders are valid.
+    std::vector<coro::task<void>> pipeline{};
+    pipeline.push_back(ctx->executor()->schedule(waiter()));
+    pipeline.push_back(ctx->executor()->schedule(waiter()));
+    pipeline.push_back(ctx->executor()->schedule(finisher()));
+    streaming::run_actor_network(std::move(pipeline));
+    EXPECT_EQ(num_waited.load(), 3);
+
+    // Awaiting a completed collective returns immediately.
+    coro::sync_wait(exchange.wait());
+    for (auto src : srcs) {
+        EXPECT_TRUE(exchange.extract(src).empty());
+    }
+}
+
 TEST_P(StreamingSparseAlltoall, simultaneous_different_tags) {
     auto comm = GlobalEnvironment->comm_;
     auto [srcs, dsts] = ring_peers(comm);
@@ -189,7 +223,8 @@ TEST_P(StreamingSparseAlltoall, simultaneous_different_tags) {
                 )
             );
         }
-        co_await exchange.insert_finished();
+        exchange.insert_finished();
+        co_await exchange.wait();
         if (!srcs.empty()) {
             auto data = exchange.extract(srcs.front());
             EXPECT_EQ(data.size(), 1);

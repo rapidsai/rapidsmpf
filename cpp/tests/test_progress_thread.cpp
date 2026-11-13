@@ -3,7 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <atomic>
 #include <future>
+#include <stdexcept>
+#include <thread>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -112,6 +115,52 @@ TEST(ProgressThreadTests, RemoveFunctionWithDelayedPause) {
     progress_thread.remove_function(id);
 
     future.get();
+}
+
+TEST(ProgressThreadTests, FunctionErrorIsReportedToCallback) {
+    ProgressThread progress_thread;
+    std::atomic<int> num_errors{0};
+    std::exception_ptr reported;
+    std::atomic<int> num_failing_calls{0};
+    std::atomic<int> num_healthy_calls{0};
+
+    auto failing = progress_thread.add_function(
+        [&]() -> ProgressThread::ProgressState {
+            ++num_failing_calls;
+            throw std::runtime_error("progress function failed");
+        },
+        [&](std::exception_ptr error) {
+            ++num_errors;
+            reported = std::move(error);
+        }
+    );
+    // Done after a fixed number of calls, which removing it waits for.
+    auto healthy = progress_thread.add_function([&]() {
+        return ++num_healthy_calls == 10 ? ProgressThread::ProgressState::Done
+                                         : ProgressThread::ProgressState::InProgress;
+    });
+
+    // Removing a failed function doesn't throw. It waits until the function failed,
+    // and so until the error was reported.
+    EXPECT_NO_THROW(progress_thread.remove_function(failing));
+    ASSERT_EQ(num_errors.load(), 1);
+    EXPECT_THAT(
+        [&] { std::rethrow_exception(reported); },
+        ::testing::ThrowsMessage<std::runtime_error>(
+            ::testing::StrEq("progress function failed")
+        )
+    );
+
+    // The other functions keep being progressed, and new functions can be added.
+    auto another =
+        progress_thread.add_function([] { return ProgressThread::ProgressState::Done; });
+    progress_thread.remove_function(another);
+    progress_thread.remove_function(healthy);
+    EXPECT_EQ(num_healthy_calls.load(), 10);
+
+    // The failed function was never called again and the error reported only once.
+    EXPECT_EQ(num_failing_calls.load(), 1);
+    EXPECT_EQ(num_errors.load(), 1);
 }
 
 TEST(ProgressThreadTests, CanDoCudaWorkOnFirstCallback) {

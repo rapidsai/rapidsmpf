@@ -21,11 +21,11 @@ namespace rapidsmpf::streaming {
  *
  * ShufflerAsync provides an asynchronous interface to the shuffler, allowing data to be
  * inserted and then extracted after the shuffle completes. All local partitions complete
- * simultaneously, so extraction is non-blocking after awaiting `insert_finished()`.
+ * simultaneously, so extraction is non-blocking after awaiting `wait()`.
  *
- * @warning The coroutine returned by `insert_finished()` _must_ be awaited before the
- * object is destroyed, otherwise the shuffle with terminate in destruction and/or
- * deadlocks will occur.
+ * @warning `insert_finished()` must be called and the shuffle must have completed, as
+ * signalled by `wait()`, before the object is destroyed. Otherwise destruction
+ * terminates the process.
  *
  * Example usage:
  * @code{.cpp}
@@ -33,7 +33,8 @@ namespace rapidsmpf::streaming {
  * while (...) {
  *   shuffle.insert(...);
  * }
- * co_await shuffle.insert_finished();
+ * shuffle.insert_finished();
+ * co_await shuffle.wait();
  * for (auto pid : shuffle.local_partitions()) {
  *   auto chunks = shuffle.extract(pid);
  *   // process chunks...
@@ -119,16 +120,21 @@ class ShufflerAsync {
     /// @copydoc rapidsmpf::shuffler::Shuffler::insert
     void insert(std::unordered_map<shuffler::PartID, PackedData>&& chunks);
 
+    /// @copydoc rapidsmpf::shuffler::Shuffler::insert_finished()
+    void insert_finished();
+
     /**
-     * @copydoc rapidsmpf::shuffler::Shuffler::insert_finished()
+     * @brief Wait for the shuffle to complete on this rank.
      *
-     * @note This coroutine function must be awaited to ensure the shuffler has fully
-     * completed its asynchronous operations.
+     * The shuffle completes once every rank has called `insert_finished()` and all
+     * data addressed to this rank has arrived. After that, partitions can be extracted
+     * and the `op_id` may be reused.
      *
-     * @return A coroutine that inserts the finish marker and suspends until the shuffle
-     * has completed. Once complete,
+     * Several coroutines may await `wait()` concurrently.
+     *
+     * @return A coroutine that completes when the shuffle has completed.
      */
-    [[nodiscard]] Actor insert_finished();
+    [[nodiscard]] coro::task<void> wait();
 
     /**
      * @brief Extract all chunks belonging to the specified partition.
