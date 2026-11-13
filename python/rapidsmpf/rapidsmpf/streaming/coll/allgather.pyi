@@ -5,6 +5,7 @@ from typing import Any
 
 from rapidsmpf.communicator.communicator import Communicator
 from rapidsmpf.memory.packed_data import PackedData
+from rapidsmpf.memory.reservation_events import ReservationContext
 from rapidsmpf.streaming.chunks.packed_data import PackedDataChunk
 from rapidsmpf.streaming.coll.collective import Collective
 from rapidsmpf.streaming.core.actor import CppActor
@@ -18,7 +19,7 @@ class AllGather(Collective):
         comm: Communicator,
         op_id: int,
         *,
-        reservation_context: int = 0,
+        reservation_context: ReservationContext | None = None,
     ) -> None: ...
     @property
     def comm(self) -> Communicator: ...
@@ -43,5 +44,5 @@ def allgather(
     op_id: int,
     *,
     ordered: bool,
-    reservation_context: int = 0,
+    reservation_context: ReservationContext | None = None,
 ) -> CppActor: ...

@@ -163,7 +163,7 @@ class ReceivedChunks {
         BufferResource* br,
         std::size_t amount,
         MemoryType mem_type = MemoryType::DEVICE,
-        ReservationContext reservation_context = 0
+        ReservationContext reservation_context = {}
     );
 
   private:

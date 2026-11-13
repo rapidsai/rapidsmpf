@@ -66,7 +66,7 @@ Actor fanout(
     std::shared_ptr<Channel> ch_in,
     std::vector<std::shared_ptr<Channel>> chs_out,
     FanoutPolicy policy,
-    ReservationContext reservation_context = 0
+    ReservationContext reservation_context = {}
 );
 
 }  // namespace rapidsmpf::streaming::actor

@@ -13,7 +13,7 @@ from rapidsmpf.communicator.communicator cimport (Communicator, Rank,
 from rapidsmpf.memory.buffer_resource cimport (BufferResource,
                                                cpp_BufferResource)
 from rapidsmpf.memory.packed_data cimport cpp_PackedData
-from rapidsmpf.memory.reservation_events cimport ReservationContext
+from rapidsmpf.memory.reservation_events cimport cpp_ReservationContext
 from rapidsmpf.progress_thread cimport cpp_ProgressThread
 
 
@@ -28,7 +28,7 @@ cdef extern from "<rapidsmpf/coll/sparse_alltoall.hpp>" nogil:
             vector[Rank] srcs,
             vector[Rank] dsts,
             function[void()] finished_callback,
-            ReservationContext reservation_context,
+            cpp_ReservationContext reservation_context,
         ) except +ex_handler
         void insert(Rank dst, cpp_PackedData packed_data) \
             except +ex_handler

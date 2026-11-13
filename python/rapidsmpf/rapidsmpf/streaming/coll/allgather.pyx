@@ -13,7 +13,9 @@ from rapidsmpf.coll.allgather cimport Ordered as cpp_Ordered
 from rapidsmpf.communicator.communicator cimport Communicator
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
-from rapidsmpf.memory.reservation_events cimport ReservationContext
+from rapidsmpf.memory.reservation_events cimport (ReservationContext,
+                                                  cpp_ReservationContext,
+                                                  unwrap_reservation_context)
 from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
 from rapidsmpf.streaming._detail.libcoro_spawn_task cimport cpp_set_py_future
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
@@ -123,14 +125,17 @@ cdef class AllGather(Collective):
         Communicator comm not None,
         int32_t op_id,
         *,
-        ReservationContext reservation_context=0,
+        ReservationContext reservation_context=None,
     ):
         self._ctx = ctx
         self._comm = comm
         self.in_context = False
+        cdef cpp_ReservationContext c_reservation_context = (
+            unwrap_reservation_context(reservation_context)
+        )
         with nogil:
             self._handle = make_shared[cpp_AllGather](
-                ctx._handle, comm._handle, op_id, reservation_context
+                ctx._handle, comm._handle, op_id, c_reservation_context
             )
 
     def __dealloc__(self):
@@ -241,7 +246,7 @@ def allgather(
     int32_t op_id,
     *,
     bool ordered,
-    ReservationContext reservation_context=0,
+    ReservationContext reservation_context=None,
 ):
     """
     Launch an allgather actor for a single allgather operation.
@@ -275,6 +280,9 @@ def allgather(
 
     cdef cpp_Actor _ret
     cdef cpp_Ordered c_ordered = cpp_Ordered.YES if ordered else cpp_Ordered.NO
+    cdef cpp_ReservationContext c_reservation_context = (
+        unwrap_reservation_context(reservation_context)
+    )
     with nogil:
         _ret = cpp_allgather(
             ctx._handle,
@@ -283,6 +291,6 @@ def allgather(
             ch_out._handle,
             op_id,
             c_ordered,
-            reservation_context,
+            c_reservation_context,
         )
     return CppActor.from_handle(make_unique[cpp_Actor](move(_ret)), owner=None)

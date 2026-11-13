@@ -651,7 +651,7 @@ TEST_F(SparseAlltoallTest, simultaneous_different_tags) {
 // The reservations made by a SparseAlltoall carry the context it was constructed with:
 // the receive buffers allocated by the progress thread and the spill of received chunks.
 TEST_F(SparseAlltoallTest, reservation_context_is_recorded) {
-    constexpr rapidsmpf::ReservationContext context = 42;
+    auto const context = rapidsmpf::ReservationContextCreator{}.create();
     constexpr int n_messages = 3;
     auto const& comm = GlobalEnvironment->comm_;
     if (comm->nranks() < 2) {

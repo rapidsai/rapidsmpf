@@ -135,7 +135,7 @@ class MemoryReserveOrWait {
     coro::task<MemoryReservation> reserve_or_wait(
         std::size_t size,
         std::int64_t net_memory_delta,
-        ReservationContext reservation_context = 0
+        ReservationContext reservation_context = {}
     );
 
     /**
@@ -166,7 +166,7 @@ class MemoryReserveOrWait {
     coro::task<std::pair<MemoryReservation, std::size_t>> reserve_or_wait_or_overbook(
         std::size_t size,
         std::int64_t net_memory_delta,
-        ReservationContext reservation_context = 0
+        ReservationContext reservation_context = {}
     );
 
     /**
@@ -195,7 +195,7 @@ class MemoryReserveOrWait {
     coro::task<MemoryReservation> reserve_or_wait_or_fail(
         std::size_t size,
         std::int64_t net_memory_delta,
-        ReservationContext reservation_context = 0
+        ReservationContext reservation_context = {}
     );
 
     /**
@@ -402,7 +402,7 @@ coro::task<MemoryReservation> reserve_memory(
     std::int64_t net_memory_delta,
     MemoryType mem_type = MemoryType::DEVICE,
     std::optional<AllowOverbooking> allow_overbooking = std::nullopt,
-    ReservationContext reservation_context = 0
+    ReservationContext reservation_context = {}
 );
 
 }  // namespace rapidsmpf::streaming

@@ -36,7 +36,7 @@ MemoryReservation::MemoryReservation(MemoryReservation&& o)
           o.mem_type_,
           std::exchange(o.br_, nullptr),
           std::exchange(o.size_, 0),
-          std::exchange(o.reservation_context_, 0),
+          std::exchange(o.reservation_context_, {}),
           std::exchange(o.observed_session_, 0)
       } {}
 
@@ -45,7 +45,7 @@ MemoryReservation& MemoryReservation::operator=(MemoryReservation&& o) noexcept 
     mem_type_ = o.mem_type_;
     br_ = std::exchange(o.br_, nullptr);
     size_ = std::exchange(o.size_, 0);
-    reservation_context_ = std::exchange(o.reservation_context_, 0);
+    reservation_context_ = std::exchange(o.reservation_context_, {});
     observed_session_ = std::exchange(o.observed_session_, 0);
     return *this;
 }

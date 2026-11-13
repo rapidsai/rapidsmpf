@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from rapidsmpf.memory.buffer_resource import BufferResource
+from rapidsmpf.memory.reservation_events import ReservationContextCreator
 from rapidsmpf.memory.spill import spill_partitions, unspill_partitions
 from rapidsmpf.testing import generate_packed_data, validate_packed_data
 
@@ -47,18 +48,21 @@ def test_unspill_reservation_context_is_recorded(
         br=br,
     )
     br.start_reservation_event_recording()
+    reservation_context = ReservationContextCreator().create()
 
     unspilled = unspill_partitions(
         spilled,
         br=br,
         allow_overbooking=False,
-        reservation_context=7,
+        reservation_context=reservation_context,
     )
     assert len(unspilled) == 1
     batch = br.drain_reservation_events()
     assert batch.dropped_event_count == 0
     deltas = [
-        event.byte_delta for event in batch.events if event.reservation_context == 7
+        event.byte_delta
+        for event in batch.events
+        if event.reservation_context == reservation_context
     ]
     assert any(delta > 0 for delta in deltas)
     assert any(delta < 0 for delta in deltas)

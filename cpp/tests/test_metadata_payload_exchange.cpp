@@ -62,7 +62,7 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
         std::optional<std::vector<Rank>> peers = std::nullopt,
         TagMetadataPayloadExchange::ForcedReceive forced_receive =
             TagMetadataPayloadExchange::ForcedReceive::MOVE_TO_DISK,
-        ReservationContext reservation_context = 0
+        ReservationContext reservation_context = {}
     ) {
         finish_and_wait();
         comm_interface = std::make_unique<TagMetadataPayloadExchange>(
@@ -763,7 +763,7 @@ TEST_F(MetadataPayloadExchangeTest, MovesForcedReceiveToDiskWithReservationConte
     }
     Rank next_rank = (comm->rank() + 1) % comm->nranks();
     constexpr std::size_t data_size = 64;
-    constexpr ReservationContext context = 42;
+    auto const context = ReservationContextCreator{}.create();
 
     TempDir temp_dir;
     auto disk_br = make_disk_br(temp_dir);

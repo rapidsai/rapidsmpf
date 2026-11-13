@@ -115,7 +115,7 @@ std::shared_ptr<rapidsmpf::BufferResource> make_pinned_buffer_resource(
 
 void BM_ReserveOrFailLifecycle(benchmark::State& state) {
     auto br = make_pinned_buffer_resource(rapidsmpf::PinnedMemoryDisabled);
-    constexpr rapidsmpf::ReservationContext reservation_context = 42;
+    auto const reservation_context = rapidsmpf::ReservationContextCreator{}.create();
     auto const recording = static_cast<bool>(state.range(0));
     if (recording) {
         br->start_reservation_event_recording();
@@ -138,7 +138,7 @@ void BM_ReserveOrFailLifecycle(benchmark::State& state) {
 
 void BM_TryReserveLifecycle(benchmark::State& state) {
     auto br = make_pinned_buffer_resource(rapidsmpf::PinnedMemoryDisabled);
-    constexpr rapidsmpf::ReservationContext reservation_context = 42;
+    auto const reservation_context = rapidsmpf::ReservationContextCreator{}.create();
     auto const recording = static_cast<bool>(state.range(0));
     constexpr std::array memory_types{
         rapidsmpf::MemoryType::PINNED_HOST, rapidsmpf::MemoryType::DEVICE

@@ -6,7 +6,7 @@ from libcpp.memory cimport shared_ptr
 from libcpp.vector cimport vector
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
-from rapidsmpf.memory.reservation_events cimport ReservationContext
+from rapidsmpf.memory.reservation_events cimport cpp_ReservationContext
 from rapidsmpf.streaming.core.actor cimport cpp_Actor
 from rapidsmpf.streaming.core.channel cimport cpp_Channel
 from rapidsmpf.streaming.core.context cimport cpp_Context
@@ -24,5 +24,5 @@ cdef extern from "<rapidsmpf/streaming/core/fanout.hpp>" \
             shared_ptr[cpp_Channel] ch_in,
             vector[shared_ptr[cpp_Channel]] chs_out,
             FanoutPolicy policy,
-            ReservationContext reservation_context,
+            cpp_ReservationContext reservation_context,
         ) except +ex_handler

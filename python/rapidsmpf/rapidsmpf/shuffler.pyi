@@ -8,6 +8,7 @@ from enum import IntEnum
 from rapidsmpf.communicator.communicator import Communicator
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.memory.packed_data import PackedData
+from rapidsmpf.memory.reservation_events import ReservationContext
 
 class PartitionAssignment(IntEnum):
     ROUND_ROBIN = ...
@@ -23,7 +24,7 @@ class Shuffler:
         br: BufferResource,
         partition_assignment: PartitionAssignment = ...,
         *,
-        reservation_context: int = 0,
+        reservation_context: ReservationContext | None = None,
     ) -> None: ...
     def shutdown(self) -> None: ...
     def __str__(self) -> str: ...

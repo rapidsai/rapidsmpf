@@ -554,7 +554,7 @@ TEST(BufferResource, EnsureMemoryTypeTriesInReverseOrder) {
 }
 
 TEST(BufferResource, EnsureMemoryTypeRecordsReservationContext) {
-    constexpr ReservationContext context = 42;
+    auto const context = ReservationContextCreator{}.create();
     TempDir temp_dir;
     auto br = create_br(temp_dir.path());
     cuda::stream_ref stream{cudaStreamLegacy};

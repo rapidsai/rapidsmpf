@@ -15,7 +15,9 @@ from rapidsmpf.memory.buffer_resource cimport (BufferResource,
                                                cpp_BufferResource)
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
-from rapidsmpf.memory.reservation_events cimport ReservationContext
+from rapidsmpf.memory.reservation_events cimport (ReservationContext,
+                                                  cpp_ReservationContext,
+                                                  unwrap_reservation_context)
 
 
 cdef class SparseAlltoall:
@@ -62,13 +64,16 @@ cdef class SparseAlltoall:
         srcs,
         dsts,
         *,
-        ReservationContext reservation_context=0,
+        ReservationContext reservation_context=None,
     ):
         self._br = br
         self._comm = comm
         cdef cpp_BufferResource* br_ = br.ptr()
         cdef vector[Rank] c_srcs = list(srcs)
         cdef vector[Rank] c_dsts = list(dsts)
+        cdef cpp_ReservationContext c_reservation_context = (
+            unwrap_reservation_context(reservation_context)
+        )
         with nogil:
             self._handle = make_unique[cpp_SparseAlltoall](
                 comm._handle,
@@ -77,7 +82,7 @@ cdef class SparseAlltoall:
                 move(c_srcs),
                 move(c_dsts),
                 nullptr,
-                reservation_context,
+                c_reservation_context,
             )
 
     def __dealloc__(self):

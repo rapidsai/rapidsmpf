@@ -6,6 +6,7 @@
 #include <atomic>
 #include <cstdint>
 #include <thread>
+#include <type_traits>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -28,19 +29,20 @@ std::shared_ptr<BufferResource> make_resource(std::int64_t device_limit = 1024) 
 
 TEST(ReservationEvents, RecordingLifecycleAndExactDeltas) {
     auto br = make_resource();
+    auto const context = ReservationContextCreator{}.create();
     EXPECT_TRUE(br->drain_reservation_events().events.empty());
     EXPECT_TRUE(br->stop_reservation_event_recording().events.empty());
 
     br->start_reservation_event_recording();
     EXPECT_THROW(br->start_reservation_event_recording(), std::logic_error);
-    auto reservation = br->reserve_or_fail(100, MemoryType::DEVICE, std::uint64_t{42});
+    auto reservation = br->reserve_or_fail(100, MemoryType::DEVICE, context);
     br->release(reservation, 25);
     reservation.clear();
 
     auto batch = br->stop_reservation_event_recording();
     ASSERT_EQ(batch.events.size(), 3);
     EXPECT_EQ(batch.dropped_event_count, 0);
-    EXPECT_EQ(batch.events[0].reservation_context, 42);
+    EXPECT_EQ(batch.events[0].reservation_context, context);
     EXPECT_EQ(batch.events[0].memory_type, MemoryType::DEVICE);
     EXPECT_EQ(batch.events[0].byte_delta, 100);
     EXPECT_EQ(batch.events[1].byte_delta, -25);
@@ -55,11 +57,12 @@ TEST(ReservationEvents, RecordingLifecycleAndExactDeltas) {
 
 TEST(ReservationEvents, SplitAndMoveConserveOccupancy) {
     auto br = make_resource();
+    auto const context = ReservationContextCreator{}.create();
     br->start_reservation_event_recording();
-    auto reservation = br->reserve_or_fail(100, MemoryType::DEVICE, std::uint64_t{7});
+    auto reservation = br->reserve_or_fail(100, MemoryType::DEVICE, context);
     auto child = reservation.split(40);
     auto moved = std::move(child);
-    EXPECT_EQ(moved.reservation_context(), 7);
+    EXPECT_EQ(moved.reservation_context(), context);
     EXPECT_TRUE(br->drain_reservation_events().events.size() == 1);
 
     moved.clear();
@@ -72,11 +75,13 @@ TEST(ReservationEvents, SplitAndMoveConserveOccupancy) {
 
 TEST(ReservationEvents, OnlySameSessionEmitsNegativeDelta) {
     auto br = make_resource();
-    auto before = br->reserve_or_fail(10, MemoryType::DEVICE, std::uint64_t{1});
+    auto before =
+        br->reserve_or_fail(10, MemoryType::DEVICE, ReservationContextCreator{}.create());
 
     br->start_reservation_event_recording();
     before.clear();
-    auto observed = br->reserve_or_fail(20, MemoryType::DEVICE, std::uint64_t{2});
+    auto observed =
+        br->reserve_or_fail(20, MemoryType::DEVICE, ReservationContextCreator{}.create());
     auto first = br->stop_reservation_event_recording();
     ASSERT_EQ(first.events.size(), 1);
     EXPECT_EQ(first.events[0].byte_delta, 20);
@@ -90,8 +95,9 @@ TEST(ReservationEvents, OnlySameSessionEmitsNegativeDelta) {
 TEST(ReservationEvents, ZeroByteOperationsEmitNothing) {
     auto br = make_resource();
     br->start_reservation_event_recording();
-    auto [reservation, overbooked] =
-        br->reserve(MemoryType::DEVICE, 0, AllowOverbooking::YES, std::uint64_t{99});
+    auto [reservation, overbooked] = br->reserve(
+        MemoryType::DEVICE, 0, AllowOverbooking::YES, ReservationContextCreator{}.create()
+    );
     EXPECT_EQ(reservation.size(), 0);
     EXPECT_EQ(overbooked, 0);
     auto batch = br->stop_reservation_event_recording();
@@ -180,8 +186,9 @@ TEST(ReservationEvents, ConcurrentProducersAndDrainsLoseNoEvents) {
     for (std::size_t producer = 0; producer < producer_count; ++producer) {
         producers.emplace_back([&, producer] {
             for (std::size_t i = 0; i < events_per_producer; ++i) {
-                auto reservation =
-                    br->reserve_or_fail(1, MemoryType::DEVICE, producer + 1);
+                auto reservation = br->reserve_or_fail(
+                    1, MemoryType::DEVICE, ReservationContextCreator{}.create()
+                );
                 reservation.clear();
             }
             ++producers_done;
@@ -212,6 +219,22 @@ TEST(ReservationEvents, ConcurrentProducersAndDrainsLoseNoEvents) {
     for (std::size_t i = 1; i < events.size(); ++i) {
         EXPECT_GE(events[i].timestamp_ns, events[i - 1].timestamp_ns);
     }
+}
+
+TEST(ReservationEvents, ContextsAreOpaqueCopyableAndUnique) {
+    static_assert(std::is_copy_constructible_v<ReservationContext>);
+    static_assert(std::is_copy_assignable_v<ReservationContext>);
+    static_assert(!std::is_constructible_v<ReservationContext, std::uint64_t>);
+
+    auto creator = ReservationContextCreator{};
+    auto first = creator.create();
+    auto copy = first;
+    auto second = creator.create();
+
+    EXPECT_EQ(first, copy);
+    EXPECT_NE(first, second);
+    EXPECT_TRUE(first.is_attributed());
+    EXPECT_FALSE(ReservationContext{}.is_attributed());
 }
 
 }  // namespace

@@ -6,6 +6,7 @@ from contextlib import contextmanager
 
 from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.buffer_resource import BufferResource
+from rapidsmpf.memory.reservation_events import ReservationContext
 
 class MemoryReservation:
     @property
@@ -13,7 +14,7 @@ class MemoryReservation:
     @property
     def mem_type(self) -> MemoryType: ...
     @property
-    def reservation_context(self) -> int: ...
+    def reservation_context(self) -> ReservationContext: ...
     @property
     def br(self) -> BufferResource: ...
     def clear(self) -> None: ...

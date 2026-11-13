@@ -137,7 +137,7 @@ class Shuffler {
         BufferResource* br,
         FinishedCallback&& finished_callback,
         PartitionOwner partition_owner = round_robin,
-        ReservationContext reservation_context = 0
+        ReservationContext reservation_context = {}
     );
 
     /**
@@ -162,7 +162,7 @@ class Shuffler {
         PartID total_num_partitions,
         BufferResource* br,
         PartitionOwner partition_owner = round_robin,
-        ReservationContext reservation_context = 0
+        ReservationContext reservation_context = {}
     )
         : Shuffler(
               comm,

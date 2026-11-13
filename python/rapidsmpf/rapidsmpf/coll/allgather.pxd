@@ -12,7 +12,7 @@ from rapidsmpf.communicator.communicator cimport Communicator, cpp_Communicator
 from rapidsmpf.memory.buffer_resource cimport (BufferResource,
                                                cpp_BufferResource)
 from rapidsmpf.memory.packed_data cimport cpp_PackedData
-from rapidsmpf.memory.reservation_events cimport ReservationContext
+from rapidsmpf.memory.reservation_events cimport cpp_ReservationContext
 from rapidsmpf.progress_thread cimport cpp_ProgressThread
 
 
@@ -31,7 +31,7 @@ cdef extern from "<rapidsmpf/coll/allgather.hpp>" nogil:
             int32_t op_id,
             cpp_BufferResource *br,
             function[void()] finished_callback,
-            ReservationContext reservation_context,
+            cpp_ReservationContext reservation_context,
         ) except +ex_handler
         void insert(uint64_t sequence_number, cpp_PackedData packed_data) \
             except +ex_handler

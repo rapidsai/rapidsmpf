@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+import copy
 import os
 import pathlib
 
@@ -26,6 +27,10 @@ from rapidsmpf.memory.buffer_resource import (
     spill_dir_from_options,
 )
 from rapidsmpf.memory.memory_reservation import opaque_memory_usage
+from rapidsmpf.memory.reservation_events import (
+    ReservationContext,
+    ReservationContextCreator,
+)
 from rapidsmpf.statistics import Statistics
 from rapidsmpf.utils.memory import _MAX_RESERVATION_BYTES
 
@@ -100,6 +105,7 @@ def assert_empty_batch(batch: ReservationEventBatch) -> None:
 
 def test_reservation_event_recording_lifecycle() -> None:
     br = BufferResource(rmm.mr.CudaMemoryResource())
+    context = ReservationContextCreator().create()
     br.set_memory_limit(MemoryType.DEVICE, 10)
     assert_empty_batch(br.drain_reservation_events())
     assert_empty_batch(br.stop_reservation_event_recording())
@@ -111,9 +117,9 @@ def test_reservation_event_recording_lifecycle() -> None:
         MemoryType.DEVICE,
         4,
         allow_overbooking=False,
-        reservation_context=42,
+        reservation_context=context,
     )
-    assert reservation.reservation_context == 42
+    assert reservation.reservation_context == context
     first = br.drain_reservation_events()
     assert first.dropped_event_count == 0
     assert len(first.events) == 1
@@ -121,7 +127,7 @@ def test_reservation_event_recording_lifecycle() -> None:
     assert event.timestamp_ns > 0
     assert event == ReservationEvent(
         timestamp_ns=event.timestamp_ns,
-        reservation_context=42,
+        reservation_context=context,
         memory_type=MemoryType.DEVICE,
         byte_delta=4,
     )
@@ -142,10 +148,30 @@ def test_reservation_event_recording_lifecycle() -> None:
         (event.reservation_context, event.memory_type, event.byte_delta)
         for event in final.events
     ] == [
-        (42, MemoryType.DEVICE, -1),
-        (42, MemoryType.DEVICE, -3),
+        (context, MemoryType.DEVICE, -1),
+        (context, MemoryType.DEVICE, -3),
     ]
     assert_empty_batch(br.stop_reservation_event_recording())
+
+
+def test_reservation_contexts_are_opaque_copyable_and_unique() -> None:
+    creator = ReservationContextCreator()
+    first = creator.create()
+    second = creator.create()
+
+    assert first == copy.copy(first) == copy.deepcopy(first)
+    assert first != second
+    assert first.is_attributed
+    assert not ReservationContext().is_attributed
+
+    br = BufferResource(rmm.mr.CudaMemoryResource())
+    with pytest.raises(TypeError, match="ReservationContext"):
+        br.reserve(
+            MemoryType.DEVICE,
+            1,
+            allow_overbooking=False,
+            reservation_context=1,  # type: ignore[arg-type]
+        )
 
 
 def test_memory_resource_introspection() -> None:

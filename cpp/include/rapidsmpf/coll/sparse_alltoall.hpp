@@ -80,7 +80,7 @@ class SparseAlltoall {
         std::vector<Rank> srcs,
         std::vector<Rank> dsts,
         std::function<void()>&& finished_callback = nullptr,
-        ReservationContext reservation_context = 0
+        ReservationContext reservation_context = {}
     );
 
     ~SparseAlltoall() noexcept;

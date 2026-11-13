@@ -230,7 +230,7 @@ class Chunk {
         std::vector<std::uint8_t>&& metadata,
         std::unique_ptr<Buffer> data,
         BufferResource* br,
-        ReservationContext reservation_context = 0
+        ReservationContext reservation_context = {}
     );
 
     /**
@@ -357,7 +357,7 @@ class PostBox {
         std::size_t amount,
         MemoryType mem_type,
         std::span<MemoryType const> spill_target_types,
-        ReservationContext reservation_context = 0
+        ReservationContext reservation_context = {}
     );
 
   private:

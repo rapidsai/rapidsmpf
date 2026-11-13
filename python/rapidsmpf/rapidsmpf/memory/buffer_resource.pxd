@@ -25,7 +25,8 @@ from rapidsmpf.memory.memory_reservation cimport cpp_MemoryReservation
 from rapidsmpf.memory.pinned_memory_resource cimport (PinnedMemoryResource,
                                                       cpp_PinnedMemoryResource,
                                                       cpp_PinnedPoolProperties)
-from rapidsmpf.memory.reservation_events cimport ReservationContext
+from rapidsmpf.memory.reservation_events cimport (ReservationContext,
+                                                  cpp_ReservationContext)
 from rapidsmpf.memory.spill_manager cimport SpillManager, cpp_SpillManager
 from rapidsmpf.rmm_resource_adaptor cimport (RmmResourceAdaptor,
                                              cpp_RmmResourceAdaptor)
@@ -46,7 +47,7 @@ cdef extern from "<rapidsmpf/disk/disk_resource.hpp>" nogil:
 cdef extern from "<rapidsmpf/memory/reservation_events.hpp>" namespace "rapidsmpf":
     cdef cppclass cpp_ReservationEvent "rapidsmpf::ReservationEvent":
         int64_t timestamp_ns
-        ReservationContext reservation_context
+        cpp_ReservationContext reservation_context
         MemoryType memory_type
         int64_t byte_delta
 

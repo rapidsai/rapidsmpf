@@ -67,7 +67,7 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
         Duration allocation_timeout,
         BufferResource* br,
         ForcedReceive forced_receive = ForcedReceive::MOVE_TO_DISK,
-        ReservationContext reservation_context = 0
+        ReservationContext reservation_context = {}
     );
 
     /**

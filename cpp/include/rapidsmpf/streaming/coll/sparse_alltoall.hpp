@@ -48,7 +48,7 @@ class SparseAlltoall {
         OpID op_id,
         std::vector<Rank> srcs,
         std::vector<Rank> dsts,
-        ReservationContext reservation_context = 0
+        ReservationContext reservation_context = {}
     );
 
     SparseAlltoall(SparseAlltoall const&) = delete;

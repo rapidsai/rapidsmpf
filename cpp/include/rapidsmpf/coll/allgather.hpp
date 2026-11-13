@@ -126,7 +126,7 @@ class AllGather {
         OpID op_id,
         BufferResource* br,
         std::function<void(void)>&& finished_callback = nullptr,
-        ReservationContext reservation_context = 0
+        ReservationContext reservation_context = {}
     );
 
     /// @brief Deleted copy constructor.

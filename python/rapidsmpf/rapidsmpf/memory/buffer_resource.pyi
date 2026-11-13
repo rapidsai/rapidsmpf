@@ -18,6 +18,7 @@ from rapidsmpf.memory.pinned_memory_resource import (
     PinnedMemoryResource,
     PinnedPoolProperties,
 )
+from rapidsmpf.memory.reservation_events import ReservationContext
 from rapidsmpf.memory.spill_manager import SpillManager
 from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.statistics import Statistics
@@ -27,14 +28,14 @@ class ReservationEvent:
         self,
         *,
         timestamp_ns: int,
-        reservation_context: int,
+        reservation_context: ReservationContext,
         memory_type: MemoryType,
         byte_delta: int,
     ) -> None: ...
     @property
     def timestamp_ns(self) -> int: ...
     @property
-    def reservation_context(self) -> int: ...
+    def reservation_context(self) -> ReservationContext: ...
     @property
     def memory_type(self) -> MemoryType: ...
     @property
@@ -104,21 +105,21 @@ class BufferResource:
         size: int,
         *,
         allow_overbooking: bool,
-        reservation_context: int = 0,
+        reservation_context: ReservationContext | None = None,
     ) -> tuple[MemoryReservation, int]: ...
     def reserve_device_memory_and_spill(
         self,
         size: int,
         *,
         allow_overbooking: bool,
-        reservation_context: int = 0,
+        reservation_context: ReservationContext | None = None,
     ) -> MemoryReservation: ...
     def reserve_or_fail(
         self,
         size: int,
         mem_types: list[MemoryType],
         *,
-        reservation_context: int = 0,
+        reservation_context: ReservationContext | None = None,
     ) -> MemoryReservation: ...
     def release(self, reservation: MemoryReservation, size: int) -> int: ...
     def make_buffer(

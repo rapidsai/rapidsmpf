@@ -58,7 +58,7 @@ class SpillableMessages {
      */
     explicit SpillableMessages(
         SpillOrder spill_order = SpillOrder::EARLIEST_FIRST,
-        ReservationContext reservation_context = 0
+        ReservationContext reservation_context = {}
     )
         : spill_order_{spill_order}, default_reservation_context_{reservation_context} {}
 

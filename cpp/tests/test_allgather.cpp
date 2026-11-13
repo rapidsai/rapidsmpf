@@ -171,7 +171,7 @@ TEST_P(AllGatherTest, basic_allgather) {
 // come from spilling, which the spill manager runs on the calling thread, and, with more
 // than one rank, from the receive buffers that the progress thread allocates.
 TEST_F(BaseAllGatherTest, reservation_context_is_recorded) {
-    constexpr rapidsmpf::ReservationContext context = 42;
+    auto const context = rapidsmpf::ReservationContextCreator{}.create();
     constexpr int n_elements = 100;
     constexpr int n_inserts = 4;
     auto const& comm = GlobalEnvironment->comm_;

@@ -130,8 +130,10 @@ TEST_F(StreamingSpillableMessages, InsertSpillExtract) {
 
 TEST_F(StreamingSpillableMessages, SpillUsesMessageReservationContext) {
     SpillableMessages msgs;
+    auto const context = ReservationContextCreator{}.create();
     auto mid = msgs.insert(
-        create_int_msg(1, 2, MemoryType::DEVICE, ContentDescription::Spillable::YES), 42
+        create_int_msg(1, 2, MemoryType::DEVICE, ContentDescription::Spillable::YES),
+        context
     );
 
     br->start_reservation_event_recording();
@@ -142,7 +144,7 @@ TEST_F(StreamingSpillableMessages, SpillUsesMessageReservationContext) {
     EXPECT_EQ(batch.dropped_event_count, 0);
     std::int64_t delta_sum = 0;
     for (auto const& event : batch.events) {
-        EXPECT_EQ(event.reservation_context, 42);
+        EXPECT_EQ(event.reservation_context, context);
         delta_sum += event.byte_delta;
     }
     EXPECT_EQ(delta_sum, 0);

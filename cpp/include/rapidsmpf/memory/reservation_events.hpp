@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <vector>
 
@@ -15,14 +16,69 @@ namespace rapidsmpf {
 /**
  * @brief Opaque telemetry attribution token carried by memory reservations.
  *
- * Callers choose the values and rapidsmpf never interprets them: a token is attached to a
+ * Tokens can only be created by `ReservationContextCreator`. A token is attached to a
  * reservation when it is created and is reported unchanged in the `ReservationEvent`s
- * recorded for that reservation, which lets consumers of the events attribute memory
- * usage to the code that requested it.
+ * recorded for that reservation.
  *
- * The value `0` is the default and means unattributed.
+ * The default-constructed token means unattributed.
  */
-using ReservationContext = std::uint64_t;
+class ReservationContext {
+    friend class ReservationContextCreator;
+
+  public:
+    /// @brief Construct the unattributed context.
+    ReservationContext() = default;
+
+    /**
+     * @brief Test whether this context carries attribution.
+     *
+     * @return Whether the context was produced by a `ReservationContextCreator`.
+     */
+    [[nodiscard]] constexpr bool is_attributed() const noexcept {
+        return value_ != 0;
+    }
+
+    /**
+     * @brief Return a stable hash value for use by language bindings and containers.
+     *
+     * @return The hash value.
+     */
+    [[nodiscard]] constexpr std::uint64_t hash() const noexcept {
+        return value_;
+    }
+
+    /**
+     * @brief Compare two contexts for identity.
+     *
+     * @return Whether both contexts represent the same attribution.
+     */
+    friend constexpr bool operator==(
+        ReservationContext const&, ReservationContext const&
+    ) = default;
+
+  private:
+    explicit constexpr ReservationContext(std::uint64_t value) : value_{value} {}
+
+    std::uint64_t value_{0};
+};
+
+/**
+ * @brief Creates globally unique reservation attribution tokens.
+ */
+class ReservationContextCreator {
+  public:
+    /**
+     * @brief Create a globally unique attributed context.
+     *
+     * @return A new reservation context.
+     */
+    [[nodiscard]] ReservationContext create() const noexcept {
+        return ReservationContext{next_.fetch_add(1, std::memory_order_relaxed)};
+    }
+
+  private:
+    inline static std::atomic<std::uint64_t> next_{1};
+};
 
 /**
  * @brief A change in reserved, but perhaps not yet used, bytes.

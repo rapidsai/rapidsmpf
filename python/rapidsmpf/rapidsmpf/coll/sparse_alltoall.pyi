@@ -7,6 +7,7 @@ from collections.abc import Iterable
 from rapidsmpf.communicator.communicator import Communicator
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.memory.packed_data import PackedData
+from rapidsmpf.memory.reservation_events import ReservationContext
 
 class SparseAlltoall:
     def __init__(
@@ -17,7 +18,7 @@ class SparseAlltoall:
         srcs: Iterable[int],
         dsts: Iterable[int],
         *,
-        reservation_context: int = 0,
+        reservation_context: ReservationContext | None = None,
     ) -> None: ...
     @property
     def comm(self) -> Communicator: ...

@@ -1079,7 +1079,7 @@ TEST(Shuffler, SpillOnInsertAccountsForReservations) {
 // more than one rank, the receive buffers that the progress thread allocates carry it
 // too.
 TEST(Shuffler, ReservationContextIsRecorded) {
-    constexpr rapidsmpf::ReservationContext context = 42;
+    auto const context = rapidsmpf::ReservationContextCreator{}.create();
     constexpr std::size_t n_elements = 100;
     auto const& comm = GlobalEnvironment->comm_;
     auto stream = cuda::stream_ref{cudaStreamLegacy};

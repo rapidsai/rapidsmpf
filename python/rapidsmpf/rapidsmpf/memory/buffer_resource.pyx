@@ -28,6 +28,9 @@ from rmm.pylibrmm.cuda_stream_pool cimport CudaStreamPool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
 from rapidsmpf.memory.buffer cimport Buffer, cpp_Buffer
+from rapidsmpf.memory.reservation_events cimport (ReservationContext,
+                                                  cpp_ReservationContext,
+                                                  unwrap_reservation_context)
 
 
 cdef extern from *:
@@ -128,19 +131,19 @@ cdef extern from * nogil:
         MemoryType,
         size_t,
         bool_t,
-        ReservationContext,
+        cpp_ReservationContext,
     ) except +ex_handler
     unique_ptr[cpp_MemoryReservation] cpp_br_reserve_device_memory_and_spill(
         shared_ptr[cpp_BufferResource],
         size_t,
         bool_t,
-        ReservationContext,
+        cpp_ReservationContext,
     ) except +ex_handler
     unique_ptr[cpp_MemoryReservation] cpp_br_reserve_or_fail(
         shared_ptr[cpp_BufferResource],
         size_t,
         vector[MemoryType],
-        ReservationContext,
+        cpp_ReservationContext,
     ) except +ex_handler
 
 
@@ -229,7 +232,9 @@ cdef ReservationEventBatch _reservation_event_batch_from_cpp(
     for index in range(batch.events.size()):
         event = ReservationEvent.__new__(ReservationEvent)
         event.timestamp_ns = batch.events[index].timestamp_ns
-        event.reservation_context = batch.events[index].reservation_context
+        event.reservation_context = ReservationContext.from_cpp(
+            batch.events[index].reservation_context
+        )
         event._memory_type = batch.events[index].memory_type
         event.byte_delta = batch.events[index].byte_delta
         events.append(event)
@@ -737,7 +742,7 @@ cdef class BufferResource:
         size_t size,
         *,
         bool_t allow_overbooking,
-        ReservationContext reservation_context=0,
+        ReservationContext reservation_context=None,
     ):
         """
         Reserve an amount of the specified memory type.
@@ -773,13 +778,16 @@ cdef class BufferResource:
         """
         check_reservation_size(size)
         cdef pair[unique_ptr[cpp_MemoryReservation], size_t] ret
+        cdef cpp_ReservationContext c_reservation_context = (
+            unwrap_reservation_context(reservation_context)
+        )
         with nogil:
             ret = cpp_br_reserve(
                 self._handle,
                 mem_type,
                 size,
                 allow_overbooking,
-                reservation_context,
+                c_reservation_context,
             )
         return MemoryReservation.from_handle(move(ret.first), self), ret.second
 
@@ -788,7 +796,7 @@ cdef class BufferResource:
         size_t size,
         *,
         bool_t allow_overbooking,
-        ReservationContext reservation_context=0,
+        ReservationContext reservation_context=None,
     ):
         """
         Reserve device memory and spill if necessary.
@@ -821,9 +829,12 @@ cdef class BufferResource:
         """
         check_reservation_size(size)
         cdef unique_ptr[cpp_MemoryReservation] ret
+        cdef cpp_ReservationContext c_reservation_context = (
+            unwrap_reservation_context(reservation_context)
+        )
         with nogil:
             ret = cpp_br_reserve_device_memory_and_spill(
-                self._handle, size, allow_overbooking, reservation_context
+                self._handle, size, allow_overbooking, c_reservation_context
             )
         return MemoryReservation.from_handle(move(ret), self)
 
@@ -832,7 +843,7 @@ cdef class BufferResource:
         size_t size,
         list mem_types,
         *,
-        ReservationContext reservation_context=0,
+        ReservationContext reservation_context=None,
     ):
         """
         Make a memory reservation or fail based on the given order of memory types.
@@ -867,9 +878,12 @@ cdef class BufferResource:
         for mt in mem_types:
             cpp_mem_types.push_back(<MemoryType?>mt)
         cdef unique_ptr[cpp_MemoryReservation] ret
+        cdef cpp_ReservationContext c_reservation_context = (
+            unwrap_reservation_context(reservation_context)
+        )
         with nogil:
             ret = cpp_br_reserve_or_fail(
-                self._handle, size, cpp_mem_types, reservation_context
+                self._handle, size, cpp_mem_types, c_reservation_context
             )
         return MemoryReservation.from_handle(move(ret), self)
 

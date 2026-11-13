@@ -13,7 +13,9 @@ from rapidsmpf.config cimport Options, cpp_Options
 from rapidsmpf.memory.buffer cimport MemoryType
 from rapidsmpf.memory.memory_reservation cimport (MemoryReservation,
                                                   cpp_MemoryReservation)
-from rapidsmpf.memory.reservation_events cimport ReservationContext
+from rapidsmpf.memory.reservation_events cimport (ReservationContext,
+                                                  cpp_ReservationContext,
+                                                  unwrap_reservation_context)
 from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
 from rapidsmpf.streaming._detail.libcoro_spawn_task cimport cpp_set_py_future
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
@@ -136,7 +138,7 @@ cdef extern from * nogil:
         shared_ptr[cpp_MemoryReserveOrWait] mrow,
         size_t size,
         int64_t net_memory_delta,
-        ReservationContext reservation_context,
+        cpp_ReservationContext reservation_context,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
     ) except +ex_handler
@@ -198,7 +200,7 @@ cdef extern from * nogil:
         shared_ptr[cpp_MemoryReserveOrWait] mrow,
         size_t size,
         int64_t net_memory_delta,
-        ReservationContext reservation_context,
+        cpp_ReservationContext reservation_context,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
     ) except +ex_handler
@@ -253,7 +255,7 @@ cdef extern from * nogil:
         shared_ptr[cpp_MemoryReserveOrWait] mrow,
         size_t size,
         int64_t net_memory_delta,
-        ReservationContext reservation_context,
+        cpp_ReservationContext reservation_context,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
     ) except +ex_handler
@@ -361,7 +363,7 @@ cdef class MemoryReserveOrWait:
         size_t size,
         *,
         int64_t net_memory_delta,
-        ReservationContext reservation_context=0,
+        ReservationContext reservation_context=None,
     ):
         """
         Attempt to reserve memory, or wait until progress can be made.
@@ -428,6 +430,9 @@ cdef class MemoryReserveOrWait:
         """
         check_reservation_size(size)
         cdef shared_ptr[unique_ptr[cpp_MemoryReservation]] c_ret
+        cdef cpp_ReservationContext c_reservation_context = (
+            unwrap_reservation_context(reservation_context)
+        )
         future = asyncio.get_running_loop().create_future()
         Py_INCREF(future)
         with nogil:
@@ -435,7 +440,7 @@ cdef class MemoryReserveOrWait:
                 self._handle,
                 size,
                 net_memory_delta,
-                reservation_context,
+                c_reservation_context,
                 cpp_set_py_future,
                 move(cpp_OwningWrapper(<void*><PyObject*>future, py_deleter))
             )
@@ -450,7 +455,7 @@ cdef class MemoryReserveOrWait:
         size_t size,
         *,
         int64_t net_memory_delta,
-        ReservationContext reservation_context=0,
+        ReservationContext reservation_context=None,
     ):
         """
         Variant of `reserve_or_wait()` that allows overbooking on timeout.
@@ -487,6 +492,9 @@ cdef class MemoryReserveOrWait:
         """
         check_reservation_size(size)
         cdef shared_ptr[pair[unique_ptr[cpp_MemoryReservation], size_t]] c_ret
+        cdef cpp_ReservationContext c_reservation_context = (
+            unwrap_reservation_context(reservation_context)
+        )
         future = asyncio.get_running_loop().create_future()
         Py_INCREF(future)
         with nogil:
@@ -494,7 +502,7 @@ cdef class MemoryReserveOrWait:
                 self._handle,
                 size,
                 net_memory_delta,
-                reservation_context,
+                c_reservation_context,
                 cpp_set_py_future,
                 move(cpp_OwningWrapper(<void*><PyObject*>future, py_deleter)),
             )
@@ -512,7 +520,7 @@ cdef class MemoryReserveOrWait:
         size_t size,
         *,
         int64_t net_memory_delta,
-        ReservationContext reservation_context=0,
+        ReservationContext reservation_context=None,
     ):
         """
         Variant of `reserve_or_wait()` that fails if no progress is possible.
@@ -551,6 +559,9 @@ cdef class MemoryReserveOrWait:
         """
         check_reservation_size(size)
         cdef shared_ptr[unique_ptr[cpp_MemoryReservation]] c_ret
+        cdef cpp_ReservationContext c_reservation_context = (
+            unwrap_reservation_context(reservation_context)
+        )
         future = asyncio.get_running_loop().create_future()
         Py_INCREF(future)
         with nogil:
@@ -558,7 +569,7 @@ cdef class MemoryReserveOrWait:
                 self._handle,
                 size,
                 net_memory_delta,
-                reservation_context,
+                c_reservation_context,
                 cpp_set_py_future,
                 move(cpp_OwningWrapper(<void*><PyObject*>future, py_deleter))
             )
@@ -592,7 +603,7 @@ async def reserve_memory(
     net_memory_delta,
     mem_type = MemoryType.DEVICE,
     allow_overbooking = None,
-    ReservationContext reservation_context = 0,
+    ReservationContext reservation_context = None,
 ):
     """
     Reserve memory using the context memory reservation mechanism.

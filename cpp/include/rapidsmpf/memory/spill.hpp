@@ -34,7 +34,7 @@ namespace rapidsmpf {
 std::vector<PackedData> spill_partitions(
     std::vector<PackedData>&& partitions,
     BufferResource* br,
-    ReservationContext reservation_context = 0
+    ReservationContext reservation_context = {}
 );
 
 /**
@@ -65,7 +65,7 @@ std::vector<PackedData> unspill_partitions(
     std::vector<PackedData>&& partitions,
     BufferResource* br,
     AllowOverbooking allow_overbooking,
-    ReservationContext reservation_context = 0
+    ReservationContext reservation_context = {}
 );
 
 }  // namespace rapidsmpf
