@@ -20,6 +20,7 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 #include <fstream>
 #include <iostream>
 #include <optional>
@@ -413,7 +414,15 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    auto actual = rapidsmpf::rrun::check_binding(args.gpu_id);
+    rapidsmpf::rrun::resource_binding actual;
+    try {
+        actual = rapidsmpf::rrun::check_binding(args.gpu_id);
+    } catch (std::exception const& e) {
+        // e.g. a CPU-less `--membind` makes `get_current_numa_nodes()` throw.
+        std::cerr << "Error: failed to collect resource binding: " << e.what()
+                  << std::endl;
+        return 1;
+    }
 
     std::optional<rapidsmpf::rrun::expected_binding> expected;
     std::optional<rapidsmpf::rrun::binding_validation> validation;

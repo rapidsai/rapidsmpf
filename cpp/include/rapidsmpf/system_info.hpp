@@ -69,8 +69,14 @@ std::vector<int> get_allowed_host_numa_nodes() noexcept;
  * - `MPOL_DEFAULT`/`MPOL_LOCAL`: all allowed host nodes (respecting cpusets).
  * - `MPOL_BIND`: only the bound nodes. Throws if any bound node is not an allowed host
  *   node (e.g. a CPU-less GPU memory node), rather than silently dropping it.
- * - `MPOL_PREFERRED`: all allowed host nodes, with the preferred node(s) first.
- * - `MPOL_INTERLEAVE`: all allowed host nodes, with the interleave nodes first.
+ * - `MPOL_PREFERRED`, `MPOL_PREFERRED_MANY`: all allowed host nodes, with the preferred
+ *   node(s) first.
+ * - `MPOL_INTERLEAVE`, `MPOL_WEIGHTED_INTERLEAVE`: all allowed host nodes, with the
+ *   interleave nodes first.
+ *
+ * The memory policy is per-thread in Linux, so this reads the policy of the calling
+ * thread, not of the process as a whole. A policy set in one thread (e.g. via
+ * `numa_set_membind()`) is not seen when called from another thread.
  *
  * If NUMA support is not available or the NUMA nodes cannot be determined, the
  * function returns a vector containing a single element, `0`, which corresponds
