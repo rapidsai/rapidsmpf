@@ -45,20 +45,52 @@ std::uint64_t get_total_host_memory() noexcept;
 int get_current_numa_node() noexcept;
 
 /**
+ * @brief Get the host-memory NUMA nodes the process is allowed to allocate from.
+ *
+ * Unlike `get_current_numa_nodes()`, this ignores the memory policy mode and reports
+ * every node the process may use (respecting cpuset restrictions, e.g. in containers).
+ * Only nodes that have CPUs are returned, which excludes GPU HBM nodes exposed on GB/GH
+ * systems (CPU-less CXL expander nodes are also excluded). Nodes are in ascending order.
+ *
+ * If NUMA support is not available or no node can be determined, the function returns a
+ * vector containing a single element, `0`.
+ *
+ * @return Vector of allowed host-memory NUMA node IDs.
+ */
+std::vector<int> get_allowed_host_numa_nodes() noexcept;
+
+/**
  * @brief Get current NUMA node(s) for memory binding.
  *
- * Queries the process memory policy and returns the NUMA nodes from which the
- * process may allocate memory. This reflects bindings applied via
- * `numa_set_membind()` rather than the NUMA node of the CPU currently running
- * the caller.
+ * Inspects the process memory policy and returns the host-memory NUMA nodes from which
+ * the process may allocate. Only nodes that have CPUs are considered, which excludes
+ * GPU HBM nodes exposed on GB/GH systems (CPU-less CXL expander nodes are also
+ * excluded). The result depends on the policy mode:
+ * - `MPOL_DEFAULT`/`MPOL_LOCAL`: all allowed host nodes (respecting cpusets).
+ * - `MPOL_BIND`: only the bound nodes. Throws if any bound node is not an allowed host
+ *   node (e.g. a CPU-less GPU memory node), rather than silently dropping it.
+ * - `MPOL_PREFERRED`, `MPOL_PREFERRED_MANY`: all allowed host nodes, with the preferred
+ *   node(s) first.
+ * - `MPOL_INTERLEAVE`, `MPOL_WEIGHTED_INTERLEAVE`: all allowed host nodes, with the
+ *   interleave nodes first.
  *
- * If NUMA support is not available or the NUMA node cannot be determined, the
+ * The memory policy is per-thread in Linux, so this reads the policy of the calling
+ * thread, not of the process as a whole. A policy set in one thread (e.g. via
+ * `numa_set_membind()`) is not seen when called from another thread.
+ *
+ * If NUMA support is not available or the NUMA nodes cannot be determined, the
  * function returns a vector containing a single element, `0`, which corresponds
  * to the single implicit NUMA node on non-NUMA systems.
  *
+ * Policies using `MPOL_F_RELATIVE_NODES` are treated as the default policy, since
+ * their node mask is relative and can't be interpreted as absolute node IDs.
+ *
  * @return Vector of NUMA node IDs in the current memory policy.
+ *
+ * @throws std::runtime_error If the policy is `MPOL_BIND` and includes nodes that are
+ * not allowed host-memory nodes.
  */
-std::vector<int> get_current_numa_nodes() noexcept;
+std::vector<int> get_current_numa_nodes();
 
 /**
  * @brief Get the total amount of host memory for a NUMA node.
