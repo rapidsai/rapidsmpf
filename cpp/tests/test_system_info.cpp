@@ -37,6 +37,14 @@ using ::testing::ElementsAre;
 using ::testing::ElementsAreArray;
 using ::testing::UnorderedElementsAreArray;
 
+/// `nodes_with_policy()` returns `std::nullopt` when the environment doesn't allow the
+/// memory policy or CPU pinning (e.g. `EPERM` in a container, or a cpuset that
+/// restricts CPUs). That isn't a failure of the code under test, so skip.
+#define SKIP_IF_UNAVAILABLE(opt)                                       \
+    if (!(opt).has_value()) {                                          \
+        GTEST_SKIP() << "could not apply memory policy / CPU pinning"; \
+    }
+
 /// Host (CPU-attached) NUMA nodes the process may allocate from, and nodes that have
 /// memory but no CPUs (e.g. GPU HBM on GB/GH systems).
 struct Topology {
@@ -133,7 +141,7 @@ TEST_F(SingleNumaNodeTest, AllPoliciesReturnTheOnlyNode) {
     auto const expected = ElementsAre(topo.host[0]);
     for (int mode : {MPOL_DEFAULT, MPOL_BIND, MPOL_PREFERRED, MPOL_INTERLEAVE}) {
         auto const nodes = nodes_with_policy(mode, topo.host);
-        ASSERT_TRUE(nodes.has_value()) << "could not apply memory policy / CPU pinning";
+        SKIP_IF_UNAVAILABLE(nodes);
         EXPECT_THAT(*nodes, expected) << "mode " << mode;
     }
 }
@@ -159,46 +167,46 @@ class TwoNumaNodesTest : public ::testing::Test {
 
 TEST_F(TwoNumaNodesTest, DefaultPolicyReturnsAllNodes) {
     auto const nodes = nodes_with_policy(MPOL_DEFAULT, {});
-    ASSERT_TRUE(nodes.has_value()) << "could not apply memory policy / CPU pinning";
+    SKIP_IF_UNAVAILABLE(nodes);
     EXPECT_THAT(*nodes, ElementsAre(n0, n1));
 }
 
 TEST_F(TwoNumaNodesTest, DefaultPolicyPinnedToSecondNodeReturnsAllNodes) {
     // Previously reported as {0} regardless of where the thread runs.
     auto const nodes = nodes_with_policy(MPOL_DEFAULT, {}, n1);
-    ASSERT_TRUE(nodes.has_value()) << "could not apply memory policy / CPU pinning";
+    SKIP_IF_UNAVAILABLE(nodes);
     EXPECT_THAT(*nodes, ElementsAre(n0, n1));
 }
 
 TEST_F(TwoNumaNodesTest, BindReturnsOnlyBoundNodes) {
     for (int node : {n0, n1}) {
         auto const nodes = nodes_with_policy(MPOL_BIND, {node});
-        ASSERT_TRUE(nodes.has_value()) << "could not apply memory policy / CPU pinning";
+        SKIP_IF_UNAVAILABLE(nodes);
         EXPECT_THAT(*nodes, ElementsAre(node));
     }
     auto const both = nodes_with_policy(MPOL_BIND, {n0, n1});
-    ASSERT_TRUE(both.has_value()) << "could not apply memory policy / CPU pinning";
+    SKIP_IF_UNAVAILABLE(both);
     EXPECT_THAT(*both, ElementsAre(n0, n1));
 }
 
 TEST_F(TwoNumaNodesTest, PreferredReturnsAllNodesPreferredFirst) {
     auto const first = nodes_with_policy(MPOL_PREFERRED, {n0});
-    ASSERT_TRUE(first.has_value()) << "could not apply memory policy / CPU pinning";
+    SKIP_IF_UNAVAILABLE(first);
     EXPECT_THAT(*first, ElementsAre(n0, n1));
 
     auto const second = nodes_with_policy(MPOL_PREFERRED, {n1});
-    ASSERT_TRUE(second.has_value()) << "could not apply memory policy / CPU pinning";
+    SKIP_IF_UNAVAILABLE(second);
     EXPECT_THAT(*second, ElementsAre(n1, n0));
 }
 
 TEST_F(TwoNumaNodesTest, InterleaveReturnsAllNodesInterleavedFirst) {
     auto const both = nodes_with_policy(MPOL_INTERLEAVE, {n0, n1});
-    ASSERT_TRUE(both.has_value()) << "could not apply memory policy / CPU pinning";
+    SKIP_IF_UNAVAILABLE(both);
     EXPECT_THAT(*both, ElementsAre(n0, n1));
 
     // MPOL_INTERLEAVE with a single node is accepted by the kernel.
     auto const second = nodes_with_policy(MPOL_INTERLEAVE, {n1});
-    ASSERT_TRUE(second.has_value()) << "could not apply memory policy / CPU pinning";
+    SKIP_IF_UNAVAILABLE(second);
     EXPECT_THAT(*second, ElementsAre(n1, n0));
 }
 
@@ -220,14 +228,14 @@ class MultiNumaGBTest : public ::testing::Test {
 
 TEST_F(MultiNumaGBTest, DefaultPolicyExcludesCpulessNodes) {
     auto const nodes = nodes_with_policy(MPOL_DEFAULT, {});
-    ASSERT_TRUE(nodes.has_value()) << "could not apply memory policy / CPU pinning";
+    SKIP_IF_UNAVAILABLE(nodes);
     EXPECT_THAT(*nodes, ElementsAreArray(topo.host));
 }
 
 TEST_F(MultiNumaGBTest, DefaultPolicyPinnedToEachHostNodeExcludesCpulessNodes) {
     for (int node : topo.host) {
         auto const nodes = nodes_with_policy(MPOL_DEFAULT, {}, node);
-        ASSERT_TRUE(nodes.has_value()) << "could not apply memory policy / CPU pinning";
+        SKIP_IF_UNAVAILABLE(nodes);
         EXPECT_THAT(*nodes, ElementsAreArray(topo.host)) << "pinned to node " << node;
     }
 }
@@ -235,22 +243,22 @@ TEST_F(MultiNumaGBTest, DefaultPolicyPinnedToEachHostNodeExcludesCpulessNodes) {
 TEST_F(MultiNumaGBTest, BindReturnsOnlyBoundHostNodes) {
     for (int node : topo.host) {
         auto const nodes = nodes_with_policy(MPOL_BIND, {node});
-        ASSERT_TRUE(nodes.has_value()) << "could not apply memory policy / CPU pinning";
+        SKIP_IF_UNAVAILABLE(nodes);
         EXPECT_THAT(*nodes, ElementsAre(node));
     }
     auto const all = nodes_with_policy(MPOL_BIND, topo.host);
-    ASSERT_TRUE(all.has_value()) << "could not apply memory policy / CPU pinning";
+    SKIP_IF_UNAVAILABLE(all);
     EXPECT_THAT(*all, ElementsAreArray(topo.host));
 }
 
 TEST_F(MultiNumaGBTest, BindIncludingCpulessNodeThrows) {
     int const cpuless = topo.cpuless[0];
     auto const only = nodes_with_policy(MPOL_BIND, {cpuless});
-    ASSERT_TRUE(only.has_value()) << "could not apply memory policy / CPU pinning";
+    SKIP_IF_UNAVAILABLE(only);
     EXPECT_THAT(*only, ElementsAre(-1));
 
     auto const mixed = nodes_with_policy(MPOL_BIND, {topo.host[0], cpuless});
-    ASSERT_TRUE(mixed.has_value()) << "could not apply memory policy / CPU pinning";
+    SKIP_IF_UNAVAILABLE(mixed);
     EXPECT_THAT(*mixed, ElementsAre(-1));
 }
 
@@ -258,8 +266,7 @@ TEST_F(MultiNumaGBTest, PreferredAndInterleaveListPolicyNodesFirstAndExcludeCpul
     for (int mode : {MPOL_PREFERRED, MPOL_INTERLEAVE}) {
         for (int node : topo.host) {
             auto const nodes = nodes_with_policy(mode, {node});
-            ASSERT_TRUE(nodes.has_value())
-                << "could not apply memory policy / CPU pinning";
+            SKIP_IF_UNAVAILABLE(nodes);
             ASSERT_EQ(nodes->size(), topo.host.size()) << "mode " << mode;
             EXPECT_EQ(nodes->front(), node) << "mode " << mode;
             EXPECT_THAT(*nodes, UnorderedElementsAreArray(topo.host));
