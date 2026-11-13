@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <mutex>
 #include <optional>
 #include <set>
@@ -124,6 +125,7 @@ class MemoryReserveOrWait {
      * @param net_memory_delta Estimated net change in memory usage after the
      * reservation is allocated and the dependent operation completes. Smaller
      * values have higher priority.
+     * @param reservation_context Opaque telemetry attribution token.
      * @return A `MemoryReservation` representing the allocated memory, or an empty
      * reservation if progress could not be made.
      *
@@ -131,7 +133,9 @@ class MemoryReserveOrWait {
      * processed.
      */
     coro::task<MemoryReservation> reserve_or_wait(
-        std::size_t size, std::int64_t net_memory_delta
+        std::size_t size,
+        std::int64_t net_memory_delta,
+        ReservationContext reservation_context = {}
     );
 
     /**
@@ -148,6 +152,7 @@ class MemoryReserveOrWait {
      * @param size Number of bytes to reserve.
      * @param net_memory_delta Heuristic used to prioritize eligible requests. See
      * `reserve_or_wait()` for details and semantics.
+     * @param reservation_context Opaque telemetry attribution token.
      * @return A pair consisting of:
      *   - A `MemoryReservation` representing the allocated memory.
      *   - The number of bytes by which the reservation overbooked the available
@@ -159,7 +164,9 @@ class MemoryReserveOrWait {
      * @see reserve_or_wait()
      */
     coro::task<std::pair<MemoryReservation, std::size_t>> reserve_or_wait_or_overbook(
-        std::size_t size, std::int64_t net_memory_delta
+        std::size_t size,
+        std::int64_t net_memory_delta,
+        ReservationContext reservation_context = {}
     );
 
     /**
@@ -176,6 +183,7 @@ class MemoryReserveOrWait {
      * @param size Number of bytes to reserve.
      * @param net_memory_delta Heuristic used to prioritize eligible requests. See
      * `reserve_or_wait()` for details and semantics.
+     * @param reservation_context Opaque telemetry attribution token.
      * @return A `MemoryReservation` representing the allocated memory.
      *
      * @throws rapidsmpf::reservation_error If no progress is possible within the timeout.
@@ -185,7 +193,9 @@ class MemoryReserveOrWait {
      * @see reserve_or_wait()
      */
     coro::task<MemoryReservation> reserve_or_wait_or_fail(
-        std::size_t size, std::int64_t net_memory_delta
+        std::size_t size,
+        std::int64_t net_memory_delta,
+        ReservationContext reservation_context = {}
     );
 
     /**
@@ -249,6 +259,9 @@ class MemoryReserveOrWait {
 
         /// @brief Queue into which a reservation is pushed once the request is satisfied.
         coro::queue<MemoryReservation>& queue;
+
+        /// @brief Opaque telemetry token retained while this request is queued.
+        ReservationContext reservation_context;
 
         /// @brief When the request was submitted, used to measure how long it waited.
         Clock::time_point submitted_at;
@@ -351,6 +364,7 @@ class MemoryReserveOrWait {
  * - If set to `AllowOverbooking::NO`, the call fails if no progress is possible.
  * - If not provided, the default behavior is determined by the configuration option
  *   `"allow_overbooking_by_default"`.
+ * @param reservation_context Opaque telemetry attribution token for the request.
  * @return The allocated memory reservation.
  *
  * @throws std::runtime_error If shutdown occurs before the request can be processed.
@@ -387,7 +401,8 @@ coro::task<MemoryReservation> reserve_memory(
     std::size_t size,
     std::int64_t net_memory_delta,
     MemoryType mem_type = MemoryType::DEVICE,
-    std::optional<AllowOverbooking> allow_overbooking = std::nullopt
+    std::optional<AllowOverbooking> allow_overbooking = std::nullopt,
+    ReservationContext reservation_context = {}
 );
 
 }  // namespace rapidsmpf::streaming

@@ -6,15 +6,18 @@ from collections.abc import Iterable
 
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.memory.packed_data import PackedData
+from rapidsmpf.memory.reservation_events import ReservationContext
 
 def spill_partitions(
     partitions: Iterable[PackedData],
     *,
     br: BufferResource,
+    reservation_context: ReservationContext | None = None,
 ) -> list[PackedData]: ...
 def unspill_partitions(
     partitions: Iterable[PackedData],
     *,
     br: BufferResource,
     allow_overbooking: bool,
+    reservation_context: ReservationContext | None = None,
 ) -> list[PackedData]: ...

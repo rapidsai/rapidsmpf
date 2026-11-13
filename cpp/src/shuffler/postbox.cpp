@@ -95,7 +95,10 @@ std::size_t ReceivedChunks::data_size(MemoryType mem_type) const {
 }
 
 std::size_t ReceivedChunks::spill(
-    BufferResource* br, std::size_t amount, MemoryType mem_type
+    BufferResource* br,
+    std::size_t amount,
+    MemoryType mem_type,
+    ReservationContext reservation_context
 ) {
     RAPIDSMPF_NVTX_FUNC_RANGE(amount);
     std::lock_guard const lock(mutex_);
@@ -112,7 +115,7 @@ std::size_t ReceivedChunks::spill(
                 continue;
             }
             auto const size = chunk.data_size();
-            auto reservation = br->try_reserve(size, spill_targets);
+            auto reservation = br->try_reserve(size, spill_targets, reservation_context);
             if (!reservation) {
                 continue;  // No target has room, leave the chunk where it is.
             }

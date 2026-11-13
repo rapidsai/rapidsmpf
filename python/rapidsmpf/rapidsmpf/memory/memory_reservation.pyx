@@ -7,6 +7,7 @@ from libcpp.utility cimport move
 from contextlib import contextmanager
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
+from rapidsmpf.memory.reservation_events cimport ReservationContext
 
 
 cdef extern from * nogil:
@@ -90,6 +91,13 @@ cdef class MemoryReservation:
         The memory type associated with this reservation.
         """
         return deref(self._handle).mem_type()
+
+    @property
+    def reservation_context(self):
+        """Return the opaque telemetry attribution token."""
+        return ReservationContext.from_cpp(
+            deref(self._handle).reservation_context()
+        )
 
     @property
     def br(self):

@@ -11,6 +11,7 @@ from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.communicator.communicator cimport Communicator, cpp_Communicator
 from rapidsmpf.memory.buffer_resource cimport BufferResource
 from rapidsmpf.memory.packed_data cimport cpp_PackedData
+from rapidsmpf.memory.reservation_events cimport cpp_ReservationContext
 from rapidsmpf.shuffler cimport cpp_PartitionOwner
 from rapidsmpf.streaming.coll.collective cimport Collective
 from rapidsmpf.streaming.core.actor cimport cpp_Actor
@@ -28,6 +29,7 @@ cdef extern from "<rapidsmpf/streaming/coll/shuffler.hpp>" nogil:
             int32_t op_id,
             uint32_t total_num_partitions,
             cpp_PartitionOwner partition_owner,
+            cpp_ReservationContext reservation_context,
         ) except +ex_handler
 
     cdef cppclass cpp_ShufflerAsync"rapidsmpf::streaming::ShufflerAsync":
@@ -37,6 +39,7 @@ cdef extern from "<rapidsmpf/streaming/coll/shuffler.hpp>" nogil:
             int32_t op_id,
             uint32_t total_num_partitions,
             cpp_PartitionOwner partition_owner,
+            cpp_ReservationContext reservation_context,
         ) except +ex_handler
         const shared_ptr[cpp_Communicator]& comm() except +ex_handler
         void insert(unordered_map[uint32_t, cpp_PackedData] chunks) except +ex_handler

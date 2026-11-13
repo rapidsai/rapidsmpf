@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include <coro/event.hpp>
 
 #include <rapidsmpf/shuffler/shuffler.hpp>
@@ -53,6 +55,8 @@ class ShufflerAsync {
      * @param total_num_partitions Total number of partitions to shuffle data into.
      * @param partition_owner Function that maps a partition ID to its owning rank/node.
      * Defaults to round-robin distribution.
+     * @param reservation_context Opaque telemetry attribution token for internal
+     * reservations.
      *
      * @note The caller promises that inserted buffers are stream-ordered with respect
      * to their own stream, and extracted buffers are likewise guaranteed to be stream-
@@ -64,7 +68,8 @@ class ShufflerAsync {
         OpID op_id,
         shuffler::PartID total_num_partitions,
         shuffler::Shuffler::PartitionOwner partition_owner =
-            shuffler::Shuffler::round_robin
+            shuffler::Shuffler::round_robin,
+        ReservationContext reservation_context = {}
     );
 
     // Prevent copying
@@ -171,6 +176,8 @@ namespace actor {
  * actors have called `Shuffler::shutdown()`.
  * @param total_num_partitions Total number of partitions to shuffle the data into.
  * @param partition_owner Function that maps a partition ID to its owning rank/node.
+ * @param reservation_context Opaque telemetry attribution token for internal
+ * reservations.
  *
  * @return A streaming actor that completes when the shuffling has finished and the
  * output channel is drained.
@@ -182,7 +189,8 @@ namespace actor {
     std::shared_ptr<Channel> ch_out,
     OpID op_id,
     shuffler::PartID total_num_partitions,
-    shuffler::Shuffler::PartitionOwner partition_owner = shuffler::Shuffler::round_robin
+    shuffler::Shuffler::PartitionOwner partition_owner = shuffler::Shuffler::round_robin,
+    ReservationContext reservation_context = {}
 );
 
 }  // namespace actor

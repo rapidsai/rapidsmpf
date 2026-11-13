@@ -39,7 +39,8 @@ BufferResource::BufferResource(
     std::shared_ptr<Statistics> statistics,
     std::shared_ptr<DiskResource> disk_resource,
     Duration memory_reserve_timeout,
-    AllowOverbooking allow_overbooking_by_default
+    AllowOverbooking allow_overbooking_by_default,
+    std::size_t max_reservation_events
 )
     : owning_mr_{std::move(device_mr)},
       pinned_mr_{std::move(pinned_mr)},
@@ -49,7 +50,8 @@ BufferResource::BufferResource(
       spill_manager_{this, periodic_spill_check},
       statistics_{std::move(statistics)},
       memory_reserve_timeout_{memory_reserve_timeout},
-      allow_overbooking_by_default_{allow_overbooking_by_default} {
+      allow_overbooking_by_default_{allow_overbooking_by_default},
+      max_reservation_events_{max_reservation_events} {
     // Default every limit to unlimited, then apply caller overrides.
     for (auto& limit : memory_limits_) {
         limit.store(std::numeric_limits<std::int64_t>::max(), std::memory_order_relaxed);
@@ -72,7 +74,8 @@ std::shared_ptr<BufferResource> BufferResource::create(
     std::shared_ptr<Statistics> statistics,
     std::optional<std::filesystem::path> spill_directory,
     Duration memory_reserve_timeout,
-    AllowOverbooking allow_overbooking_by_default
+    AllowOverbooking allow_overbooking_by_default,
+    std::size_t max_reservation_events
 ) {
     std::optional<PinnedMemoryResource> pinned_mr;
     if (pinned_pool_properties.has_value()) {
@@ -107,7 +110,8 @@ std::shared_ptr<BufferResource> BufferResource::create(
         std::move(statistics),
         std::move(disk_res),
         memory_reserve_timeout,
-        allow_overbooking_by_default
+        allow_overbooking_by_default,
+        max_reservation_events
     }};
 
     // Install the back-reference on the owned resources *after* construction so
@@ -144,7 +148,8 @@ std::shared_ptr<BufferResource> BufferResource::from_options(
         std::move(statistics),
         spill_dir_from_options(options),
         memory_reserve_timeout_from_options(options),
-        allow_overbooking_by_default_from_options(options)
+        allow_overbooking_by_default_from_options(options),
+        max_reservation_events_from_options(options)
     );
 }
 
@@ -180,6 +185,12 @@ std::int64_t BufferResource::memory_available(MemoryType mem_type) const noexcep
         return disk_resource_ != nullptr ? limit : 0;
     }
     return std::numeric_limits<std::int64_t>::max();
+}
+
+std::int64_t BufferResource::memory_limit(MemoryType mem_type) const noexcept {
+    return memory_limits_[static_cast<std::size_t>(mem_type)].load(
+        std::memory_order_acquire
+    );
 }
 
 void BufferResource::set_memory_limit(MemoryType mem_type, std::int64_t limit) noexcept {
@@ -234,7 +245,10 @@ PerMemoryType<std::int64_t> BufferResource::memory_available_for_reservation() c
 }
 
 std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
-    MemoryType mem_type, std::size_t size, AllowOverbooking allow_overbooking
+    MemoryType mem_type,
+    std::size_t size,
+    AllowOverbooking allow_overbooking,
+    ReservationContext reservation_context
 ) {
     RAPIDSMPF_EXPECTS(
         mem_type != MemoryType::DISK || disk_resource_ != nullptr,
@@ -248,37 +262,46 @@ std::pair<MemoryReservation, std::size_t> BufferResource::reserve(
     );
 
     std::int64_t const available = memory_available(mem_type);
-    std::lock_guard<std::mutex> lock(mutex_);
-    std::size_t& reserved = memory_reserved_[mem_type];
-
-    // Calculate the available memory _after_ the memory has been reserved.
-    std::int64_t headroom =
-        available - (safe_cast<std::int64_t>(reserved) + safe_cast<std::int64_t>(size));
-    // If negative, we are overbooking.
-    std::size_t overbooking =
-        headroom < 0 ? safe_cast<std::size_t>(std::abs(headroom)) : 0;
-    if (overbooking > 0 && allow_overbooking == AllowOverbooking::NO) {
-        // Cancel the reservation, overbooking isn't allowed.
-        return {MemoryReservation(mem_type, this, 0), overbooking};
+    std::size_t overbooking;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        std::size_t& reserved = memory_reserved_[mem_type];
+        // Calculate the available memory after the memory has been reserved.
+        std::int64_t headroom =
+            available
+            - (safe_cast<std::int64_t>(reserved) + safe_cast<std::int64_t>(size));
+        overbooking = headroom < 0 ? safe_cast<std::size_t>(std::abs(headroom)) : 0;
+        if (overbooking > 0 && allow_overbooking == AllowOverbooking::NO) {
+            return {
+                MemoryReservation(mem_type, this, 0, reservation_context), overbooking
+            };
+        }
+        reserved += size;
     }
-    // Make the reservation.
-    reserved += size;
-    return {MemoryReservation(mem_type, this, size), overbooking};
+    MemoryReservation reservation(mem_type, this, size, reservation_context);
+    if (size > 0) {
+        reservation.observed_session_ = record_reservation_event(
+            reservation_context, mem_type, safe_cast<std::int64_t>(size)
+        );
+    }
+    return {std::move(reservation), overbooking};
 }
 
 MemoryReservation BufferResource::reserve_device_memory_and_spill(
-    std::size_t size, AllowOverbooking allow_overbooking
+    std::size_t size,
+    AllowOverbooking allow_overbooking,
+    ReservationContext reservation_context
 ) {
     auto [reservation, total_overbooking] =
-        reserve(MemoryType::DEVICE, size, AllowOverbooking::YES);
+        reserve(MemoryType::DEVICE, size, AllowOverbooking::YES, reservation_context);
 
-    // `reserve()` reports the total overbooking, other callers' included, so clamp to
-    // `size` for the part this reservation added.
     if (total_overbooking > 0) {
+        // `reserve()` reports the total overbooking, other callers' included, so
+        // clamp to `size` for the part this reservation added.
         auto const own_overbooking = std::min(size, total_overbooking);
-        // With a headroom of zero, `deficit` is the overbooking still outstanding once
-        // the spill lock is held. All of it is spilled, but this call is judged only on
-        // its own share.
+        // With a headroom of zero, `deficit` is the overbooking still outstanding
+        // once the spill lock is held. All of it is spilled, but this call is judged
+        // only on its own share.
         auto const [deficit, spilled] = spill_manager_.spill_to_make_headroom();
         RAPIDSMPF_EXPECTS(
             allow_overbooking == AllowOverbooking::YES
@@ -293,17 +316,30 @@ MemoryReservation BufferResource::reserve_device_memory_and_spill(
 }
 
 std::size_t BufferResource::release(MemoryReservation& reservation, std::size_t size) {
-    std::lock_guard const lock(mutex_);
-    RAPIDSMPF_EXPECTS(
-        size <= reservation.size_,
-        "MemoryReservation(" + format_nbytes(reservation.size_) + ") isn't big enough ("
-            + format_nbytes(size) + ")",
-        rapidsmpf::reservation_error
-    );
-    std::size_t& reserved = memory_reserved_[reservation.mem_type_];
-    RAPIDSMPF_EXPECTS(reserved >= size, "corrupted reservation stat");
-    reserved -= size;
-    return reservation.size_ -= size;
+    std::size_t remaining;
+    auto const observed_session = reservation.observed_session_;
+    {
+        std::lock_guard const lock(mutex_);
+        RAPIDSMPF_EXPECTS(
+            size <= reservation.size_,
+            "MemoryReservation(" + format_nbytes(reservation.size_)
+                + ") isn't big enough (" + format_nbytes(size) + ")",
+            rapidsmpf::reservation_error
+        );
+        std::size_t& reserved = memory_reserved_[reservation.mem_type_];
+        RAPIDSMPF_EXPECTS(reserved >= size, "corrupted reservation stat");
+        reserved -= size;
+        remaining = reservation.size_ -= size;
+    }
+    if (size > 0 && observed_session != 0) {
+        record_reservation_event(
+            reservation.reservation_context_,
+            reservation.mem_type_,
+            -safe_cast<std::int64_t>(size),
+            observed_session
+        );
+    }
+    return remaining;
 }
 
 std::unique_ptr<Buffer> BufferResource::make_buffer(
@@ -433,7 +469,9 @@ std::unique_ptr<Buffer> BufferResource::move(
 }
 
 std::unique_ptr<Buffer> BufferResource::ensure_memory_type(
-    std::unique_ptr<Buffer> buffer, std::span<MemoryType const> accepted
+    std::unique_ptr<Buffer> buffer,
+    std::span<MemoryType const> accepted,
+    ReservationContext reservation_context
 ) {
     RAPIDSMPF_EXPECTS(
         buffer != nullptr, "the buffer pointer cannot be NULL", std::invalid_argument
@@ -446,14 +484,19 @@ std::unique_ptr<Buffer> BufferResource::ensure_memory_type(
     if (contains(accepted, buffer->mem_type())) {
         return buffer;
     }
-    auto res = try_reserve(buffer->size, accepted | std::views::reverse);
+    auto res =
+        try_reserve(buffer->size, accepted | std::views::reverse, reservation_context);
     if (!res.has_value()) {
         RAPIDSMPF_EXPECTS(
             allow_overbooking_by_default() == AllowOverbooking::YES,
             "cannot reserve memory to move the buffer and overbooking is not allowed",
             rapidsmpf::reservation_error
         );
-        res = reserve(accepted.back(), buffer->size, AllowOverbooking::YES).first;
+        res =
+            reserve(
+                accepted.back(), buffer->size, AllowOverbooking::YES, reservation_context
+            )
+                .first;
     }
     return move(std::move(buffer), *res);
 }
@@ -557,6 +600,20 @@ AllowOverbooking allow_overbooking_by_default_from_options(config::Options optio
     return options.get<bool>("allow_overbooking_by_default", parse_string<bool>)
                ? AllowOverbooking::YES
                : AllowOverbooking::NO;
+}
+
+std::size_t max_reservation_events_from_options(config::Options options) {
+    return options.get<std::size_t>("max_reservation_events", [](auto const& s) {
+        // Parse as signed so that a negative value is rejected instead of wrapping
+        // around to an effectively unlimited cap.
+        auto const value = parse_string<std::int64_t>(s);
+        RAPIDSMPF_EXPECTS(
+            value >= 0,
+            "The `max_reservation_events` option must not be negative",
+            std::invalid_argument
+        );
+        return static_cast<std::size_t>(value);
+    });
 }
 
 }  // namespace rapidsmpf

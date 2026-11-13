@@ -17,6 +17,7 @@
 #include <span>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include <cuda/memory_resource>
 #include <cuda/stream>
@@ -30,6 +31,7 @@
 #include <rapidsmpf/memory/memory_reservation.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/memory/pinned_memory_resource.hpp>
+#include <rapidsmpf/memory/reservation_events.hpp>
 #include <rapidsmpf/memory/resource_types.hpp>
 #include <rapidsmpf/memory/spill_manager.hpp>
 #include <rapidsmpf/rmm_resource_adaptor.hpp>
@@ -177,6 +179,10 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * See `memory_reserve_timeout_from_options()`.
      * @param allow_overbooking_by_default Overbooking policy for reservation requests
      * that don't specify one. See `allow_overbooking_by_default_from_options()`.
+     * @param max_reservation_events Maximum number of reservation event records
+     * retained between drains while recording. Further events are dropped and counted
+     * in `ReservationEventBatch::dropped_event_count`. See
+     * `max_reservation_events_from_options()`.
      * @return A newly constructed `BufferResource` owned by `std::shared_ptr`.
      * @throws std::runtime_error if `pinned_pool_properties` has a value but pinned
      * host memory is not supported on this system.
@@ -190,7 +196,8 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         std::shared_ptr<Statistics> statistics = Statistics::disabled(),
         std::optional<std::filesystem::path> spill_directory = std::nullopt,
         Duration memory_reserve_timeout = std::chrono::milliseconds{100},
-        AllowOverbooking allow_overbooking_by_default = AllowOverbooking::YES
+        AllowOverbooking allow_overbooking_by_default = AllowOverbooking::YES,
+        std::size_t max_reservation_events = 1000000
     );
 
     /**
@@ -355,6 +362,14 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     [[nodiscard]] std::int64_t memory_available(MemoryType mem_type) const noexcept;
 
     /**
+     * @brief Return the configured limit for a memory type.
+     *
+     * @param mem_type The memory type to query.
+     * @return The exact signed configured byte limit.
+     */
+    [[nodiscard]] std::int64_t memory_limit(MemoryType mem_type) const noexcept;
+
+    /**
      * @brief Updates the memory limit for a given memory type at runtime.
      *
      * The store is atomic, but readers (e.g. `memory_available()` and `reserve()`)
@@ -369,6 +384,40 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * spilling.
      */
     void set_memory_limit(MemoryType mem_type, std::int64_t limit) noexcept;
+
+    /**
+     * @brief Start a new reservation event recording session.
+     *
+     * Recording is disabled by default.
+     * While enabled, recording serializes event appends with a per-resource mutex.
+     * Events are retained until they are drained or recording is stopped, but at most
+     * `max_reservation_events()` are retained at a time. Once that many are held,
+     * further events are dropped and counted in
+     * `ReservationEventBatch::dropped_event_count` until the next drain frees space.
+     *
+     * @throws std::logic_error if recording is already active.
+     */
+    void start_reservation_event_recording();
+
+    /**
+     * @brief Atomically detach and return the events recorded so far.
+     *
+     * Recording remains active. Returns an empty batch if recording is disabled
+     * or no events have occurred since the previous drain.
+     *
+     * @returns The events recorded since the previous drain.
+     */
+    [[nodiscard]] ReservationEventBatch drain_reservation_events();
+
+    /**
+     * @brief Disable recording and atomically return the final event batch.
+     *
+     * Once this method returns, no producer can append to the stopped session.
+     * Calling it while recording is disabled returns an empty batch.
+     *
+     * @returns The final events recorded by the stopped session.
+     */
+    [[nodiscard]] ReservationEventBatch stop_reservation_event_recording();
 
     /**
      * @brief Returns the memory available to a new reservation, in bytes.
@@ -410,6 +459,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @param mem_type The target memory type.
      * @param size The number of bytes to reserve.
      * @param allow_overbooking Whether overbooking is allowed.
+     * @param reservation_context Opaque telemetry attribution token.
      * @return A pair containing the reservation and the amount of overbooking. On success
      * the size of the reservation always equals `size` and on failure the size always
      * equals zero (a zero-sized reservation never fails).
@@ -420,7 +470,10 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * no disk resource is available.
      */
     std::pair<MemoryReservation, std::size_t> reserve(
-        MemoryType mem_type, std::size_t size, AllowOverbooking allow_overbooking
+        MemoryType mem_type,
+        std::size_t size,
+        AllowOverbooking allow_overbooking,
+        ReservationContext reservation_context = {}
     );
 
     /**
@@ -435,13 +488,16 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @param allow_overbooking Whether to allow overbooking. If false, ensures enough
      * memory is freed to satisfy the reservation; otherwise, allows overbooking even
      * if spilling was insufficient.
+     * @param reservation_context Opaque telemetry attribution token.
      * @return The memory reservation.
      *
      * @throws rapidsmpf::reservation_error if allow_overbooking is false and the buffer
      * resource cannot reserve and spill enough device memory.
      */
     MemoryReservation reserve_device_memory_and_spill(
-        std::size_t size, AllowOverbooking allow_overbooking
+        std::size_t size,
+        AllowOverbooking allow_overbooking,
+        ReservationContext reservation_context = {}
     );
 
     /**
@@ -453,20 +509,22 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * @param size The size of the buffer to allocate.
      * @param mem_types Range of memory types to try to reserve memory from.
+     * @param reservation_context Opaque telemetry attribution token.
      * @return A memory reservation, or `std::nullopt` if no memory type can satisfy the
      * request.
      */
     template <std::ranges::input_range Range>
         requires std::convertible_to<std::ranges::range_value_t<Range>, MemoryType>
     [[nodiscard]] std::optional<MemoryReservation> try_reserve(
-        std::size_t size, Range mem_types
+        std::size_t size, Range mem_types, ReservationContext reservation_context = {}
     ) {
         // try to reserve memory from the given order
         for (auto const& mem_type : mem_types) {
             if (!is_reservable(mem_type)) {
                 continue;
             }
-            auto [res, _] = reserve(mem_type, size, AllowOverbooking::NO);
+            auto [res, _] =
+                reserve(mem_type, size, AllowOverbooking::NO, reservation_context);
             if (res.size() == size) {
                 return std::move(res);
             }
@@ -479,13 +537,14 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * @param size The size of the buffer to allocate.
      * @param mem_type The memory type to try to reserve memory from.
+     * @param reservation_context Opaque telemetry attribution token.
      * @return A memory reservation, or `std::nullopt` if the request cannot be
      * satisfied.
      */
     [[nodiscard]] std::optional<MemoryReservation> try_reserve(
-        std::size_t size, MemoryType mem_type
+        std::size_t size, MemoryType mem_type, ReservationContext reservation_context = {}
     ) {
-        return try_reserve(size, std::ranges::single_view{mem_type});
+        return try_reserve(size, std::ranges::single_view{mem_type}, reservation_context);
     }
 
     /**
@@ -497,14 +556,17 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * @param size The size of the buffer to allocate.
      * @param mem_types Range of memory types to try to reserve memory from.
+     * @param reservation_context Opaque telemetry attribution token.
      * @return A memory reservation.
      *
      * @throws std::runtime_error if no memory reservation was made.
      */
     template <std::ranges::input_range Range>
         requires std::convertible_to<std::ranges::range_value_t<Range>, MemoryType>
-    [[nodiscard]] MemoryReservation reserve_or_fail(std::size_t size, Range mem_types) {
-        if (auto res = try_reserve(size, std::move(mem_types))) {
+    [[nodiscard]] MemoryReservation reserve_or_fail(
+        std::size_t size, Range mem_types, ReservationContext reservation_context = {}
+    ) {
+        if (auto res = try_reserve(size, std::move(mem_types), reservation_context)) {
             return std::move(*res);
         }
         RAPIDSMPF_FAIL("failed to reserve memory", std::runtime_error);
@@ -515,14 +577,17 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * @param size The size of the buffer to allocate.
      * @param mem_type The memory type to try to reserve memory from.
+     * @param reservation_context Opaque telemetry attribution token.
      * @return A memory reservation.
      *
      * @throws std::runtime_error if no memory reservation was made.
      */
     [[nodiscard]] MemoryReservation reserve_or_fail(
-        std::size_t size, MemoryType mem_type
+        std::size_t size, MemoryType mem_type, ReservationContext reservation_context = {}
     ) {
-        return reserve_or_fail(size, std::ranges::single_view{mem_type});
+        return reserve_or_fail(
+            size, std::ranges::single_view{mem_type}, reservation_context
+        );
     }
 
     /**
@@ -630,6 +695,8 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @param buffer The buffer. Must not be `nullptr`.
      * @param accepted The accepted memory types in decreasing order of preference.
      * Must not be empty.
+     * @param reservation_context Opaque telemetry attribution token for the
+     * reservation made if the buffer has to be moved.
      * @return @p buffer, unchanged if it is already in one of @p accepted, otherwise
      * moved into one of them.
      *
@@ -638,7 +705,9 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * @p accepted fits, and overbooking is not allowed.
      */
     [[nodiscard]] std::unique_ptr<Buffer> ensure_memory_type(
-        std::unique_ptr<Buffer> buffer, std::span<MemoryType const> accepted
+        std::unique_ptr<Buffer> buffer,
+        std::span<MemoryType const> accepted,
+        ReservationContext reservation_context = {}
     );
 
     /**
@@ -736,7 +805,24 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         return allow_overbooking_by_default_;
     }
 
+    /**
+     * @brief Maximum number of reservation event records retained between drains.
+     *
+     * See the `max_reservation_events` option.
+     *
+     * @return The maximum number of retained events.
+     */
+    [[nodiscard]] std::size_t max_reservation_events() const noexcept {
+        return max_reservation_events_;
+    }
+
   private:
+    std::uint64_t record_reservation_event(
+        ReservationContext reservation_context,
+        MemoryType memory_type,
+        std::int64_t byte_delta,
+        std::uint64_t expected_session = 0
+    ) noexcept;
     /** @brief Private constructor, use `create()` or `from_options()`. */
     BufferResource(
         cuda::mr::any_resource<cuda::mr::device_accessible> device_mr,
@@ -747,7 +833,8 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
         std::shared_ptr<Statistics> statistics,
         std::shared_ptr<DiskResource> disk_resource,
         Duration memory_reserve_timeout,
-        AllowOverbooking allow_overbooking_by_default
+        AllowOverbooking allow_overbooking_by_default,
+        std::size_t max_reservation_events
     );
 
     mutable std::mutex mutex_;
@@ -763,6 +850,12 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     std::shared_ptr<Statistics> statistics_;
     Duration memory_reserve_timeout_;
     AllowOverbooking allow_overbooking_by_default_;
+    std::size_t max_reservation_events_;
+
+    std::optional<detail::RecordingSession> recording_;
+    std::mutex recording_mutex_;
+    std::atomic<bool> recording_enabled_{false};
+    std::uint64_t next_recording_session_id_{1};
 };
 
 static_assert(StatisticsProvider<BufferResource>);
@@ -827,6 +920,16 @@ Duration memory_reserve_timeout_from_options(config::Options options);
  * @return The overbooking policy for reservation requests that don't specify one.
  */
 AllowOverbooking allow_overbooking_by_default_from_options(config::Options options);
+
+/**
+ * @brief Get the `max_reservation_events` parameter from configuration options.
+ *
+ * @param options Configuration options.
+ * @return The maximum number of reservation event records retained between drains.
+ *
+ * @throws std::invalid_argument If the value is negative or cannot be parsed.
+ */
+std::size_t max_reservation_events_from_options(config::Options options);
 
 
 }  // namespace rapidsmpf

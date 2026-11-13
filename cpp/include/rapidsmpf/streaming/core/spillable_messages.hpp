@@ -10,6 +10,7 @@
 #include <mutex>
 #include <optional>
 #include <unordered_map>
+#include <utility>
 
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/content_description.hpp>
@@ -52,9 +53,14 @@ class SpillableMessages {
      *
      * @param spill_order Order in which `try_spill()` picks
      * messages. Defaults to earliest inserted first.
+     * @param reservation_context Default telemetry context for messages inserted
+     * without an explicit context.
      */
-    explicit SpillableMessages(SpillOrder spill_order = SpillOrder::EARLIEST_FIRST)
-        : spill_order_{spill_order} {}
+    explicit SpillableMessages(
+        SpillOrder spill_order = SpillOrder::EARLIEST_FIRST,
+        ReservationContext reservation_context = {}
+    )
+        : spill_order_{spill_order}, default_reservation_context_{reservation_context} {}
 
     SpillableMessages(SpillableMessages const&) = delete;
     SpillableMessages& operator=(SpillableMessages const&) = delete;
@@ -68,6 +74,17 @@ class SpillableMessages {
      * @return Assigned `MessageId` of the inserted message.
      */
     [[nodiscard]] MessageId insert(Message&& message);
+
+    /**
+     * @brief Insert a new message with an explicit reservation context.
+     *
+     * @param message Message to insert.
+     * @param reservation_context Telemetry context for future spill reservations.
+     * @return Assigned `MessageId` of the inserted message.
+     */
+    [[nodiscard]] MessageId insert(
+        Message&& message, ReservationContext reservation_context
+    );
 
     /**
      * @brief Extract and remove a message by ID.
@@ -199,10 +216,10 @@ class SpillableMessages {
     struct Item {
         mutable std::mutex mutex;
         std::optional<Message> message;
+        ReservationContext reservation_context;
 
-        Item() noexcept = default;
-
-        Item(Message&& message) : message(std::move(message)) {}
+        Item(Message&& message, ReservationContext reservation_context)
+            : message(std::move(message)), reservation_context(reservation_context) {}
     };
 
     // Never lock the global mutex and an item's mutex at the same time!
@@ -211,6 +228,7 @@ class SpillableMessages {
     MessageId counter_{0};
     std::unordered_map<MessageId, std::shared_ptr<Item>> items_;
     mutable std::map<MessageId, ContentDescription> content_descriptions_;
+    ReservationContext default_reservation_context_;
 };
 
 }  // namespace rapidsmpf::streaming

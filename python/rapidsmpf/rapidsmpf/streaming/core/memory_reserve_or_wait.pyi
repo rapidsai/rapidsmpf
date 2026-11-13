@@ -3,6 +3,7 @@
 
 from rapidsmpf.config import Options
 from rapidsmpf.memory.memory_reservation import MemoryReservation
+from rapidsmpf.memory.reservation_events import ReservationContext
 from rapidsmpf.rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.streaming.core.context import Context
 
@@ -12,13 +13,25 @@ class MemoryReserveOrWait:
     def __init__(self, options: Options, mem_type: MemoryType, ctx: Context): ...
     async def shutdown(self) -> None: ...
     async def reserve_or_wait(
-        self, size: int, *, net_memory_delta: int
+        self,
+        size: int,
+        *,
+        net_memory_delta: int,
+        reservation_context: ReservationContext | None = None,
     ) -> MemoryReservation: ...
     async def reserve_or_wait_or_overbook(
-        self, size: int, *, net_memory_delta: int
+        self,
+        size: int,
+        *,
+        net_memory_delta: int,
+        reservation_context: ReservationContext | None = None,
     ) -> tuple[MemoryReservation, int]: ...
     async def reserve_or_wait_or_fail(
-        self, size: int, *, net_memory_delta: int
+        self,
+        size: int,
+        *,
+        net_memory_delta: int,
+        reservation_context: ReservationContext | None = None,
     ) -> MemoryReservation: ...
     def size(self) -> int: ...
 
@@ -29,4 +42,5 @@ async def reserve_memory(
     net_memory_delta: int,
     mem_type: MemoryType = MemoryType.DEVICE,
     allow_overbooking: bool | None = None,
+    reservation_context: ReservationContext | None = None,
 ) -> MemoryReservation: ...

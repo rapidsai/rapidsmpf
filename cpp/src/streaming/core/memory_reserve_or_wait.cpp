@@ -114,12 +114,15 @@ Actor MemoryReserveOrWait::shutdown() {
 }
 
 coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
-    std::size_t size, std::int64_t net_memory_delta
+    std::size_t size,
+    std::int64_t net_memory_delta,
+    ReservationContext reservation_context
 ) {
     record_stat("request-bytes", static_cast<double>(size));
 
     // First, check whether the requested memory is immediately available.
-    auto [res, _] = br_->reserve(mem_type_, size, AllowOverbooking::NO);
+    auto [res, _] =
+        br_->reserve(mem_type_, size, AllowOverbooking::NO, reservation_context);
     if (res.size() == size) {
         record_stat("wait-avoided", 1);
         co_return std::move(res);
@@ -138,6 +141,7 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
             .net_memory_delta = net_memory_delta,
             .sequence_number = sequence_counter++,
             .queue = request_queue,
+            .reservation_context = reservation_context,
             .submitted_at = Clock::now()
         }
     );
@@ -181,11 +185,14 @@ coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait(
 
 coro::task<std::pair<MemoryReservation, std::size_t>>
 MemoryReserveOrWait::reserve_or_wait_or_overbook(
-    std::size_t size, std::int64_t net_memory_delta
+    std::size_t size,
+    std::int64_t net_memory_delta,
+    ReservationContext reservation_context
 ) {
-    auto ret = co_await reserve_or_wait(size, net_memory_delta);
+    auto ret = co_await reserve_or_wait(size, net_memory_delta, reservation_context);
     if (ret.size() < size) {
-        auto overbooked = br_->reserve(mem_type_, size, AllowOverbooking::YES);
+        auto overbooked =
+            br_->reserve(mem_type_, size, AllowOverbooking::YES, reservation_context);
         // `reserve()` returns the total overbooking after the reservation, including any
         // already outstanding, so clamp to `size` for the amount this request added.
         auto const added = std::min(size, overbooked.second);
@@ -198,9 +205,11 @@ MemoryReserveOrWait::reserve_or_wait_or_overbook(
 }
 
 coro::task<MemoryReservation> MemoryReserveOrWait::reserve_or_wait_or_fail(
-    std::size_t size, std::int64_t net_memory_delta
+    std::size_t size,
+    std::int64_t net_memory_delta,
+    ReservationContext reservation_context
 ) {
-    auto ret = co_await reserve_or_wait(size, net_memory_delta);
+    auto ret = co_await reserve_or_wait(size, net_memory_delta, reservation_context);
     RAPIDSMPF_EXPECTS(
         ret.size() == size,
         "cannot reserve " + std::string{to_string(mem_type_)} + " memory ("
@@ -404,7 +413,9 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
             );
 
             // Try to reserve memory for the selected request.
-            auto [res, _] = br_->reserve(mem_type_, it->size, AllowOverbooking::NO);
+            auto [res, _] = br_->reserve(
+                mem_type_, it->size, AllowOverbooking::NO, it->reservation_context
+            );
             if (res.size() == 0) {
                 continue;  // Memory is no longer available.
             }
@@ -474,7 +485,9 @@ coro::task<void> MemoryReserveOrWait::periodic_memory_check() {
 
         // Reserve memory and accept a zero-size result if it does not fit into the
         // currently available memory.
-        auto [res, _] = br_->reserve(mem_type_, request.size, AllowOverbooking::NO);
+        auto [res, _] = br_->reserve(
+            mem_type_, request.size, AllowOverbooking::NO, request.reservation_context
+        );
 
         // Forced progress: this request ran out the timeout rather than being admitted
         // by a reservation release. Whether the forced attempt then found memory is
@@ -493,7 +506,8 @@ coro::task<MemoryReservation> reserve_memory(
     std::size_t size,
     std::int64_t net_memory_delta,
     MemoryType mem_type,
-    std::optional<AllowOverbooking> allow_overbooking
+    std::optional<AllowOverbooking> allow_overbooking,
+    ReservationContext reservation_context
 ) {
     // If allow_overbooking is not specified, get it from the configuration options.
     if (!allow_overbooking.has_value()) {
@@ -506,12 +520,12 @@ coro::task<MemoryReservation> reserve_memory(
     // Reserve memory based on the overbooking policy.
     if (allow_overbooking.value() == AllowOverbooking::YES) {
         auto [res, _] = co_await ctx->memory(mem_type)->reserve_or_wait_or_overbook(
-            size, net_memory_delta
+            size, net_memory_delta, reservation_context
         );
         co_return std::move(res);
     } else {
         co_return co_await ctx->memory(mem_type)->reserve_or_wait_or_fail(
-            size, net_memory_delta
+            size, net_memory_delta, reservation_context
         );
     }
 }

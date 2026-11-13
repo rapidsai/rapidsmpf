@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 """The Shuffler interface for RapidsMPF."""
 
@@ -12,6 +12,9 @@ from libcpp.vector cimport vector
 
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
+from rapidsmpf.memory.reservation_events cimport (ReservationContext,
+                                                  cpp_ReservationContext,
+                                                  unwrap_reservation_context)
 
 
 cdef class Shuffler:
@@ -40,6 +43,8 @@ cdef class Shuffler:
         :attr:`~.PartitionAssignment.CONTIGUOUS` so each rank gets a contiguous range
         of partition IDs (e.g. for sort so concatenation order matches global order).
         A custom callable may be supported in the future.
+    reservation_context
+        Optional telemetry attribution token for internal memory reservations.
 
     Attributes
     ----------
@@ -65,10 +70,15 @@ cdef class Shuffler:
         uint32_t total_num_partitions,
         BufferResource br not None,
         PartitionAssignment partition_assignment = PartitionAssignment.ROUND_ROBIN,
+        *,
+        ReservationContext reservation_context=None,
     ):
         self._br = br
         self._comm = comm
         cdef cpp_BufferResource* br_ = br.ptr()
+        cdef cpp_ReservationContext c_reservation_context = (
+            unwrap_reservation_context(reservation_context)
+        )
         with nogil:
             self._handle = make_unique[cpp_Shuffler](
                 comm._handle,
@@ -78,6 +88,7 @@ cdef class Shuffler:
                 cpp_Shuffler.round_robin
                 if partition_assignment == PartitionAssignment.ROUND_ROBIN
                 else cpp_Shuffler.contiguous,
+                c_reservation_context,
             )
 
     def __dealloc__(self):

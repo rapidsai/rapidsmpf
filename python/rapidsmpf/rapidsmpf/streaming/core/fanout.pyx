@@ -5,13 +5,23 @@ from libcpp.memory cimport make_unique
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
 
+from rapidsmpf.memory.reservation_events cimport (ReservationContext,
+                                                  cpp_ReservationContext,
+                                                  unwrap_reservation_context)
 from rapidsmpf.streaming.core.actor cimport CppActor, cpp_Actor
 from rapidsmpf.streaming.core.channel cimport Channel
 from rapidsmpf.streaming.core.context cimport Context
 from rapidsmpf.streaming.core.fanout cimport FanoutPolicy
 
 
-def fanout(Context ctx, Channel ch_in, chs_out, FanoutPolicy policy):
+def fanout(
+    Context ctx,
+    Channel ch_in,
+    chs_out,
+    FanoutPolicy policy,
+    *,
+    ReservationContext reservation_context=None,
+):
     """
     Broadcast messages from one input channel to multiple output channels.
 
@@ -35,6 +45,8 @@ def fanout(Context ctx, Channel ch_in, chs_out, FanoutPolicy policy):
         output channels are being consumed by independent consumers in the
         downstream. :attr:`~.FanoutPolicy.UNBOUNDED` can be used if the output channels
         are being consumed by a single/ shared consumer in the downstream.
+    reservation_context
+        Optional telemetry attribution token for message-copy reservations.
 
     Returns
     -------
@@ -73,8 +85,15 @@ def fanout(Context ctx, Channel ch_in, chs_out, FanoutPolicy policy):
         _chs_out.push_back((<Channel>ch_out)._handle)
 
     cdef cpp_Actor _ret
+    cdef cpp_ReservationContext c_reservation_context = (
+        unwrap_reservation_context(reservation_context)
+    )
     with nogil:
         _ret = cpp_fanout(
-            ctx._handle, ch_in._handle, move(_chs_out), policy
+            ctx._handle,
+            ch_in._handle,
+            move(_chs_out),
+            policy,
+            c_reservation_context,
         )
     return CppActor.from_handle(make_unique[cpp_Actor](move(_ret)), owner)

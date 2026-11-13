@@ -1,10 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-
 from cpython.object cimport PyObject
 from cpython.ref cimport Py_INCREF
 from cython.operator cimport dereference as deref
-from libc.stdint cimport int32_t
+from libc.stdint cimport int32_t, uint64_t
 from libcpp cimport bool
 from libcpp.memory cimport make_shared, make_unique, shared_ptr
 from libcpp.utility cimport move
@@ -14,6 +13,9 @@ from rapidsmpf.coll.allgather cimport Ordered as cpp_Ordered
 from rapidsmpf.communicator.communicator cimport Communicator
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
+from rapidsmpf.memory.reservation_events cimport (ReservationContext,
+                                                  cpp_ReservationContext,
+                                                  unwrap_reservation_context)
 from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
 from rapidsmpf.streaming._detail.libcoro_spawn_task cimport cpp_set_py_future
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
@@ -114,14 +116,26 @@ cdef class AllGather(Collective):
     op_id
         Operation id identifying this allgather. Must not be reused until
         :meth:`aclose` has returned.
+    reservation_context
+        Optional telemetry attribution token for internal memory reservations.
     """
-    def __init__(self, Context ctx not None, Communicator comm not None, int32_t op_id):
+    def __init__(
+        self,
+        Context ctx not None,
+        Communicator comm not None,
+        int32_t op_id,
+        *,
+        ReservationContext reservation_context=None,
+    ):
         self._ctx = ctx
         self._comm = comm
         self.in_context = False
+        cdef cpp_ReservationContext c_reservation_context = (
+            unwrap_reservation_context(reservation_context)
+        )
         with nogil:
             self._handle = make_shared[cpp_AllGather](
-                ctx._handle, comm._handle, op_id
+                ctx._handle, comm._handle, op_id, c_reservation_context
             )
 
     def __dealloc__(self):
@@ -232,6 +246,7 @@ def allgather(
     int32_t op_id,
     *,
     bool ordered,
+    ReservationContext reservation_context=None,
 ):
     """
     Launch an allgather actor for a single allgather operation.
@@ -254,6 +269,8 @@ def allgather(
         have shut down.
     ordered
         Should the output channel provide data in order of input sequence numbers?
+    reservation_context
+        Optional telemetry attribution token for internal memory reservations.
 
     Returns
     -------
@@ -263,6 +280,9 @@ def allgather(
 
     cdef cpp_Actor _ret
     cdef cpp_Ordered c_ordered = cpp_Ordered.YES if ordered else cpp_Ordered.NO
+    cdef cpp_ReservationContext c_reservation_context = (
+        unwrap_reservation_context(reservation_context)
+    )
     with nogil:
         _ret = cpp_allgather(
             ctx._handle,
@@ -271,5 +291,6 @@ def allgather(
             ch_out._handle,
             op_id,
             c_ordered,
+            c_reservation_context,
         )
     return CppActor.from_handle(make_unique[cpp_Actor](move(_ret)), owner=None)

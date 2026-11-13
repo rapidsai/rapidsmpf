@@ -3,6 +3,7 @@
 
 from libc.stdint cimport int32_t, int64_t, uint64_t
 from libcpp cimport bool
+from libcpp.functional cimport function
 from libcpp.memory cimport shared_ptr, unique_ptr
 from libcpp.vector cimport vector
 
@@ -12,6 +13,7 @@ from rapidsmpf.communicator.communicator cimport (Communicator, Rank,
 from rapidsmpf.memory.buffer_resource cimport (BufferResource,
                                                cpp_BufferResource)
 from rapidsmpf.memory.packed_data cimport cpp_PackedData
+from rapidsmpf.memory.reservation_events cimport cpp_ReservationContext
 from rapidsmpf.progress_thread cimport cpp_ProgressThread
 
 
@@ -24,7 +26,9 @@ cdef extern from "<rapidsmpf/coll/sparse_alltoall.hpp>" nogil:
             int32_t op_id,
             cpp_BufferResource *br,
             vector[Rank] srcs,
-            vector[Rank] dsts
+            vector[Rank] dsts,
+            function[void()] finished_callback,
+            cpp_ReservationContext reservation_context,
         ) except +ex_handler
         void insert(Rank dst, cpp_PackedData packed_data) \
             except +ex_handler

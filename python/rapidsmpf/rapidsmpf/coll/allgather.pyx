@@ -1,9 +1,10 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 """The AllGather interface for RapidsMPF."""
 
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int32_t, uint64_t
+from libcpp cimport nullptr
 from libcpp.memory cimport make_unique
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
@@ -14,6 +15,9 @@ from rapidsmpf.memory.buffer_resource cimport (BufferResource,
                                                cpp_BufferResource)
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
+from rapidsmpf.memory.reservation_events cimport (ReservationContext,
+                                                  cpp_ReservationContext,
+                                                  unwrap_reservation_context)
 
 
 cdef class AllGather:
@@ -36,6 +40,8 @@ cdef class AllGather:
         between 0 and 2^20 - 1.
     br
         Buffer resource for memory allocation.
+    reservation_context
+        Optional telemetry attribution token for internal memory reservations.
 
     Notes
     -----
@@ -49,16 +55,23 @@ cdef class AllGather:
         Communicator comm not None,
         int32_t op_id,
         BufferResource br not None,
+        *,
+        ReservationContext reservation_context=None,
     ):
         self._br = br
         self._comm = comm
         cdef cpp_BufferResource* br_ = br.ptr()
+        cdef cpp_ReservationContext c_reservation_context = (
+            unwrap_reservation_context(reservation_context)
+        )
         self.in_context = False
         with nogil:
             self._handle = make_unique[cpp_AllGather](
                 comm._handle,
                 op_id,
                 br_,
+                nullptr,
+                c_reservation_context,
             )
 
     def __dealloc__(self):

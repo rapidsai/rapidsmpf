@@ -5,8 +5,10 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include <rapidsmpf/memory/buffer.hpp>
-#include <rapidsmpf/memory/memory_reservation.hpp>
+#include <rapidsmpf/memory/reservation_events.hpp>
 
 namespace rapidsmpf {
 
@@ -97,6 +99,15 @@ class MemoryReservation {
         return br_;
     }
 
+    /**
+     * @brief Return the opaque attribution token carried by this reservation.
+     *
+     * @return The reservation context token.
+     */
+    [[nodiscard]] constexpr ReservationContext reservation_context() const noexcept {
+        return reservation_context_;
+    }
+
   private:
     /**
      * @brief Constructs a memory reservation.
@@ -106,13 +117,28 @@ class MemoryReservation {
      * @param mem_type The type of memory associated with this reservation.
      * @param br Pointer to the buffer resource managing this reservation.
      * @param size The size of the reserved memory in bytes.
+     * @param reservation_context Opaque telemetry attribution token.
+     * @param observed_session Recording session that observed creation, or zero.
      */
-    constexpr MemoryReservation(MemoryType mem_type, BufferResource* br, std::size_t size)
-        : mem_type_{mem_type}, br_{br}, size_{size} {}
+    MemoryReservation(
+        MemoryType mem_type,
+        BufferResource* br,
+        std::size_t size,
+        ReservationContext reservation_context,
+        std::uint64_t observed_session = 0
+    )
+        : mem_type_{mem_type},
+          br_{br},
+          size_{size},
+          reservation_context_{reservation_context},
+          observed_session_{observed_session} {}
 
   private:
     MemoryType mem_type_;  ///< The type of memory for this reservation.
     BufferResource* br_;  ///< The buffer resource that manages this reservation.
     std::size_t size_;  ///< The remaining size of the reserved memory in bytes.
+    ReservationContext reservation_context_;  ///< Opaque telemetry attribution token.
+    std::uint64_t observed_session_;  ///< Recording session that observed creation, or
+                                      ///< zero.
 };
 }  // namespace rapidsmpf
