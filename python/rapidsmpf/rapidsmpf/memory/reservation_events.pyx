@@ -36,9 +36,9 @@ cdef class ReservationContext:
         if not isinstance(other, ReservationContext):
             return NotImplemented
         if op == 2:
-            return self.c_obj.hash() == (<ReservationContext>other).c_obj.hash()
+            return self.c_obj == (<ReservationContext>other).c_obj
         if op == 3:
-            return self.c_obj.hash() != (<ReservationContext>other).c_obj.hash()
+            return not (self.c_obj == (<ReservationContext>other).c_obj)
         return NotImplemented
 
     def __repr__(self):

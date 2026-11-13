@@ -11,6 +11,7 @@ cdef extern from "<rapidsmpf/memory/reservation_events.hpp>" namespace "rapidsmp
         cpp_ReservationContext() noexcept
         bint is_attributed() noexcept
         uint64_t hash() noexcept
+        bint operator==(const cpp_ReservationContext&) noexcept
 
     cdef cppclass cpp_ReservationContextCreator \
             "rapidsmpf::ReservationContextCreator":
