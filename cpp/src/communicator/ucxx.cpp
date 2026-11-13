@@ -191,6 +191,18 @@ class SharedResources {
           logger{Logger::from_options(options)},
           options{std::move(options)} {}
 
+    /**
+     * @brief Destroy UCXX shared resources.
+     *
+     * The listener is destroyed first, before any other member. `listener_callback`
+     * receives a raw pointer to this object, so destroying the listener first ensures
+     * a late connection request can never reach a partially destroyed object (e.g.,
+     * if the worker were progressed while endpoints are being destroyed).
+     */
+    ~SharedResources() noexcept {
+        listener_.reset();
+    }
+
     SharedResources(SharedResources&&) = delete;  ///< Not movable.
     SharedResources(SharedResources&) = delete;  ///< Not copyable.
 
@@ -844,31 +856,30 @@ void control_unpack(
         // and executed before progressing the worker in the next loop.
         auto callback = [weak_resources = std::weak_ptr{shared_resources},
                          client_rank]() {
-            auto shared_resources = weak_resources.lock();
-            if (!shared_resources)
+            auto resources = weak_resources.lock();
+            if (!resources)
                 return;
             auto worker_address = std::get<std::shared_ptr<::ucxx::Address>>(
-                shared_resources->get_listener_address(client_rank).address
+                resources->get_listener_address(client_rank).address
             );
             auto endpoint =
-                shared_resources->get_worker()
+                resources->get_worker()
                     ->endpointBuilder(worker_address)
-                    .endpointErrorHandling(shared_resources->endpoint_error_handling())
+                    .endpointErrorHandling(resources->endpoint_error_handling())
                     .build();
-            shared_resources->register_endpoint(client_rank, endpoint);
+            resources->register_endpoint(client_rank, endpoint);
 
             auto packed_client_rank =
                 control_pack(ControlMessage::AssignRank, client_rank);
-            auto req =
-                endpoint
-                    ->amSendBuilder(
-                        packed_client_rank->data(),
-                        packed_client_rank->size(),
-                        UCS_MEMORY_TYPE_HOST
-                    )
-                    .receiverCallbackInfo(shared_resources->get_control_callback_info())
-                    .build();
-            shared_resources->add_future(
+            auto req = endpoint
+                           ->amSendBuilder(
+                               packed_client_rank->data(),
+                               packed_client_rank->size(),
+                               UCS_MEMORY_TYPE_HOST
+                           )
+                           .receiverCallbackInfo(resources->get_control_callback_info())
+                           .build();
+            resources->add_future(
                 std::make_unique<HostFuture>(req, std::move(packed_client_rank))
             );
         };
