@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
@@ -26,7 +26,8 @@ cdef void cpp_set_py_future(
     which awaits a C++ ``coro::task`` and invokes this callback upon
     completion or failure. On successful completion, the Future is resolved
     with ``None``. If an exception is thrown by the C++ task, the Future is
-    completed with a ``RuntimeError`` containing the exception message.
+    completed with a ``RuntimeError`` containing the exception message. If the
+    Future's event loop has been closed, the Future is left as is.
 
     Parameters
     ----------
@@ -39,10 +40,14 @@ cdef void cpp_set_py_future(
     """
     with gil:
         future = (<object?> py_future)
+        loop = future.get_loop()
         if error_msg == NULL:
-            asyncio.run_coroutine_threadsafe(_set_result(future), future.get_loop())
+            coro = _set_result(future)
         else:
-            asyncio.run_coroutine_threadsafe(
-                _set_exception(future, RuntimeError(error_msg.decode("utf-8"))),
-                future.get_loop()
-            )
+            coro = _set_exception(future, RuntimeError(error_msg.decode("utf-8")))
+        try:
+            asyncio.run_coroutine_threadsafe(coro, loop)
+        except RuntimeError:
+            coro.close()
+            if not loop.is_closed():
+                raise
