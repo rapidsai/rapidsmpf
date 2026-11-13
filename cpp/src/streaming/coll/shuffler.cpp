@@ -40,8 +40,8 @@ ShufflerAsync::ShufflerAsync(
 ShufflerAsync::~ShufflerAsync() noexcept {
     RAPIDSMPF_EXPECTS_FATAL(
         event_.is_set(),
-        "~ShufflerAsync: shuffle not complete, remember to await the "
-        "finish token from this->insert_finished()"
+        "~ShufflerAsync: shuffle not complete. Call insert_finished() and await wait() "
+        "before destruction, or await aclose() in Python."
     );
 }
 
@@ -53,8 +53,11 @@ void ShufflerAsync::insert(std::unordered_map<shuffler::PartID, PackedData>&& ch
     shuffler_.insert(std::move(chunks));
 }
 
-Actor ShufflerAsync::insert_finished() {
+void ShufflerAsync::insert_finished() {
     shuffler_.insert_finished();
+}
+
+coro::task<void> ShufflerAsync::wait() {
     co_await event_;
 }
 
@@ -94,7 +97,8 @@ Actor shuffler(
         shuffler_async.insert(std::move(partition_map.data));
     }
 
-    co_await shuffler_async.insert_finished();
+    shuffler_async.insert_finished();
+    co_await shuffler_async.wait();
 
     for (auto pid : shuffler_async.local_partitions()) {
         auto chunks = shuffler_async.extract(pid);

@@ -4,7 +4,7 @@ from cpython.object cimport PyObject
 from cpython.ref cimport Py_INCREF
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int32_t, uint32_t
-from libcpp.memory cimport make_unique, shared_ptr
+from libcpp.memory cimport make_shared, make_unique, shared_ptr
 from libcpp.span cimport span
 from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move
@@ -26,32 +26,32 @@ from rapidsmpf.streaming.chunks.utils cimport py_deleter
 from rapidsmpf.streaming.coll.shuffler cimport cpp_ShufflerAsync
 from rapidsmpf.streaming.core.actor cimport CppActor, cpp_Actor
 from rapidsmpf.streaming.core.channel cimport Channel
-from rapidsmpf.streaming.core.context cimport Context, cpp_Context
-
-import asyncio
+from rapidsmpf.streaming.core.context cimport Context
 
 
 cdef extern from * nogil:
     """
     namespace {
-    coro::task<void> insert_finished_task(
-        rapidsmpf::streaming::ShufflerAsync *shuffle
+    // The task owns a reference, so the shuffler outlives the task even if the
+    // Python object is freed or the Python awaiter is cancelled.
+    coro::task<void> wait_task(
+        std::shared_ptr<rapidsmpf::streaming::ShufflerAsync> shuffle
     ) {
-        co_await shuffle->insert_finished();
+        co_await shuffle->wait();
     }
 
-    void cpp_insert_finished(
-        std::shared_ptr<rapidsmpf::streaming::Context> ctx,
-        rapidsmpf::streaming::ShufflerAsync *shuffle,
+    void cpp_spawn_wait(
+        std::shared_ptr<rapidsmpf::streaming::ShufflerAsync> shuffle,
         void (*cpp_set_py_future)(void*, const char *),
         rapidsmpf::OwningWrapper py_future
     ) {
+        auto ctx = shuffle->ctx();
         RAPIDSMPF_EXPECTS(
             ctx->executor()->spawn_detached(
                 cython_libcoro_task_wrapper(
                     cpp_set_py_future,
                     std::move(py_future),
-                    insert_finished_task(shuffle)
+                    wait_task(std::move(shuffle))
                 )
             ),
             "libcoro's spawn_detached() failed to spawn task"
@@ -59,9 +59,8 @@ cdef extern from * nogil:
     }
     }  // namespace
     """
-    void cpp_insert_finished(
-        shared_ptr[cpp_Context] ctx,
-        cpp_ShufflerAsync *shuffle,
+    void cpp_spawn_wait(
+        shared_ptr[cpp_ShufflerAsync] shuffle,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
     ) except +ex_handler
@@ -131,9 +130,12 @@ def shuffler(
     return CppActor.from_handle(make_unique[cpp_Actor](move(_ret)), owner=None)
 
 
-cdef class ShufflerAsync:
+cdef class ShufflerAsync(Collective):
     """
     An asynchronous shuffle.
+
+    Release the shuffle with :meth:`aclose`, or use it as an async context manager,
+    which calls :meth:`aclose` on exit.
 
     Parameters
     ----------
@@ -142,8 +144,8 @@ cdef class ShufflerAsync:
     comm
         The communicator the shuffle is collective over.
     op_id
-        Operation id identifying this shuffle. Must not be reused while
-        this object is still live.
+        Operation id identifying this shuffle. Must not be reused until
+        :meth:`aclose` has returned.
     total_num_partitions
         Global number of output partitions in the shuffle.
     partition_assignment
@@ -165,10 +167,11 @@ cdef class ShufflerAsync:
         *,
         ReservationContext reservation_context=0,
     ):
+        self._ctx = ctx
         self._comm = comm
         self._br = ctx.br()
         with nogil:
-            self._handle = make_unique[cpp_ShufflerAsync](
+            self._handle = make_shared[cpp_ShufflerAsync](
                 ctx._handle, comm._handle, op_id, total_num_partitions,
                 cpp_Shuffler.round_robin
                 if partition_assignment == PartitionAssignment.ROUND_ROBIN
@@ -179,6 +182,32 @@ cdef class ShufflerAsync:
     def __dealloc__(self):
         with nogil:
             self._handle.reset()
+
+    cdef void _cpp_insert_finished(self) except *:
+        with nogil:
+            deref(self._handle).insert_finished()
+
+    cdef void _cpp_spawn_wait(self, object future) except *:
+        Py_INCREF(future)
+        with nogil:
+            cpp_spawn_wait(
+                self._handle,
+                cpp_set_py_future,
+                move(cpp_OwningWrapper(<void*><PyObject*>future, py_deleter))
+            )
+
+    cdef void _cpp_release(self) noexcept:
+        with nogil:
+            self._handle.reset()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        # When the body raised, a missing insert_finished() is a consequence of that
+        # error, so only the body's exception propagates.
+        await self._aclose(exc_type is None)
+        return False
 
     @property
     def comm(self):
@@ -201,6 +230,7 @@ cdef class ShufflerAsync:
              Map of partition ID to :class:`~.PackedData` associated with
              that partition.
         """
+        self._check_open()
         cdef unordered_map[uint32_t, cpp_PackedData] c_chunks
         c_chunks.reserve(len(chunks))
         for pid, chunk in chunks.items():
@@ -212,24 +242,26 @@ cdef class ShufflerAsync:
         with nogil:
             deref(self._handle).insert(move(c_chunks))
 
-    async def insert_finished(self, Context ctx not None):
+    async def insert_finished(self, Context ctx = None):
         """
-        Insert a finished marker into the shuffle.
+        Insert the finish markers and wait for the shuffle to complete on this rank.
+
+        Errors from inserting the finish markers are raised before the first
+        suspension. If the awaiting task is cancelled, the shuffle keeps running and
+        :meth:`aclose` waits for it.
+
+        Parameters
+        ----------
+        ctx
+            Ignored. The context passed to the constructor is used. This parameter
+            will be removed.
 
         Notes
         -----
         This must be awaited before extraction can occur.
         """
-        ret = asyncio.get_running_loop().create_future()
-        Py_INCREF(ret)
-        with nogil:
-            cpp_insert_finished(
-                ctx._handle,
-                self._handle.get(),
-                cpp_set_py_future,
-                move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter))
-            )
-        await ret
+        self._mark_finished()
+        await self._wait()
 
     def extract(self, uint32_t pid):
         """
@@ -247,6 +279,7 @@ cdef class ShufflerAsync:
         list[PackedData]
             The PackedData chunks associated with the partition.
         """
+        self._check_open()
         cdef vector[cpp_PackedData] c_ret
         with nogil:
             c_ret = deref(self._handle).extract(pid)
@@ -260,6 +293,7 @@ cdef class ShufflerAsync:
         -------
         Partition IDs owned by this shuffler.
         """
+        self._check_open()
         cdef span[const uint32_t] _ret
         cdef list partitions = []
         with nogil:

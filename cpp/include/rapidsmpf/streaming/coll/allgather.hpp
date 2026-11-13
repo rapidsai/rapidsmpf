@@ -27,6 +27,10 @@ namespace rapidsmpf::streaming {
  * insert data, the user is responsible for arranging that `insert_finished` is only
  * called after all `insert`ions have completed. A single consumer task should extract
  * data.
+ *
+ * @warning `insert_finished()` must be called and the allgather must have completed,
+ * as signalled by `wait()` or `extract_all()`, before the object is destroyed.
+ * Otherwise destruction terminates the process.
  */
 class AllGather {
   public:
@@ -79,6 +83,18 @@ class AllGather {
 
     /// @copydoc rapidsmpf::coll::AllGather::insert_finished()
     void insert_finished();
+
+    /**
+     * @brief Wait for the allgather to complete on this rank.
+     *
+     * The allgather completes once every rank has called `insert_finished()` and all
+     * data has arrived. After that, the `op_id` may be reused.
+     *
+     * Several coroutines may await `wait()` concurrently, also next to `extract_all()`.
+     *
+     * @return Coroutine that completes when the allgather has completed.
+     */
+    [[nodiscard]] coro::task<void> wait();
 
     /**
      * @brief Extract all gathered data.

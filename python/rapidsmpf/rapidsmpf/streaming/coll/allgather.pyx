@@ -5,7 +5,7 @@ from cpython.ref cimport Py_INCREF
 from cython.operator cimport dereference as deref
 from libc.stdint cimport int32_t, uint64_t
 from libcpp cimport bool
-from libcpp.memory cimport make_unique, shared_ptr
+from libcpp.memory cimport make_shared, make_unique, shared_ptr
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
 
@@ -19,7 +19,7 @@ from rapidsmpf.streaming._detail.libcoro_spawn_task cimport cpp_set_py_future
 from rapidsmpf.streaming.chunks.utils cimport py_deleter
 from rapidsmpf.streaming.core.actor cimport CppActor, cpp_Actor
 from rapidsmpf.streaming.core.channel cimport Channel
-from rapidsmpf.streaming.core.context cimport Context, cpp_Context
+from rapidsmpf.streaming.core.context cimport Context
 
 import asyncio
 
@@ -27,8 +27,10 @@ import asyncio
 cdef extern from * nogil:
     """
     namespace {
+    // The task owns a reference, so the allgather outlives the task even if the
+    // Python object is freed or the Python awaiter is cancelled.
     coro::task<void> extract_all_task(
-        rapidsmpf::streaming::AllGather *gather,
+        std::shared_ptr<rapidsmpf::streaming::AllGather> gather,
         rapidsmpf::streaming::AllGather::Ordered ordered,
         std::shared_ptr<std::vector<rapidsmpf::PackedData>> output
     ) {
@@ -36,49 +38,82 @@ cdef extern from * nogil:
     }
 
     std::shared_ptr<std::vector<rapidsmpf::PackedData>> cpp_extract_all(
-        std::shared_ptr<rapidsmpf::streaming::Context> ctx,
-        rapidsmpf::streaming::AllGather *gather,
+        std::shared_ptr<rapidsmpf::streaming::AllGather> gather,
         rapidsmpf::streaming::AllGather::Ordered ordered,
         void (*cpp_set_py_future)(void*, const char *),
         rapidsmpf::OwningWrapper py_future
     ) {
+        auto ctx = gather->ctx();
         auto output = std::make_shared<std::vector<rapidsmpf::PackedData>>();
         RAPIDSMPF_EXPECTS(
             ctx->executor()->spawn_detached(
                 cython_libcoro_task_wrapper(
                     cpp_set_py_future,
                     std::move(py_future),
-                    extract_all_task(gather, ordered, output)
+                    extract_all_task(std::move(gather), ordered, output)
                 )
             ),
             "libcoro's spawn_detached() failed to spawn task"
         );
         return output;
     }
+
+    // Like `extract_all_task()`, the task owns a reference. Spawning `gather->wait()`
+    // directly would not keep the allgather alive.
+    coro::task<void> wait_task(
+        std::shared_ptr<rapidsmpf::streaming::AllGather> gather
+    ) {
+        co_await gather->wait();
+    }
+
+    void cpp_spawn_wait(
+        std::shared_ptr<rapidsmpf::streaming::AllGather> gather,
+        void (*cpp_set_py_future)(void*, const char *),
+        rapidsmpf::OwningWrapper py_future
+    ) {
+        auto ctx = gather->ctx();
+        RAPIDSMPF_EXPECTS(
+            ctx->executor()->spawn_detached(
+                cython_libcoro_task_wrapper(
+                    cpp_set_py_future,
+                    std::move(py_future),
+                    wait_task(std::move(gather))
+                )
+            ),
+            "libcoro's spawn_detached() failed to spawn task"
+        );
+    }
     }  // namespace
     """
     shared_ptr[vector[cpp_PackedData]] cpp_extract_all(
-        shared_ptr[cpp_Context] ctx,
-        cpp_AllGather *gather,
+        shared_ptr[cpp_AllGather] gather,
         cpp_Ordered ordered,
+        void (*cpp_set_py_future)(void*, const char *),
+        cpp_OwningWrapper py_future
+    ) except +ex_handler
+    void cpp_spawn_wait(
+        shared_ptr[cpp_AllGather] gather,
         void (*cpp_set_py_future)(void*, const char *),
         cpp_OwningWrapper py_future
     ) except +ex_handler
 
 
-cdef class AllGather:
+cdef class AllGather(Collective):
     """
     An asynchronous AllGather.
+
+    Release the allgather with :meth:`aclose`, after the ``with`` block if one is
+    used.
 
     Parameters
     ----------
     ctx
         Streaming context
     comm
-        The communicator for communication between ranks.
+        The communicator the allgather is over.
     op_id
-        Operation id identifying this allgather. Must not be reused while
-        this object is still live.
+        Operation id identifying this allgather. Must not be reused until
+        :meth:`aclose` has returned.
     reservation_context
         Optional telemetry attribution token for internal memory reservations.
     """
@@ -90,14 +125,34 @@ cdef class AllGather:
         *,
         ReservationContext reservation_context=0,
     ):
+        self._ctx = ctx
         self._comm = comm
         self.in_context = False
         with nogil:
-            self._handle = make_unique[cpp_AllGather](
+            self._handle = make_shared[cpp_AllGather](
                 ctx._handle, comm._handle, op_id, reservation_context
             )
 
     def __dealloc__(self):
+        with nogil:
+            self._handle.reset()
+
+    cdef void _cpp_insert_finished(self) except *:
+        if self.in_context:
+            raise ValueError("Cannot call aclose() from within a context")
+        with nogil:
+            deref(self._handle).insert_finished()
+
+    cdef void _cpp_spawn_wait(self, object future) except *:
+        Py_INCREF(future)
+        with nogil:
+            cpp_spawn_wait(
+                self._handle,
+                cpp_set_py_future,
+                move(cpp_OwningWrapper(<void*><PyObject*>future, py_deleter))
+            )
+
+    cdef void _cpp_release(self) noexcept:
         with nogil:
             self._handle.reset()
 
@@ -124,6 +179,7 @@ cdef class AllGather:
         packed_data
             The data to insert.
         """
+        self._check_open()
         if not packed_data.c_obj:
             raise ValueError("PackedData was empty")
         with nogil:
@@ -135,8 +191,7 @@ cdef class AllGather:
         """
         if self.in_context:
             raise ValueError("Cannot call insert_finished() from within a context")
-        with nogil:
-            deref(self._handle).insert_finished()
+        self._mark_finished()
 
     def __enter__(self):
         self.in_context = True
@@ -147,14 +202,15 @@ cdef class AllGather:
         self.insert_finished()
         return False  # do not suppress exceptions
 
-    async def extract_all(self, Context ctx, *, bool ordered):
+    async def extract_all(self, Context ctx = None, *, bool ordered):
         """
         Suspend and extract all data from the AllGather.
 
         Parameters
         ----------
         ctx
-            Streaming context.
+            Ignored. The context passed to the constructor is used. This parameter
+            will be removed.
         ordered
             Should the extraction be ordered?
 
@@ -162,19 +218,19 @@ cdef class AllGather:
         -------
         Awaitable that returns the gathered PackedData.
         """
+        self._check_open()
         ret = asyncio.get_running_loop().create_future()
         Py_INCREF(ret)
         cdef shared_ptr[vector[cpp_PackedData]] c_ret
         with nogil:
             c_ret = cpp_extract_all(
-                ctx._handle,
-                self._handle.get(),
+                self._handle,
                 cpp_Ordered.YES if ordered else cpp_Ordered.NO,
                 cpp_set_py_future,
                 move(cpp_OwningWrapper(<void*><PyObject*>ret, py_deleter))
             )
         await ret
-        return packed_data_vector_to_list(move(deref(c_ret)), ctx.br())
+        return packed_data_vector_to_list(move(deref(c_ret)), self._ctx.br())
 
 
 def allgather(

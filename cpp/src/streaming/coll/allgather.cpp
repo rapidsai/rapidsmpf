@@ -34,8 +34,8 @@ AllGather::AllGather(
 AllGather::~AllGather() noexcept {
     RAPIDSMPF_EXPECTS_FATAL(
         event_.is_set(),
-        "~AllGather: not all notification tasks complete, did you forget to await "
-        "this->extract_all() or to this->insert_finished()?"
+        "~AllGather: allgather not complete. Call insert_finished() and await wait() "
+        "or extract_all() before destruction, or await aclose() in Python."
     );
 }
 
@@ -53,6 +53,10 @@ void AllGather::insert(std::uint64_t sequence_number, PackedData&& packed_data) 
 
 void AllGather::insert_finished() {
     gatherer_.insert_finished();
+}
+
+coro::task<void> AllGather::wait() {
+    co_await event_;
 }
 
 coro::task<std::vector<PackedData>> AllGather::extract_all(AllGather::Ordered ordered) {

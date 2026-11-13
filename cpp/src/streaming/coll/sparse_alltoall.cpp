@@ -37,8 +37,8 @@ SparseAlltoall::SparseAlltoall(
 SparseAlltoall::~SparseAlltoall() noexcept {
     RAPIDSMPF_EXPECTS_FATAL(
         event_.is_set(),
-        "~SparseAlltoall: not all notification tasks complete, did you forget to await "
-        "this->insert_finished()?"
+        "~SparseAlltoall: collective not complete. Call insert_finished() and await "
+        "wait() before destruction, or await aclose() in Python."
     );
 }
 
@@ -54,8 +54,11 @@ void SparseAlltoall::insert(Rank dst, PackedData&& packed_data) {
     exchange_.insert(dst, std::move(packed_data));
 }
 
-coro::task<void> SparseAlltoall::insert_finished() {
+void SparseAlltoall::insert_finished() {
     exchange_.insert_finished();
+}
+
+coro::task<void> SparseAlltoall::wait() {
     co_await event_;
 }
 

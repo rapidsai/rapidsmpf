@@ -2,11 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections.abc import Mapping
+from types import TracebackType
+from typing import Self
 
 from rapidsmpf.communicator.communicator import Communicator
 from rapidsmpf.memory.packed_data import PackedData
 from rapidsmpf.shuffler import PartitionAssignment
 from rapidsmpf.streaming.chunks.partition import PartitionMapChunk, PartitionVectorChunk
+from rapidsmpf.streaming.coll.collective import Collective
 from rapidsmpf.streaming.core.actor import CppActor
 from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.context import Context
@@ -23,7 +26,7 @@ def shuffler(
     reservation_context: int = 0,
 ) -> CppActor: ...
 
-class ShufflerAsync:
+class ShufflerAsync(Collective):
     def __init__(
         self,
         ctx: Context,
@@ -37,6 +40,13 @@ class ShufflerAsync:
     @property
     def comm(self) -> Communicator: ...
     def insert(self, chunks: Mapping[int, PackedData]) -> None: ...
-    async def insert_finished(self, ctx: Context) -> None: ...
+    async def insert_finished(self, ctx: Context | None = None) -> None: ...
     def extract(self, pid: int) -> list[PackedData]: ...
     def local_partitions(self) -> list[int]: ...
+    async def __aenter__(self) -> Self: ...
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> bool: ...
