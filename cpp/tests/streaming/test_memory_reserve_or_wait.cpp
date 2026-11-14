@@ -1011,16 +1011,68 @@ TEST_P(StreamingMemoryReserveOrWait, AnUnproductiveSpillEndsTheExtensionForGood)
         // spill completes having freed nothing and a second one starts. When the loop
         // next looks, it sees both a completed unproductive spill and one in flight.
         s.finish_one_and_start_next();
+        // The completed spill freed nothing, so the verdict is final even though another
+        // spill is running. One pass judges the unproductive spill, the next gives up.
+        // The second spill is still held, so a re-extension would leave the request
+        // queued. Two calls are needed because `until_checked_again()` can return right
+        // after the loop counts the second pass, before that pass gives up.
+        co_await until_checked_again(w);
+        co_await until_checked_again(w);
+        EXPECT_EQ(w.size(), 0u);
     }(mrow, spill));
     run_actor_network(std::move(actors));
 
-    // The completed spill freed nothing, so the verdict is final even though another
-    // spill is running. Re-extending on it would ride the cap, about two seconds more.
-    EXPECT_LT(
-        Duration{stats->get_stat(stat_name("wait-spill-extension-time")).value()},
-        std::chrono::milliseconds{1500}
-    );
     EXPECT_EQ(stats->get_stat(stat_name("wait-spill-rescued")).value(), 0.0);
+}
+
+/// @brief Cross-type checks. Not parameterized, since they pick their own memory types.
+class StreamingMemoryReserveOrWaitCrossType : public BaseStreamingFixture {
+  public:
+    void SetUp() override {
+        if (is_running_under_valgrind()) {
+            GTEST_SKIP() << "Test runs very slow in valgrind";
+        }
+        if (GlobalEnvironment->type() != TestEnvironmentType::SINGLE) {
+            GTEST_SKIP() << "Runs only in the single-process environment";
+        }
+        BaseStreamingFixture::SetUp();
+    }
+};
+
+TEST_F(StreamingMemoryReserveOrWaitCrossType, SpillOfAnotherMemoryTypeDoesNotExtend) {
+    auto stats = Statistics::create();
+    auto br_stats = BufferResource::create(
+        mr_cuda,
+        rapidsmpf::PinnedMemoryDisabled,
+        {{MemoryType::DEVICE, 0}, {MemoryType::HOST, 0}},
+        /* periodic_spill_check = */ std::nullopt,
+        std::make_shared<StreamPool>(16),
+        stats
+    );
+    MemoryReserveOrWait mrow{
+        config::Options({{"memory_reserve_timeout", config::OptionValue("10ms")}}),
+        MemoryType::HOST,
+        ctx->executor(),
+        br_stats
+    };
+
+    // A device spill is running and never finishes. It frees no host memory, it only
+    // moves data into it, so a host request has nothing to wait for.
+    BlockingSpill spill{br_stats.get(), /* frees = */ 0, MemoryType::DEVICE};
+    spill.start();
+
+    std::vector<Actor> actors;
+    actors.push_back([](MemoryReserveOrWait& w) -> Actor {
+        auto res = co_await w.reserve_or_wait(10, 0);
+        EXPECT_EQ(res.size(), 0u);
+    }(mrow));
+    run_actor_network(std::move(actors));
+
+    // Timed out as usual, rather than extending on a spill that cannot help.
+    auto const extended = stats->get_stat("reserve-host-wait-spill-extended");
+    EXPECT_EQ(extended.count(), 1u);
+    EXPECT_EQ(extended.value(), 0.0);
+    EXPECT_EQ(stats->get_stat("reserve-host-wait-timeout").value(), 1.0);
 }
 
 TEST_P(StreamingMemoryReserveOrWait, AdmitsDuringAnExtensionOnceMemoryIsReleased) {

@@ -107,7 +107,7 @@ std::size_t SpillManager::spill_unsafe(std::size_t amount, MemoryType mem_type) 
     };
 
     spills_in_flight_[mem_type].fetch_add(1, std::memory_order_release);
-    InFlightGuard const in_flight{this, mem_type};
+    InFlightGuard const in_flight{.self = this, .mem_type = mem_type};
 
     std::size_t spilled{0};
     for (auto const [_, fid] : spill_function_priorities_) {
