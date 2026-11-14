@@ -160,26 +160,28 @@ class SpillManager {
     );
 
     /**
-     * @brief Whether a spill is executing right now.
+     * @brief Whether a spill that frees @p mem_type is executing right now.
      *
-     * Does not block on any lock.
+     * Spills freeing other memory types are not counted. Does not block on any lock.
      *
-     * @return True while at least one spill function is running.
+     * @param mem_type The memory type being freed.
+     * @return True while at least one spill of @p mem_type is running.
      *
      * @see spill_generation()
      */
-    [[nodiscard]] bool spilling_now() const noexcept;
+    [[nodiscard]] bool spilling_now(MemoryType mem_type) const noexcept;
 
     /**
-     * @brief Number of spills that have completed.
+     * @brief Number of spills freeing @p mem_type that have completed.
      *
      * Increments once per `spill()` or `spill_to_make_headroom()` call that asked for a
      * non-zero amount, after its spill functions have returned. A caller that samples
      * this before and after a wait can tell whether memory was freed while it waited.
      *
+     * @param mem_type The memory type being freed.
      * @return A monotonically increasing count.
      */
-    [[nodiscard]] std::uint64_t spill_generation() const noexcept;
+    [[nodiscard]] std::uint64_t spill_generation(MemoryType mem_type) const noexcept;
 
   private:
     /**
@@ -197,8 +199,8 @@ class SpillManager {
     std::map<SpillFunctionID, SpillFunction> spill_functions_;
     std::multimap<int, SpillFunctionID, std::greater<>> spill_function_priorities_;
     std::optional<detail::PausableThreadLoop> periodic_spill_thread_;
-    std::atomic<int> spills_in_flight_{0};
-    std::atomic<std::uint64_t> spill_generation_{0};
+    PerMemoryType<std::atomic<int>> spills_in_flight_{};
+    PerMemoryType<std::atomic<std::uint64_t>> spill_generation_{};
 };
 
 
