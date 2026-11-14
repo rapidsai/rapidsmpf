@@ -60,6 +60,9 @@ class StreamingMemoryReserveOrWait
       public ::testing::WithParamInterface<ReserveOrWaitParam> {
   public:
     void SetUp() override {
+        if (is_running_under_valgrind()) {
+            GTEST_SKIP() << "Test runs very slow in valgrind";
+        }
         // Keep the multi-rank runs short, these tests don't depend on the communicator.
         if (GlobalEnvironment->type() != TestEnvironmentType::SINGLE) {
             GTEST_SKIP() << "Runs only in the single-process environment";
@@ -125,6 +128,26 @@ class StreamingMemoryReserveOrWait
         auto res = co_await mrow.reserve_or_wait(size, net_memory_delta);
         EXPECT_EQ(res.size(), expected);
     }
+
+    // Like `waiter()` for a request that a spill in flight should get admitted, but
+    // tolerates a stalled run. While a spill is in flight the wait only ends at the cap,
+    // which is counted from when the request was submitted. So a zero-size reservation
+    // can only mean the process stalled until the cap, and the run says nothing about
+    // the behaviour under test. Sets `stalled` then, so the test can skip itself. A wait
+    // that ends early still fails, since elapsed time is only ever a lower bound.
+    static Actor admitted_unless_stalled(
+        MemoryReserveOrWait& mrow, std::size_t size, bool& stalled
+    ) {
+        auto const start = Clock::now();
+        auto res = co_await mrow.reserve_or_wait(size, 0);
+        if (res.size() == 0) {
+            // 10 rather than the exact cap factor, to not depend on its value.
+            EXPECT_GT(Clock::now() - start, 10 * mrow.timeout());
+            stalled = true;
+        } else {
+            EXPECT_EQ(res.size(), size);
+        }
+    }
 };
 
 INSTANTIATE_TEST_SUITE_P(
@@ -161,9 +184,6 @@ TEST_P(StreamingMemoryReserveOrWait, AccessorsReturnExpectedValues) {
 }
 
 TEST_P(StreamingMemoryReserveOrWait, ShutdownEarly) {
-    if (is_running_under_valgrind()) {
-        GTEST_SKIP() << "Test runs very slow in valgrind";
-    };
     MemoryReserveOrWait mrow{
         // Use a very high timeout to effectively disable timeout in this test.
         config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
@@ -210,9 +230,6 @@ struct ReserveLog {
 };
 
 TEST_P(StreamingMemoryReserveOrWait, CheckPriority) {
-    if (is_running_under_valgrind()) {
-        GTEST_SKIP() << "Test runs very slow in valgrind";
-    }
     ReserveLog log;
     MemoryReserveOrWait mrow{
         // Use a very high timeout to effectively disable timeout in this test.
@@ -275,10 +292,6 @@ TEST_P(StreamingMemoryReserveOrWait, CheckPriority) {
 }
 
 TEST_P(StreamingMemoryReserveOrWait, RestartPeriodicTask) {
-    if (is_running_under_valgrind()) {
-        GTEST_SKIP() << "Test runs very slow in valgrind";
-    }
-
     MemoryReserveOrWait mrow{
         // Use a very high timeout to effectively disable timeout in this test.
         config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
@@ -326,10 +339,6 @@ TEST_P(StreamingMemoryReserveOrWait, RestartPeriodicTask) {
 }
 
 TEST_P(StreamingMemoryReserveOrWait, NoDeadlockWhenSpawningWithStaleHandle) {
-    if (is_running_under_valgrind()) {
-        GTEST_SKIP() << "Test runs very slow in valgrind";
-    }
-
     MemoryReserveOrWait mrow{
         // Use a very high timeout to effectively disable timeout in this test.
         config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
@@ -408,10 +417,6 @@ class SpillRecorder {
 };
 
 TEST_P(StreamingMemoryReserveOrWait, DoesNotSpillBeforeProgressTimeout) {
-    if (is_running_under_valgrind()) {
-        GTEST_SKIP() << "Test runs very slow in valgrind";
-    }
-
     MemoryReserveOrWait mrow{
         // Keep the timeout far away so the test exercises ordinary admission polling.
         config::Options({{"memory_reserve_timeout", config::OptionValue("1 min")}}),
@@ -452,10 +457,6 @@ TEST_P(StreamingMemoryReserveOrWait, DoesNotSpillBeforeProgressTimeout) {
 }
 
 TEST_P(StreamingMemoryReserveOrWait, ProgressTimeoutReturnsWithoutSpilling) {
-    if (is_running_under_valgrind()) {
-        GTEST_SKIP() << "Test runs very slow in valgrind";
-    }
-
     MemoryReserveOrWait mrow{
         // Short timeout, the waiter can only make progress via the timeout path.
         config::Options({{"memory_reserve_timeout", config::OptionValue("100ms")}}),
@@ -670,10 +671,6 @@ TEST_P(StreamingMemoryReserveOrWait, StatisticsRecordWaitAvoided) {
 }
 
 TEST_P(StreamingMemoryReserveOrWait, StatisticsRecordWaitSatisfied) {
-    if (is_running_under_valgrind()) {
-        GTEST_SKIP() << "Test runs very slow in valgrind";
-    }
-
     // No memory initially, so the request must queue rather than take the fast path.
     auto [br_stats, stats] = make_br_with_stats(/* limit = */ 0);
     MemoryReserveOrWait mrow{
@@ -711,10 +708,6 @@ TEST_P(StreamingMemoryReserveOrWait, StatisticsRecordWaitSatisfied) {
 }
 
 TEST_P(StreamingMemoryReserveOrWait, StatisticsRecordWaitTimeout) {
-    if (is_running_under_valgrind()) {
-        GTEST_SKIP() << "Test runs very slow in valgrind";
-    }
-
     // No memory, and none is ever released, so only the timeout path can complete it.
     auto [br_stats, stats] = make_br_with_stats(/* limit = */ 0);
     MemoryReserveOrWait mrow{
@@ -914,10 +907,6 @@ Actor until_checked_past_deadline(MemoryReserveOrWait& w) {
 }  // namespace
 
 TEST_P(StreamingMemoryReserveOrWait, SpillInFlightExtendsThePastDueDeadline) {
-    if (is_running_under_valgrind()) {
-        GTEST_SKIP() << "Test runs very slow in valgrind";
-    }
-
     auto [br_stats, stats] = make_br_with_stats(/* limit = */ 0);
     MemoryReserveOrWait mrow{
         config::Options({{"memory_reserve_timeout", config::OptionValue("200ms")}}),
@@ -930,9 +919,10 @@ TEST_P(StreamingMemoryReserveOrWait, SpillInFlightExtendsThePastDueDeadline) {
     BlockingSpill spill{br_stats.get(), /* frees = */ 10, mem_type()};
     spill.start();
 
+    bool stalled{false};
     std::vector<Actor> actors;
     // Admitted with a full reservation rather than the zero-size timeout result.
-    actors.push_back(waiter(mrow, 10, 0, 10));
+    actors.push_back(admitted_unless_stalled(mrow, 10, stalled));
     actors.push_back([](MemoryReserveOrWait& w, BlockingSpill& s) -> Actor {
         // Release only once the loop has seen the held spill past the deadline, so it
         // has extended and the request can only be admitted through that extension.
@@ -940,6 +930,9 @@ TEST_P(StreamingMemoryReserveOrWait, SpillInFlightExtendsThePastDueDeadline) {
         s.release_one();
     }(mrow, spill));
     run_actor_network(std::move(actors));
+    if (stalled) {
+        GTEST_SKIP() << "The run stalled until the spill wait cap, nothing to check";
+    }
 
     auto const extended = stats->get_stat(stat_name("wait-spill-extended"));
     EXPECT_EQ(extended.count(), 1u);
@@ -953,10 +946,6 @@ TEST_P(StreamingMemoryReserveOrWait, SpillInFlightExtendsThePastDueDeadline) {
 }
 
 TEST_P(StreamingMemoryReserveOrWait, NoExtensionWhenNothingIsSpilling) {
-    if (is_running_under_valgrind()) {
-        GTEST_SKIP() << "Test runs very slow in valgrind";
-    }
-
     auto [br_stats, stats] = make_br_with_stats(/* limit = */ 0);
     MemoryReserveOrWait mrow{
         config::Options({{"memory_reserve_timeout", config::OptionValue("10ms")}}),
@@ -981,9 +970,6 @@ TEST_P(StreamingMemoryReserveOrWait, NoExtensionWhenNothingIsSpilling) {
 }
 
 TEST_P(StreamingMemoryReserveOrWait, AnUnproductiveSpillEndsTheExtensionForGood) {
-    if (is_running_under_valgrind()) {
-        GTEST_SKIP() << "Test runs very slow in valgrind";
-    }
     if (GetParam().num_threads != 1) {
         // The test holds the only executor thread to freeze the admission loop while it
         // swaps one running spill for the next, which needs exactly one thread.
@@ -1076,10 +1062,6 @@ TEST_F(StreamingMemoryReserveOrWaitCrossType, SpillOfAnotherMemoryTypeDoesNotExt
 }
 
 TEST_P(StreamingMemoryReserveOrWait, AdmitsDuringAnExtensionOnceMemoryIsReleased) {
-    if (is_running_under_valgrind()) {
-        GTEST_SKIP() << "Test runs very slow in valgrind";
-    }
-
     auto [br_stats, stats] = make_br_with_stats(/* limit = */ 0);
     MemoryReserveOrWait mrow{
         config::Options({{"memory_reserve_timeout", config::OptionValue("200ms")}}),
@@ -1093,8 +1075,9 @@ TEST_P(StreamingMemoryReserveOrWait, AdmitsDuringAnExtensionOnceMemoryIsReleased
     BlockingSpill spill{br_stats.get(), /* frees = */ 0, mem_type()};
     spill.start();
 
+    bool stalled{false};
     std::vector<Actor> actors;
-    actors.push_back(waiter(mrow, 10, 0, 10));
+    actors.push_back(admitted_unless_stalled(mrow, 10, stalled));
     actors.push_back([](MemoryReserveOrWait& w) -> Actor {
         co_await until_checked_past_deadline(w);
         // Memory comes back through a release rather than the spill, which is still
@@ -1105,6 +1088,9 @@ TEST_P(StreamingMemoryReserveOrWait, AdmitsDuringAnExtensionOnceMemoryIsReleased
         EXPECT_EQ(w.size(), 0u);
     }(mrow));
     run_actor_network(std::move(actors));
+    if (stalled) {
+        GTEST_SKIP() << "The run stalled until the spill wait cap, nothing to check";
+    }
 
     // Counted as rescued even though the memory came from a release, since the
     // request was admitted during the extension instead of overbooking.
@@ -1114,9 +1100,6 @@ TEST_P(StreamingMemoryReserveOrWait, AdmitsDuringAnExtensionOnceMemoryIsReleased
 }
 
 TEST_P(StreamingMemoryReserveOrWait, SpillProgressCountsWhileStillOverbooked) {
-    if (is_running_under_valgrind()) {
-        GTEST_SKIP() << "Test runs very slow in valgrind";
-    }
     if (GetParam().num_threads != 1) {
         // The test holds the only executor thread to freeze the admission loop while it
         // swaps one running spill for the next, which needs exactly one thread.
@@ -1138,9 +1121,10 @@ TEST_P(StreamingMemoryReserveOrWait, SpillProgressCountsWhileStillOverbooked) {
     auto overbooked = br_stats->reserve(mem_type(), 100, AllowOverbooking::YES);
     spill.start();
 
+    bool stalled{false};
     std::vector<Actor> actors;
     // Admitted once the second spill lands, rather than overbooking after the first.
-    actors.push_back(waiter(mrow, 10, 0, 10));
+    actors.push_back(admitted_unless_stalled(mrow, 10, stalled));
     actors.push_back([](MemoryReserveOrWait& w, BlockingSpill& s) -> Actor {
         co_await until_checked_past_deadline(w);
         // Hold the only executor thread while the first spill completes and a second
@@ -1150,4 +1134,7 @@ TEST_P(StreamingMemoryReserveOrWait, SpillProgressCountsWhileStillOverbooked) {
         s.release_one();
     }(mrow, spill));
     run_actor_network(std::move(actors));
+    if (stalled) {
+        GTEST_SKIP() << "The run stalled until the spill wait cap, nothing to check";
+    }
 }
