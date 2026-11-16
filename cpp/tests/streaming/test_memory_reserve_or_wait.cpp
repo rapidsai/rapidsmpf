@@ -131,10 +131,11 @@ class StreamingMemoryReserveOrWait
 
     // Like `waiter()` for a request that a spill in flight should get admitted, but
     // tolerates a stalled run. While a spill is in flight the wait only ends at the cap,
-    // which is counted from when the request was submitted. So a zero-size reservation
-    // can only mean the process stalled until the cap, and the run says nothing about
-    // the behaviour under test. Sets `stalled` then, so the test can skip itself. A wait
-    // that ends early still fails, since elapsed time is only ever a lower bound.
+    // which is counted from when the periodic task started, no earlier than the request
+    // was submitted. So a zero-size reservation can only mean the process stalled until
+    // the cap, and the run says nothing about the behaviour under test. Sets `stalled`
+    // then, so the test can skip itself. A wait that ends early still fails, since
+    // elapsed time is only ever a lower bound.
     static Actor admitted_unless_stalled(
         MemoryReserveOrWait& mrow, std::size_t size, bool& stalled
     ) {
