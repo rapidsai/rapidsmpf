@@ -1,8 +1,8 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from libc.stdint cimport int32_t
-from libcpp.memory cimport shared_ptr, unique_ptr
+from libcpp.memory cimport shared_ptr
 from libcpp.vector cimport vector
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
@@ -10,6 +10,7 @@ from rapidsmpf.communicator.communicator cimport (Communicator, Rank,
                                                   cpp_Communicator)
 from rapidsmpf.memory.buffer_resource cimport BufferResource
 from rapidsmpf.memory.packed_data cimport cpp_PackedData
+from rapidsmpf.streaming.coll.collective cimport Collective
 from rapidsmpf.streaming.core.context cimport cpp_Context
 
 
@@ -23,12 +24,13 @@ cdef extern from "<rapidsmpf/streaming/coll/sparse_alltoall.hpp>" nogil:
             vector[Rank] dsts,
         ) except +ex_handler
         void insert(Rank dst, cpp_PackedData) except +ex_handler
+        void insert_finished() except +ex_handler
         const shared_ptr[cpp_Communicator]& comm() except +ex_handler
         const shared_ptr[cpp_Context]& ctx() except +ex_handler
         vector[cpp_PackedData] extract(Rank src) except +ex_handler
 
 
-cdef class SparseAlltoall:
-    cdef unique_ptr[cpp_SparseAlltoall] _handle
+cdef class SparseAlltoall(Collective):
+    cdef shared_ptr[cpp_SparseAlltoall] _handle
     cdef BufferResource _br
     cdef Communicator _comm
