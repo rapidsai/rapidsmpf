@@ -9,6 +9,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 #include <utility>
 
 #include <fcntl.h>
@@ -205,6 +206,46 @@ std::size_t DiskResource::copy(
         done += static_cast<std::size_t>(n);
     }
     return done;
+}
+
+std::filesystem::path DiskResource::adopt(std::filesystem::path const& path) const {
+    if (path.parent_path() == dir_) {
+        return path;
+    }
+    // The reserved file is replaced by the rename below.
+    auto new_path = create_unique_path();
+    std::error_code ec;
+    std::filesystem::rename(path, new_path, ec);
+    if (ec == std::errc::cross_device_link) {
+        // Different filesystems: copy to a temporary sibling of the destination, rename
+        // it into place (so the destination never holds a partial file), then remove the
+        // source.
+        auto const tmp_path = std::filesystem::path{new_path.string() + ".moving"};
+        ec.clear();
+        std::filesystem::copy_file(
+            path, tmp_path, std::filesystem::copy_options::overwrite_existing, ec
+        );
+        if (!ec) {
+            std::filesystem::rename(tmp_path, new_path, ec);
+        }
+        if (!ec) {
+            std::filesystem::remove(path, ec);
+        }
+        if (ec) {
+            std::error_code ignored;
+            std::filesystem::remove(tmp_path, ignored);
+        }
+    }
+    if (ec) {
+        std::error_code ignored;
+        std::filesystem::remove(new_path, ignored);
+        RAPIDSMPF_FAIL(
+            "failed to adopt " + path.string() + " into " + dir_.string() + ": "
+                + ec.message(),
+            std::runtime_error
+        );
+    }
+    return new_path;
 }
 
 void DiskResource::flush(std::filesystem::path const& path) const {

@@ -22,10 +22,35 @@ DiskBuffer::DiskBuffer(
 }
 
 DiskBuffer::DiskBuffer(DiskBuffer&& other) noexcept
-    : disk_{std::move(other.disk_)},
+    : disk_{other.disk_},
       path_{std::exchange(other.path_, {})},
       size_{other.size_},
       stream_{other.stream_} {}
+
+DiskBuffer& DiskBuffer::operator=(DiskBuffer&& other) {
+    if (this == &other) {
+        return *this;
+    }
+
+    std::filesystem::path new_path{};
+    if (!other.path_.empty()) {
+        // This buffer keeps its own disk resource, which places the file under its
+        // directory. Done before touching our own state so a failure leaves both
+        // buffers intact.
+        new_path = disk_->adopt(other.path_);
+        other.path_.clear();  // The file now belongs to this buffer.
+    }
+
+    deallocate();
+    path_ = std::move(new_path);
+    size_ = other.size_;
+    stream_ = other.stream_;
+    return *this;
+}
+
+std::filesystem::path DiskBuffer::release() noexcept {
+    return std::exchange(path_, {});
+}
 
 std::size_t DiskBuffer::file_size() const {
     return safe_cast<std::size_t>(std::filesystem::file_size(path_));

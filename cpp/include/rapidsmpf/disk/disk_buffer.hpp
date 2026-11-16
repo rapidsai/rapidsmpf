@@ -41,7 +41,22 @@ class DiskBuffer {
     /// @brief Move constructor.
     /// @param other Buffer to move from.
     DiskBuffer(DiskBuffer&& other) noexcept;
-    DiskBuffer& operator=(DiskBuffer&& other) = delete;  ///< Not move-assignable.
+
+    /**
+     * @brief Move assignment.
+     *
+     * Takes ownership of @p other's backing file and deletes this buffer's current one
+     * (if any). This buffer keeps its own disk resource: if @p other uses a different
+     * one, the file is moved under this buffer's directory with `DiskResource::adopt()`
+     * (which copies across filesystems). @p other is left without a backing file.
+     *
+     * If relocating the file fails, both buffers are left unchanged.
+     *
+     * @param other Buffer to move from.
+     * @return Reference to this buffer.
+     * @throws std::runtime_error if the file cannot be relocated.
+     */
+    DiskBuffer& operator=(DiskBuffer&& other);
     DiskBuffer(DiskBuffer const&) = delete;  ///< Not copyable.
     DiskBuffer& operator=(DiskBuffer const&) = delete;  ///< Not copy-assignable.
 
@@ -110,6 +125,18 @@ class DiskBuffer {
      * After deallocation `path()` is empty. Safe to call multiple times.
      */
     void deallocate() noexcept;
+
+    /**
+     * @brief Release ownership of the backing file without deleting it.
+     *
+     * After this call `path()` is empty and this buffer no longer deletes the file, so
+     * the caller becomes responsible for it (e.g. handing it off to another
+     * `DiskBuffer`). Safe to call multiple times; returns an empty path if there is no
+     * backing file.
+     *
+     * @return Path of the released backing file.
+     */
+    [[nodiscard]] std::filesystem::path release() noexcept;
 
   private:
     std::shared_ptr<DiskResource> disk_;
