@@ -7,6 +7,7 @@
 #include <chrono>
 #include <filesystem>
 #include <iterator>
+#include <thread>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -270,11 +271,12 @@ TEST_F(BaseAllGatherTest, inserts_disk_backed_data) {
     for (int i = 0; i < n_inserts; i++) {
         allgather.insert(
             i,
-            move_to_disk(
-                generate_packed_data(
-                    n_elements, gen_offset(i, this_rank), stream, *disk_br
-                ),
-                *disk_br
+            generate_packed_data(
+                n_elements,
+                gen_offset(i, this_rank),
+                stream,
+                *disk_br,
+                rapidsmpf::MemoryType::DISK
             )
         );
     }
@@ -462,6 +464,7 @@ TEST(PostBox, spill_uses_remaining_amount) {
         postbox.spill(
             br.get(),
             100,
+            rapidsmpf::MemoryType::DEVICE,
             rapidsmpf::preference_lt(
                 rapidsmpf::MemoryType::DEVICE, rapidsmpf::MEMORY_TYPES
             )
@@ -508,6 +511,7 @@ TEST(PostBox, spill_to_addressable_targets_never_uses_disk) {
         spilled = postbox.spill(
             br.get(),
             100,
+            rapidsmpf::MemoryType::DEVICE,
             rapidsmpf::preference_lt(
                 rapidsmpf::MemoryType::DEVICE, rapidsmpf::ADDRESSABLE_MEMORY_TYPES
             )
@@ -524,6 +528,7 @@ TEST(PostBox, spill_to_addressable_targets_never_uses_disk) {
         postbox.spill(
             br.get(),
             100,
+            rapidsmpf::MemoryType::DEVICE,
             rapidsmpf::preference_lt(
                 rapidsmpf::MemoryType::DEVICE, rapidsmpf::MEMORY_TYPES
             )
@@ -563,6 +568,7 @@ TEST(PostBox, spill_to_disk_preserves_payload) {
         postbox.spill(
             br.get(),
             data_size,
+            rapidsmpf::MemoryType::DEVICE,
             rapidsmpf::preference_lt(
                 rapidsmpf::MemoryType::DEVICE, rapidsmpf::MEMORY_TYPES
             )
@@ -629,4 +635,129 @@ TEST_F(BaseAllGatherTest, forces_receive_allocations_without_memory) {
             ));
         }
     }
+}
+
+// Spilling from HOST moves data at rest (waiting for extraction) to disk, but never the
+// chunks still waiting to be sent, since sendable memory types exclude disk.
+TEST_F(BaseAllGatherTest, spill_from_host_skips_pending_sends) {
+    using rapidsmpf::MemoryType;
+    constexpr std::size_t n_elements = 16;
+    constexpr std::size_t data_size = n_elements * sizeof(int);
+    auto const& comm = GlobalEnvironment->comm_;
+    TempDir temp_dir;
+    auto disk_br = create_br(temp_dir.path());
+    AllGather allgather{comm, 0, disk_br.get()};
+    auto& spill_manager = disk_br->spill_manager();
+
+    // Chunk 0 is handled by the progress thread and ends up waiting for extraction, where
+    // it is spilled to disk. Poll until a chunk is spilled.
+    allgather.insert(
+        0, generate_packed_data(n_elements, 0, stream, *disk_br, MemoryType::HOST)
+    );
+    auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{30};
+    std::size_t spilled{0};
+    while (spilled == 0 && std::chrono::steady_clock::now() < deadline) {
+        spilled = spill_manager.spill(data_size, MemoryType::HOST);
+        std::this_thread::yield();
+    }
+    ASSERT_EQ(spilled, data_size);
+
+    // Chunk 1 is stuck waiting to be sent while the progress thread is paused. Since
+    // there is no sendable memory type below HOST, spilling must leave it in place.
+    comm->progress_thread()->pause();
+    allgather.insert(
+        1, generate_packed_data(n_elements, 1, stream, *disk_br, MemoryType::HOST)
+    );
+    EXPECT_EQ(spill_manager.spill(data_size, MemoryType::HOST), 0UL);
+    comm->progress_thread()->resume();
+
+    allgather.insert_finished();
+    auto results =
+        allgather.wait_and_extract(AllGather::Ordered::YES, std::chrono::seconds{30});
+    ASSERT_EQ(results.size(), 2 * comm->nranks());
+    // Exactly one chunk, the one at rest, was moved to disk.
+    auto const n_disk = std::count_if(results.begin(), results.end(), [](auto const& r) {
+        return r.data->mem_type() == MemoryType::DISK;
+    });
+    EXPECT_EQ(n_disk, 1);
+    // The pending send survived the spill in host memory.
+    EXPECT_EQ(results[comm->rank() * 2 + 1].data->mem_type(), MemoryType::HOST);
+}
+
+// Chunks at rest in host memory spill to disk, and a full target gives a partial spill.
+TEST(PostBox, spill_from_host_to_disk) {
+    using namespace rapidsmpf;
+    constexpr std::size_t n_elements = 16;
+    constexpr std::size_t data_size = n_elements * sizeof(int);
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+    TempDir temp_dir;
+    auto br = create_br(temp_dir.path());
+    coll::detail::PostBox postbox;
+
+    for (int i = 0; i < 2; ++i) {
+        postbox.insert(
+            coll::detail::Chunk::from_packed_data(
+                0,
+                0,
+                coll::detail::Chunk::INVALID_RANK,
+                generate_packed_data(n_elements, i, stream, *br, MemoryType::HOST)
+            )
+        );
+    }
+
+    // There is no device data to spill.
+    EXPECT_EQ(
+        postbox.spill(
+            br.get(),
+            data_size,
+            MemoryType::DEVICE,
+            preference_lt(MemoryType::DEVICE, MEMORY_TYPES)
+        ),
+        0UL
+    );
+    // Spilling one chunk's worth from HOST moves exactly one chunk to disk.
+    EXPECT_EQ(
+        postbox.spill(
+            br.get(),
+            data_size,
+            MemoryType::HOST,
+            preference_lt(MemoryType::HOST, MEMORY_TYPES)
+        ),
+        data_size
+    );
+    auto chunks = postbox.extract();
+    ASSERT_EQ(chunks.size(), 2);
+    std::size_t n_disk{0};
+    for (auto& chunk : chunks) {
+        n_disk += chunk->memory_type() == MemoryType::DISK;
+    }
+    EXPECT_EQ(n_disk, 1UL);
+}
+
+// Without a disk resource, HOST has no spill target and nothing is spilled.
+TEST(PostBox, spill_from_host_without_target) {
+    using namespace rapidsmpf;
+    constexpr std::size_t n_elements = 16;
+    constexpr std::size_t data_size = n_elements * sizeof(int);
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+    auto host_br = create_br();
+    coll::detail::PostBox host_postbox;
+    host_postbox.insert(
+        coll::detail::Chunk::from_packed_data(
+            0,
+            0,
+            coll::detail::Chunk::INVALID_RANK,
+            generate_packed_data(n_elements, 0, stream, *host_br, MemoryType::HOST)
+        )
+    );
+    std::size_t spilled{0};
+    EXPECT_NO_THROW(
+        spilled = host_postbox.spill(
+            host_br.get(),
+            data_size,
+            MemoryType::HOST,
+            preference_lt(MemoryType::HOST, MEMORY_TYPES)
+        )
+    );
+    EXPECT_EQ(spilled, 0UL);
 }

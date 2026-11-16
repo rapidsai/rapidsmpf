@@ -275,7 +275,8 @@ TEST_F(SparseAlltoallTest, spill_ready_chunks) {
     exchange.wait(std::chrono::seconds{30});
 
     // Ask for more than is available, so everything spillable is spilled.
-    auto const spilled = br->spill_manager().spill(1 << 20);
+    auto const spilled =
+        br->spill_manager().spill(1 << 20, rapidsmpf::MemoryType::DEVICE);
     if (srcs.empty()) {
         EXPECT_EQ(spilled, 0);
         return;

@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <atomic>
 #include <cstring>
 #include <numeric>
 
@@ -126,6 +127,40 @@ TEST_P(StreamingAllGather, basic) {
     streaming::run_actor_network(std::move(pipeline));
     auto expected = iota_vector<int>(size * size * n_inserts);
     EXPECT_EQ(expected, result);
+}
+
+TEST_P(StreamingAllGather, concurrent_wait) {
+    auto comm = GlobalEnvironment->comm_;
+    auto allgather = streaming::AllGather(ctx, comm, OpID{0});
+    std::atomic<int> num_waited{0};
+    std::size_t num_extracted{1};
+
+    auto waiter = [&]() -> coro::task<void> {
+        co_await allgather.wait();
+        num_waited.fetch_add(1);
+    };
+    auto finisher = [&]() -> coro::task<void> {
+        allgather.insert_finished();
+        co_return;
+    };
+    auto extract = [&]() -> coro::task<void> {
+        auto data = co_await allgather.extract_all(streaming::AllGather::Ordered::YES);
+        num_extracted = data.size();
+    };
+
+    // The finisher may run before the waiters suspend, in which case they find the
+    // event already set. Both orders are valid.
+    std::vector<coro::task<void>> pipeline{};
+    pipeline.push_back(ctx->executor()->schedule(waiter()));
+    pipeline.push_back(ctx->executor()->schedule(waiter()));
+    pipeline.push_back(ctx->executor()->schedule(extract()));
+    pipeline.push_back(ctx->executor()->schedule(finisher()));
+    streaming::run_actor_network(std::move(pipeline));
+    EXPECT_EQ(num_waited.load(), 2);
+    EXPECT_EQ(num_extracted, 0);
+
+    // Awaiting a completed allgather returns immediately.
+    coro::sync_wait(allgather.wait());
 }
 
 TEST_P(StreamingAllGather, streaming_actor) {

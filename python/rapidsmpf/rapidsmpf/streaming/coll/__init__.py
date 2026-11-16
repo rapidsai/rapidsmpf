@@ -5,7 +5,15 @@
 from __future__ import annotations
 
 from rapidsmpf.streaming.coll.allgather import AllGather, allgather
+from rapidsmpf.streaming.coll.collective import Collective
 from rapidsmpf.streaming.coll.shuffler import ShufflerAsync, shuffler
 from rapidsmpf.streaming.coll.sparse_alltoall import SparseAlltoall
 
-__all__ = ["AllGather", "ShufflerAsync", "SparseAlltoall", "allgather", "shuffler"]
+__all__ = [
+    "AllGather",
+    "Collective",
+    "ShufflerAsync",
+    "SparseAlltoall",
+    "allgather",
+    "shuffler",
+]

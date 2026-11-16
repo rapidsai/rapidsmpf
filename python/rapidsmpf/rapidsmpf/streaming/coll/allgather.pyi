@@ -6,11 +6,12 @@ from typing import Any
 from rapidsmpf.communicator.communicator import Communicator
 from rapidsmpf.memory.packed_data import PackedData
 from rapidsmpf.streaming.chunks.packed_data import PackedDataChunk
+from rapidsmpf.streaming.coll.collective import Collective
 from rapidsmpf.streaming.core.actor import CppActor
 from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.context import Context
 
-class AllGather:
+class AllGather(Collective):
     def __init__(self, ctx: Context, comm: Communicator, op_id: int) -> None: ...
     @property
     def comm(self) -> Communicator: ...
@@ -23,7 +24,9 @@ class AllGather:
     ) -> bool: ...
     def insert(self, sequence_number: int, packed_data: PackedData) -> None: ...
     def insert_finished(self) -> None: ...
-    async def extract_all(self, ctx: Context, *, ordered: bool) -> list[PackedData]: ...
+    async def extract_all(
+        self, ctx: Context | None = None, *, ordered: bool
+    ) -> list[PackedData]: ...
 
 def allgather(
     ctx: Context,

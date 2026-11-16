@@ -5,22 +5,46 @@
 
 #pragma once
 
-#include <condition_variable>
-#include <cstdint>
+#include <exception>
 #include <functional>
-#include <mutex>
+#include <memory>
 #include <thread>
 
 #include <rapidsmpf/utils/misc.hpp>
 
 namespace rapidsmpf::detail {
+
+/// @brief The state machine of a `PausableThreadLoop`, internal to its implementation.
+class LoopState;
+
 /**
  * @brief A thread loop that can be paused, resumed, and stopped.
  *
  * This class runs a provided function repeatedly in a separate thread.
+ *
+ * Exceptions never escape the thread: if the loop function (or the per-thread
+ * initialization) throws, the exception is captured, the loop becomes failed or
+ * stopped, and the exception is reported to the error handler. The loop is stopped if
+ * the failure happens while it is being stopped, in which case the stop completes
+ * early, otherwise it enters a terminal failed state. Either way, it never calls the
+ * loop function again and cannot be paused or resumed. A failed loop is still stopped
+ * (and its thread joined) as usual, by `stop()` or the destructor.
  */
 class PausableThreadLoop {
   public:
+    /**
+     * @brief Handler invoked on the loop thread when the loop function throws.
+     *
+     * The handler receives the captured exception. It must not throw, the process is
+     * terminated if it does. It may call `stop()`, but must not destroy the loop.
+     *
+     * Like the loop function, the handler may run until `stop()` or the destructor
+     * returns, including while the owner of the loop is being destroyed. Anything the
+     * handler uses must remain alive until then. The owner can call `stop()` at the
+     * start of its destructor to guarantee this.
+     */
+    using ErrorHandler = std::function<void(std::exception_ptr)>;
+
     /**
      * @brief Constructs a thread to run the specified function in a loop.
      *
@@ -38,19 +62,32 @@ class PausableThreadLoop {
      * @param func The function to execute repeatedly in the thread.
      * @param sleep The duration to sleep between executions of the task. By default, the
      * thread yields execution instead of sleeping.
+     * @param on_error Handler invoked on the loop thread with the exception thrown by
+     * `func` (or by the per-thread initialization). By the time it is invoked, the loop
+     * has already become failed or stopped (see `error()`). If empty, an exception
+     * escaping `func` is fatal and terminates the process with a descriptive message.
      */
     PausableThreadLoop(
-        std::function<void()> func, Duration sleep = std::chrono::seconds{0}
+        std::function<void()> func,
+        Duration sleep = std::chrono::seconds{0},
+        ErrorHandler on_error = nullptr
     );
+
+    /**
+     * @brief Stops and joins the thread.
+     *
+     * Must not be called from the loop thread, i.e., from the loop function or the error
+     * handler, since a thread cannot join itself. Doing so terminates the process.
+     */
     ~PausableThreadLoop() noexcept;
 
     /**
-     * @brief Checks if the thread is currently running (not paused or stopped).
+     * @brief Checks if the thread is currently running (not paused, failed or stopped).
      *
      * @note If false, the loop function might still be in the middle of running its
      * last iteration before being paused or stopped.
      *
-     * @return True if the thread is running, false if paused or stopped.
+     * @return True if the thread is running, false if paused, failed or stopped.
      */
     [[nodiscard]] bool is_running() const noexcept;
 
@@ -85,19 +122,36 @@ class PausableThreadLoop {
      * If the thread is paused or pausing, it is resumed. If it is sleeping, it starts
      * its next iteration immediately. If it is in the middle of an iteration, the sleep
      * after that iteration is skipped. Multiple calls before the next iteration starts
-     * are coalesced into one.
+     * are coalesced into one. Resuming a loop that has failed (see `error()`) is a no-op.
      *
      * @return True if the thread was paused or pausing, false otherwise.
      */
     bool resume() noexcept;
 
     /**
+     * @brief Get the exception that caused the loop to fail, if any.
+     *
+     * Once this returns an exception, the loop has already failed or stopped: from then
+     * on `is_running()` returns false, and pausing or resuming it are no-ops. This holds
+     * even if the failure happened while the loop was being stopped, in which case the
+     * stop completes early. The error handler may still be running on the loop thread.
+     *
+     * @return The captured exception, or a null `std::exception_ptr` if the loop
+     * function has never thrown.
+     */
+    [[nodiscard]] std::exception_ptr error() const noexcept;
+
+    /**
      * @brief Stops the execution of the thread and joins it.
      *
      * Once stopped, the thread cannot be resumed.
      *
-     * @note This function is blocking and will wait on the loop function
-     * to finish its current execution.
+     * @note This function is blocking and will wait on the loop function to finish its
+     * current execution. It interrupts the sleep between iterations.
+     *
+     * @note If called from the loop thread, i.e., from the loop function or the error
+     * handler, the thread is not joined: it exits once the current iteration returns,
+     * without sleeping, and the destructor joins it.
      *
      * @return True if the thread is stopped by this call, false otherwise (if it was
      * already stopping/stopped).
@@ -106,47 +160,16 @@ class PausableThreadLoop {
 
   private:
     /**
-     * @brief The state of the thread loop.
+     * @brief Record a failure of the loop function and report it to `on_error_`.
+     *
+     * Called on the loop thread only.
+     *
+     * @param error The captured exception.
      */
-    enum State : std::uint8_t {
-        Stopped,  ///< Thread stopped (cannot be resumed)
-        Stopping,  ///< Thread is stopping (transitioning to Stopped)
-        Paused,  ///< Thread is paused (can be resumed)
-        Pausing,  ///< Thread is pausing (transitioning to Paused)
-        Running,  ///< Thread is running
-        SkipSleep,  ///< Thread is running, and starts its next iteration without sleeping
-    };
+    void fail(std::exception_ptr error) noexcept;
 
-    // State transition matrix (e_loop: made by the event loop thread, X: impossible):
-    // | cur \ nxt  | STOPPED | STOPPING | PAUSED | PAUSING | RUNNING | SKIP_SLEEP |
-    // |------------|---------|----------|--------|---------|---------|------------|
-    // | STOPPED    | no_op   | X        | X      | X       | X       | X          |
-    // | STOPPING   | e_loop  | no_op    | X      | X       | X       | X          |
-    // | PAUSED     | X       | stop     | no_op  | X       | X       | resume     |
-    // | PAUSING    | X       | stop     | e_loop | no_op   | X       | resume     |
-    // | RUNNING    | X       | stop     | X      | pause   | no_op   | resume     |
-    // | SKIP_SLEEP | X       | stop     | X      | pause   | e_loop  | no_op      |
-    //
-    // pause():
-    //  RUNNING -> PAUSING | SKIP_SLEEP -> PAUSING
-    // stop():
-    //  RUNNING -> STOPPING | SKIP_SLEEP -> STOPPING | PAUSING -> STOPPING
-    //  | PAUSED -> STOPPING
-    // resume():
-    //  PAUSED -> SKIP_SLEEP | PAUSING -> SKIP_SLEEP | RUNNING -> SKIP_SLEEP
-    // automatic transition via event loop:
-    //  PAUSING -> PAUSED
-    //  STOPPING -> STOPPED
-    //  SKIP_SLEEP -> RUNNING (at the start of an iteration)
-
-    // `state_` is guarded by `mutex_`. Every change except the event loop's
-    // SKIP_SLEEP -> RUNNING is followed by `cv_.notify_all()`, since no thread waits on
-    // it. The loop function never runs while `mutex_` is held, so
-    // callers may hold their own locks (also taken by the loop function) while calling
-    // into this class.
-    mutable std::mutex mutex_;
-    std::condition_variable cv_;
-    State state_{State::Paused};
+    ErrorHandler on_error_;  ///< Handler for exceptions thrown by the loop function.
+    std::unique_ptr<LoopState> state_;  ///< Created before the thread starts.
     std::thread thread_;
 };
 

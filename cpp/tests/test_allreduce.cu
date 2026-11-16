@@ -12,6 +12,7 @@
 #include <tuple>
 #include <vector>
 
+#include <cuda/std/algorithm.min.h>
 #include <cuda_runtime_api.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>

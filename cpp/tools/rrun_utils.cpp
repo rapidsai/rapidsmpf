@@ -5,8 +5,10 @@
 
 #include "rrun_utils.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <cerrno>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -15,10 +17,13 @@
 #include <memory>
 #include <optional>
 #include <random>
+#include <set>
 #include <sstream>
 #include <system_error>
+#include <thread>
 
 #include <signal.h>
+#include <sys/prctl.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -35,6 +40,154 @@
 namespace rrun {
 
 std::mutex output_mutex;
+
+namespace {
+
+// Signal mask rrun was started with, restored before exec'ing an application.
+sigset_t original_signal_mask;
+
+sigset_t forwarded_signals() {
+    sigset_t set;
+    sigemptyset(&set);
+    sigaddset(&set, SIGINT);
+    sigaddset(&set, SIGTERM);
+    return set;
+}
+
+char const* signal_name(int sig) {
+    return sig == SIGINT ? "SIGINT" : "SIGTERM";
+}
+
+// Ranks that have been launched but not reaped yet, and how they were signalled.
+// A pid is only reused after it has been reaped, so signalling the pids in
+// `running` never hits another process.
+struct Ranks {
+    std::mutex mutex;
+    std::set<pid_t> running;
+    int forwarded_signal{0};  // Signal the ranks were sent, or 0.
+    bool killed{false};  // The ranks were sent SIGKILL.
+    std::string coord_dir;  // Removed if a signal ends rrun, or empty.
+};
+
+// Never destroyed, so the signal thread can use it until rrun exits.
+Ranks& ranks() {
+    static auto* const r = new Ranks();
+    return *r;
+}
+
+// Set once a signal arrives, after which the output of the ranks is dropped.
+std::atomic<bool> suppress_rank_output{false};
+
+// Must be called with `r.mutex` held.
+void signal_all(Ranks& r, int sig) {
+    for (pid_t pid : r.running) {
+        kill(pid, sig);
+    }
+}
+
+// Must be called with `r.mutex` held.
+void kill_all(Ranks& r) {
+    if (!r.running.empty()) {
+        std::cerr << "[rrun] Killing the remaining ranks." << std::endl;
+        signal_all(r, SIGKILL);
+    }
+    r.killed = true;
+}
+
+// Removes the coordination directory and ends rrun by `sig`, as if it had not
+// been blocked. Must be called with `r.mutex` held.
+[[noreturn]] void exit_by_signal(Ranks& r, int sig) {
+    if (!r.coord_dir.empty()) {
+        std::error_code ec;
+        std::filesystem::remove_all(r.coord_dir, ec);
+        if (ec) {
+            std::cerr << "[rrun] Warning: Failed to cleanup directory: " << r.coord_dir
+                      << ": " << ec.message() << std::endl;
+        }
+    }
+    ::signal(sig, SIG_DFL);
+    sigset_t set;
+    sigemptyset(&set);
+    sigaddset(&set, sig);
+    pthread_sigmask(SIG_UNBLOCK, &set, nullptr);
+    raise(sig);
+    _exit(128 + sig);
+}
+
+// Receives every SIGINT and SIGTERM sent to rrun. While no rank is running,
+// a signal ends rrun. Otherwise the first signal is forwarded to the ranks,
+// and the ranks still running `kill_after_seconds` later, or after another
+// signal, are sent SIGKILL.
+[[noreturn]] void handle_signals(int kill_after_seconds) {
+    sigset_t const set = forwarded_signals();
+    std::optional<std::chrono::steady_clock::time_point> kill_deadline;
+    for (;;) {
+        siginfo_t info{};
+        int sig = 0;
+        if (kill_deadline.has_value()) {
+            auto const remaining = std::max(
+                std::chrono::nanoseconds{
+                    *kill_deadline - std::chrono::steady_clock::now()
+                },
+                std::chrono::nanoseconds{0}
+            );
+            auto const secs = std::chrono::duration_cast<std::chrono::seconds>(remaining);
+            timespec const timeout{
+                .tv_sec = static_cast<time_t>(secs.count()),
+                .tv_nsec = static_cast<long>((remaining - secs).count())
+            };
+            sig = sigtimedwait(&set, &info, &timeout);
+        } else {
+            sig = sigwaitinfo(&set, &info);
+        }
+
+        Ranks& r = ranks();
+        std::lock_guard<std::mutex> lock(r.mutex);
+        if (sig < 0) {
+            if (errno == EAGAIN) {  // The kill deadline has passed.
+                kill_all(r);
+                kill_deadline.reset();
+            }
+            continue;
+        }
+        if (r.running.empty()) {
+            exit_by_signal(r, sig);
+        }
+        if (r.forwarded_signal == 0) {
+            suppress_rank_output.store(true, std::memory_order_relaxed);
+            r.forwarded_signal = sig;
+            // A terminal sends Ctrl-C to its whole foreground process group,
+            // which includes the ranks, so it is not forwarded.
+            if (info.si_code == SI_KERNEL) {
+                std::cerr << "[rrun] Received " << signal_name(sig)
+                          << " from the terminal, which also sent it to the ranks. ";
+            } else {
+                std::cerr << "[rrun] Forwarding " << signal_name(sig)
+                          << " to all ranks. ";
+                signal_all(r, sig);
+            }
+            std::cerr << "Ranks still running in " << kill_after_seconds
+                      << "s are killed. Press Ctrl-C again to kill them now."
+                      << std::endl;
+            kill_deadline = std::chrono::steady_clock::now()
+                            + std::chrono::seconds{kill_after_seconds};
+        } else if (!r.killed) {
+            kill_all(r);
+            kill_deadline.reset();
+        }
+    }
+}
+
+}  // namespace
+
+void block_forwarded_signals() {
+    sigset_t const set = forwarded_signals();
+    pthread_sigmask(SIG_BLOCK, &set, &original_signal_mask);
+}
+
+void start_signal_thread(int kill_after_seconds) {
+    std::thread(handle_signals, kill_after_seconds).detach();
+}
 
 std::string generate_session_id() {
     static char const chars[] =
@@ -148,6 +301,7 @@ pid_t fork_with_piped_stdio(
         }
     }
 
+    pid_t const parent_pid = getpid();
     pid_t pid = fork();
     if (pid < 0) {
         close(pipe_out[0]);
@@ -158,7 +312,14 @@ pid_t fork_with_piped_stdio(
         }
         throw std::runtime_error("Failed to fork: " + std::string{std::strerror(errno)});
     } else if (pid == 0) {
-        // Child: redirect stdout/stderr
+        // Child: get killed if rrun dies, so ranks are never left running
+        // without their launcher. Exit if rrun already died before this call.
+        prctl(PR_SET_PDEATHSIG, SIGKILL);
+        if (getppid() != parent_pid) {
+            _exit(1);
+        }
+
+        // Redirect stdout/stderr
         std::ignore = dup2(pipe_out[1], STDOUT_FILENO);
         std::ignore = dup2(combine_stderr ? pipe_out[1] : pipe_err[1], STDERR_FILENO);
         close(pipe_out[0]);
@@ -210,6 +371,10 @@ pid_t fork_with_piped_stdio(
         exec_args.push_back(const_cast<char*>(arg.c_str()));
     }
     exec_args.push_back(nullptr);
+
+    // A signal mask survives exec, so without this the application would start
+    // with SIGINT and SIGTERM blocked.
+    pthread_sigmask(SIG_SETMASK, &original_signal_mask, nullptr);
 
     execvp(cfg.app_binary.c_str(), exec_args.data());
 
@@ -298,22 +463,13 @@ int launch_ranks_fork_based(
     std::vector<LaunchedProcess> processes;
     processes.reserve(static_cast<std::size_t>(ranks_per_task));
 
-    // Block SIGINT/SIGTERM in this thread; a dedicated thread will handle them.
-    sigset_t signal_set;
-    sigemptyset(&signal_set);
-    sigaddset(&signal_set, SIGINT);
-    sigaddset(&signal_set, SIGTERM);
-    sigprocmask(SIG_BLOCK, &signal_set, nullptr);
-
-    auto suppress_output = std::make_shared<std::atomic<bool>>(false);
-
     // Helper to create a forwarder thread for a given fd (returns default thread
     // if fd < 0).
     auto make_forwarder = [&](int fd, int rank, bool to_stderr) -> std::thread {
         if (fd < 0) {
             return {};
         }
-        return std::thread([fd, rank, to_stderr, &cfg, suppress_output]() {
+        return std::thread([fd, rank, to_stderr, &cfg]() {
             FILE* stream = fdopen(fd, "r");
             if (!stream) {
                 close(fd);
@@ -323,7 +479,7 @@ int launch_ranks_fork_based(
                 cfg.tag_output ? ("[" + std::to_string(rank) + "] ") : std::string{};
             char buffer[4096];
             while (fgets(buffer, sizeof(buffer), stream) != nullptr) {
-                if (suppress_output->load(std::memory_order_relaxed)) {
+                if (suppress_rank_output.load(std::memory_order_relaxed)) {
                     continue;
                 }
                 FILE* out = to_stderr ? stderr : stdout;
@@ -344,9 +500,22 @@ int launch_ranks_fork_based(
         int global_rank = rank_offset + local_rank;
         int fd_out = -1;
         int fd_err = -1;
-        pid_t pid = launch_rank_local(
-            cfg, global_rank, local_rank, total_ranks, &fd_out, &fd_err
-        );
+        pid_t pid = 0;
+        {
+            // Hold the lock from fork to registration, so a signal reaches every
+            // rank. A rank forked after a signal gets that signal right away.
+            Ranks& r = ranks();
+            std::lock_guard<std::mutex> lock(r.mutex);
+            pid = launch_rank_local(
+                cfg, global_rank, local_rank, total_ranks, &fd_out, &fd_err
+            );
+            r.running.insert(pid);
+            if (r.killed) {
+                kill(pid, SIGKILL);
+            } else if (r.forwarded_signal != 0) {
+                kill(pid, r.forwarded_signal);
+            }
+        }
 
         if (cfg.verbose) {
             std::ostringstream msg;
@@ -368,22 +537,6 @@ int launch_ranks_fork_based(
         );
     }
 
-    // Forward signals to all child processes.
-    std::thread([signal_set, &processes, suppress_output]() mutable {
-        for (;;) {
-            int sig = 0;
-            int rc = sigwait(&signal_set, &sig);
-            if (rc != 0) {
-                continue;
-            }
-            suppress_output->store(true, std::memory_order_relaxed);
-            for (auto& p : processes) {
-                kill(p.pid, sig);
-            }
-            return;
-        }
-    }).detach();
-
     std::cout << "\n[rrun] All ranks launched. Waiting for completion...\n" << std::endl;
 
     // Wait for all processes
@@ -392,6 +545,14 @@ int launch_ranks_fork_based(
         LaunchedProcess& proc = processes[i];
         int status = 0;
         int global_rank = rank_offset + static_cast<int>(i);
+        // Wait without reaping, drop the pid from `running`, then reap it, so the
+        // signal thread never signals a reaped pid.
+        siginfo_t info{};
+        if (waitid(P_PID, static_cast<id_t>(proc.pid), &info, WEXITED | WNOWAIT) == 0) {
+            Ranks& r = ranks();
+            std::lock_guard<std::mutex> lock(r.mutex);
+            r.running.erase(proc.pid);
+        }
         if (waitpid(proc.pid, &status, 0) < 0) {
             std::cerr << "[rrun] Failed to wait for rank " << global_rank << " (PID "
                       << proc.pid << "): " << std::strerror(errno) << std::endl;
@@ -448,6 +609,11 @@ int setup_launch_and_cleanup(
 
     if (cfg.file_backend) {
         std::filesystem::create_directories(cfg.coord_dir);
+        if (cfg.cleanup) {
+            Ranks& r = ranks();
+            std::lock_guard<std::mutex> lock(r.mutex);
+            r.coord_dir = cfg.coord_dir;
+        }
         cfg.env_vars["RRUN_COORD_DIR"] = cfg.coord_dir;
         if (cfg.verbose) {
             std::cout << "[rrun] File coordination directory: " << cfg.coord_dir
@@ -472,6 +638,11 @@ int setup_launch_and_cleanup(
         launch_ranks_fork_based(cfg, rank_offset, ranks_per_task, total_ranks);
 
     if (cfg.file_backend && cfg.cleanup) {
+        {
+            Ranks& r = ranks();
+            std::lock_guard<std::mutex> lock(r.mutex);
+            r.coord_dir.clear();
+        }
         if (cfg.verbose) {
             std::cout << "[rrun] Cleaning up coordination directory: " << cfg.coord_dir
                       << std::endl;

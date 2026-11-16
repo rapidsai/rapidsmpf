@@ -152,7 +152,10 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
   - **Description**: Soft upper limit on pageable host memory used by RapidsMPF
     for spilling. Accepts byte counts (e.g. `"10GiB"`, `"512MB"`) or a percentage
     of the host memory available per GPU, the same base as `pinned_max_pool_size`
-    (e.g. `"40%"`). Use `"disabled"` for an unbounded limit; zero is not valid. This limit is
+    (e.g. `"40%"`). Use `"disabled"` for an unbounded limit; zero is not valid.
+    This limit is what makes host data spill to disk: once it is exceeded, host data
+    is spilled to disk (if `disk_spill_dir` is set). With the default unbounded limit,
+    host data is never spilled to disk. This limit is
     independent of `pinned_max_pool_size` and is not validated against it. Keep the
     two at or below 80% combined (e.g. `pinned_max_pool_size=40%` and
     `spill_host_limit=40%`), leaving 20% of the host memory available per GPU for the
@@ -164,7 +167,8 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
   - **Default**: `1ms`
   - **Description**: Enable periodic spill checks. A dedicated thread continuously
     checks and performs spilling based on the current available memory as reported by
-    the buffer resource. The value of `periodic_spill_check` specifies the pause
+    the buffer resource, making headroom in every addressable memory type (device,
+    pinned host and host). The value of `periodic_spill_check` specifies the pause
     between checks and supports time units, e.g. `us` or `ms`. If no unit is
     specified, seconds are assumed. Use `"disabled"` to disable periodic spill checks.
 
@@ -175,3 +179,9 @@ rapidsmpf::config::Options options{rapidsmpf::config::get_environment_variables(
     RapidsMPF creates an exclusively owned subdirectory and enables disk I/O.
     Disabled values (`false`, `none`, `off`, …) leave disk spilling disabled. A
     whitespace-only value is invalid.
+
+    Disk is the last resort for spilling. Device data reaches disk only when pinned
+    and host memory are both full, and host data reaches disk only once
+    `spill_host_limit` is exceeded. With the default unbounded `spill_host_limit`,
+    nothing is ever spilled to disk, so set `spill_host_limit` as well when you expect
+    disk spilling.

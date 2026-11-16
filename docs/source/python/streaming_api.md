@@ -12,6 +12,7 @@
 ```{eval-rst}
 .. automodule:: rapidsmpf.streaming.coll
    :members:
+   :inherited-members:
 ```
 
 ## Data chunks

@@ -5,7 +5,6 @@
 
 #include <algorithm>
 #include <cstring>
-#include <unordered_set>
 #include <utility>
 
 #include <cuda_runtime.h>
@@ -92,7 +91,7 @@ TagMetadataPayloadExchange::~TagMetadataPayloadExchange() noexcept {
             ", sends in flight: ",
             fire_and_forget_.size(),
             ", receives in flight: ",
-            in_transit_futures_.size(),
+            in_transit_futures_.size() + finished_futures_.size(),
             ", uncollected received messages: ",
             received_messages_.size(),
             ", unreleased sent messages: ",
@@ -241,7 +240,8 @@ bool TagMetadataPayloadExchange::is_finished() const {
 
 bool TagMetadataPayloadExchange::is_idle() const {
     if (!fire_and_forget_.empty() || !in_transit_futures_.empty()
-        || !received_messages_.empty() || !sent_messages_.empty())
+        || !finished_futures_.empty() || !received_messages_.empty()
+        || !sent_messages_.empty())
     {
         return false;
     }
@@ -431,47 +431,30 @@ TagMetadataPayloadExchange::complete_data_transfers() {
 
     std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> completed_messages;
 
-    // Handle completed data transfers
+    // Move completed futures out of `in_transit_futures_`.
     if (!in_transit_futures_.empty()) {
-        // Get all completed message IDs
-        std::vector<std::uint64_t> finished = comm_->test_some(in_transit_futures_);
-        std::unordered_set<std::uint64_t> finished_set(finished.begin(), finished.end());
+        finished_futures_.merge(comm_->test_some(in_transit_futures_));
+    }
 
-        // Process each rank's in-transit messages in order
+    // Return messages in order per peer, stopping at the first incomplete one.
+    if (!finished_futures_.empty()) {
         for (auto& [src, state] : peers_) {
             auto& messages = state.in_transit;
-
-            // Return messages in order, stopping at the first incomplete one
             while (!messages.empty()) {
                 auto& tag_msg = messages.front();
-
-                if (finished_set.count(tag_msg.message_id)) {
-                    // This message is complete
-                    auto future_it = in_transit_futures_.find(tag_msg.message_id);
-                    RAPIDSMPF_EXPECTS(
-                        future_it != in_transit_futures_.end(),
-                        "in transit future not found"
-                    );
-
-                    auto future = std::move(future_it->second);
-                    auto received_buffer = comm_->release_data(std::move(future));
-
-                    if (tag_msg.forced_allocation
-                        && forced_receive_ == ForcedReceive::MOVE_TO_DISK)
-                    {
-                        try_move_to_disk(received_buffer);
-                    }
-                    tag_msg.message->set_data(std::move(received_buffer));
-
-                    completed_messages.push_back(std::move(tag_msg.message));
-
-                    in_transit_futures_.erase(future_it);
-                    messages.pop_front();
-                } else {
-                    // First message not complete yet, stop processing this rank
-                    // to maintain order
+                auto node = finished_futures_.extract(tag_msg.message_id);
+                if (node.empty()) {
                     break;
                 }
+                auto received_buffer = comm_->release_data(std::move(node.mapped()));
+                if (tag_msg.forced_allocation
+                    && forced_receive_ == ForcedReceive::MOVE_TO_DISK)
+                {
+                    try_move_to_disk(received_buffer);
+                }
+                tag_msg.message->set_data(std::move(received_buffer));
+                completed_messages.push_back(std::move(tag_msg.message));
+                messages.pop_front();
             }
         }
     }

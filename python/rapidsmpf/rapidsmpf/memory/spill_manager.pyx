@@ -7,6 +7,7 @@ from libc.stddef cimport size_t
 from rapidsmpf._detail.exception_handling cimport (
     CppExcept, ex_handler, throw_py_as_cpp_exception,
     translate_py_to_cpp_exception)
+from rapidsmpf.memory.buffer cimport MemoryType
 from rapidsmpf.memory.buffer_resource cimport BufferResource
 
 import weakref
@@ -51,14 +52,20 @@ cdef size_t cython_invoke_python_spill_function(
 # To run a Python spill function in C++ with catchable exceptions, we use this function
 # to create a lambda function that uses `cython_invoke_python_spill_function` to run
 # the Python. The returned lambda function can then be given to the C++ SpillManager.
+# Python spill functions only take an amount, so they are only called for DEVICE memory
+# and spill nothing for other memory types.
 cdef extern from *:
     """
     template<typename T1, typename T2>
     rapidsmpf::SpillManager::SpillFunction cython_to_cpp_closure_lambda(
         T1 wrapper, T2 py_spill_function
     ) {
-        return [wrapper, py_spill_function](std::size_t amount) -> std::size_t {
-            return wrapper(py_spill_function, amount);
+        return [wrapper, py_spill_function](
+            std::size_t amount, rapidsmpf::MemoryType mem_type
+        ) -> std::size_t {
+            return mem_type == rapidsmpf::MemoryType::DEVICE
+                       ? wrapper(py_spill_function, amount)
+                       : 0;
         };
     }
     """
@@ -123,8 +130,10 @@ cdef class SpillManager:
 
         Parameters
         ----------
-        spill_function
-            The spill function to be added.
+        func
+            The spill function to be added. It is called as ``func(amount)`` with the
+            requested number of bytes, and only for ``MemoryType.DEVICE``. It returns the
+            number of bytes spilled.
         priority
             The priority level of the spill function (higher values indicate higher
             priority).
@@ -162,7 +171,7 @@ cdef class SpillManager:
             deref(self._handle).remove_spill_function(function_id)
         del self._spill_functions[function_id]
 
-    def spill(self, size_t amount):
+    def spill(self, size_t amount, mem_type=None):
         """
         Initiates spilling to free up a specified amount of memory.
 
@@ -174,6 +183,13 @@ cdef class SpillManager:
         ----------
         amount
             The amount of memory (in bytes) to spill.
+        mem_type
+            The memory type to spill from, ``MemoryType.DEVICE`` if not given.
+
+        Raises
+        ------
+        ValueError
+            If ``mem_type`` cannot be spilled, e.g. ``MemoryType.DISK``.
 
         Returns
         -------
@@ -181,7 +197,10 @@ cdef class SpillManager:
         or equal to the requested amount.
         """
         self._valid_buffer_resource()
+        cdef MemoryType mt = (
+            MemoryType.DEVICE if mem_type is None else <MemoryType?>mem_type
+        )
         cdef size_t ret
         with nogil:
-            ret = deref(self._handle).spill(amount)
+            ret = deref(self._handle).spill(amount, mt)
         return ret
