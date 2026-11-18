@@ -116,16 +116,13 @@ class DiskBuffer {
     [[nodiscard]] std::size_t file_size() const;
 
     /**
-     * @brief Whether the backing file holds no data.
+     * @brief Whether the buffer holds no data.
      *
-     * Equivalent to `file_size() == 0`. This is about the file's current contents, not
-     * the logical `size()`: a freshly created buffer is empty until it is written to.
+     * A buffer is empty if its logical `size() == 0` or if its backing file is empty,
+     * e.g. a freshly created buffer that has not been written to yet.
      *
-     * @return `true` if the backing file is empty.
-     * @throws std::logic_error if the buffer has no backing file (after `release()` or
-     *         `deallocate()`).
-     * @throws std::filesystem::filesystem_error if the file size cannot be queried, e.g.
-     *         the file was removed.
+     * @return `true` if the buffer holds no data.
+     * @throws See `file_size()`, which is queried when `size()` is non-zero.
      */
     [[nodiscard]] bool is_empty() const;
 
@@ -135,12 +132,7 @@ class DiskBuffer {
      * This is primarily intended for debugging or testing.
      *
      * @return A vector containing the backing file bytes.
-     * @throws std::logic_error if the buffer has no backing file (after `release()` or
-     * `deallocate()`).
-     * @throws std::filesystem::filesystem_error if the file size cannot be queried (see
-     *         `file_size()`).
-     * @throws std::runtime_error if the backing file is larger than `size()` or cannot be
-     *         read completely.
+     * @throws See `file_size()`.
      */
     [[nodiscard]] std::vector<std::uint8_t> copy_to_uint8_vector() const;
 

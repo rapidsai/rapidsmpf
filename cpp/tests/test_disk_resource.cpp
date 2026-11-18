@@ -584,7 +584,7 @@ TEST_F(DiskResourceTest, DiskBufferReleaseHandsFileToAnotherBuffer) {
         EXPECT_TRUE(first.release().empty());
         // Without a backing file, querying the file is a usage error.
         EXPECT_THROW(std::ignore = first.file_size(), std::logic_error);
-        EXPECT_THROW(std::ignore = first.is_empty(), std::logic_error);
+        EXPECT_TRUE(first.is_empty());  // Zero size, so the file is not queried.
         EXPECT_THROW(std::ignore = first.copy_to_uint8_vector(), std::logic_error);
     }
     // Destruction must not delete a released file; the caller owns it now.
@@ -606,6 +606,11 @@ TEST_F(DiskResourceTest, DiskBufferReleaseHandsFileToAnotherBuffer) {
         DiskBuffer(disk_, test_path("buffer-missing"), stream_), std::invalid_argument
     );
     EXPECT_THROW(DiskBuffer(nullptr, released, stream_), std::logic_error);
+}
+
+TEST_F(DiskResourceTest, DiskBufferZeroSizeIsEmpty) {
+    DiskBuffer disk_buffer{disk_, 0, stream_};
+    EXPECT_TRUE(disk_buffer.is_empty());
 }
 
 TEST_F(DiskResourceTest, DiskBufferTracksStream) {

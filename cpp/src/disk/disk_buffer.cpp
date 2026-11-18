@@ -75,7 +75,7 @@ std::size_t DiskBuffer::file_size() const {
 }
 
 bool DiskBuffer::is_empty() const {
-    return file_size() == 0;
+    return size_ == 0 || file_size() == 0;
 }
 
 std::vector<std::uint8_t> DiskBuffer::copy_to_uint8_vector() const {
