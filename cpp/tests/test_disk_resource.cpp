@@ -43,13 +43,13 @@ std::filesystem::path test_spill_dir() {
         .value_or(std::filesystem::temp_directory_path());
 }
 
-std::string test_path(std::string_view suffix) {
-    static std::atomic<std::uint64_t> counter{0};
-    auto const id = counter.fetch_add(1, std::memory_order_relaxed);
-    return (test_spill_dir()
-            / ("rapidsmpf-disk-test-" + std::to_string(::getpid()) + "-"
-               + std::to_string(id) + "-" + std::string{suffix} + ".bin"))
-        .string();
+/// Write @p data to a plain file outside any disk resource.
+void write_external_file(
+    std::filesystem::path const& path, std::vector<std::byte> const& data
+) {
+    std::ofstream file{path, std::ios::binary};
+    file.write(reinterpret_cast<char const*>(data.data()), std::streamsize(data.size()));
+    ASSERT_TRUE(file.good());
 }
 
 std::vector<std::byte> make_pattern(std::size_t size) {
@@ -60,23 +60,6 @@ std::vector<std::byte> make_pattern(std::size_t size) {
         result[i] = static_cast<std::byte>(value);
     }
     return result;
-}
-
-void check_file_contents(
-    std::filesystem::path const& path,
-    std::ptrdiff_t file_offset,
-    std::vector<std::byte> const& expected
-) {
-    std::vector<std::byte> actual(expected.size());
-    std::ifstream file{path, std::ios::binary};
-    ASSERT_TRUE(file.good());
-    file.seekg(static_cast<std::streamoff>(file_offset));
-    file.read(
-        reinterpret_cast<char*>(actual.data()),
-        static_cast<std::streamsize>(actual.size())
-    );
-    EXPECT_EQ(file.gcount(), static_cast<std::streamsize>(actual.size()));
-    EXPECT_EQ(actual, expected);
 }
 
 class DiskResourceTest : public ::testing::Test {
@@ -95,6 +78,28 @@ class DiskResourceTest : public ::testing::Test {
             test_spill_dir()
         );
         disk_ = br_->disk_resource();
+    }
+
+    /// Check that @p expected is stored at @p file_offset in @p path.
+    void check_file_contents(
+        FileHandle const& path,
+        std::ptrdiff_t file_offset,
+        std::vector<std::byte> const& expected
+    ) {
+        std::vector<std::byte> actual(expected.size());
+        ASSERT_EQ(
+            disk_->read(path, actual.data(), actual.size(), stream_, file_offset),
+            actual.size()
+        );
+        EXPECT_EQ(actual, expected);
+    }
+
+    /// Regular files directly under @p dir.
+    static std::size_t count_files(std::filesystem::path const& dir) {
+        return static_cast<std::size_t>(std::distance(
+            std::filesystem::directory_iterator{dir},
+            std::filesystem::directory_iterator{}
+        ));
     }
 
     /// A second buffer resource, and so a second disk directory.
@@ -116,7 +121,7 @@ class DiskResourceTest : public ::testing::Test {
 };
 
 TEST_F(DiskResourceTest, RoundTrip) {
-    auto const path = test_path("roundtrip");
+    auto path = disk_->create_unique_path();
     auto const pattern = make_pattern(64 * 1024);
 
     EXPECT_EQ(
@@ -129,11 +134,11 @@ TEST_F(DiskResourceTest, RoundTrip) {
     );
 
     EXPECT_EQ(destination, pattern);
-    ASSERT_TRUE(std::filesystem::remove(path));
+    ASSERT_TRUE(disk_->remove(path));
 }
 
 TEST_F(DiskResourceTest, UnalignedOffsetRoundTrip) {
-    auto const path = test_path("unaligned");
+    auto path = disk_->create_unique_path();
     auto const pattern = make_pattern(16 * 1024);
     auto const ptr_offset = std::size_t{1};
     auto const file_offset = std::ptrdiff_t{1};
@@ -148,7 +153,7 @@ TEST_F(DiskResourceTest, UnalignedOffsetRoundTrip) {
         pattern.size()
     );
 
-    EXPECT_EQ(std::filesystem::file_size(path), pattern.size() + file_offset);
+    EXPECT_EQ(path.file_size(), pattern.size() + file_offset);
     check_file_contents(path, file_offset, pattern);
 
     std::vector<std::byte> destination(pattern.size() + ptr_offset);
@@ -167,11 +172,11 @@ TEST_F(DiskResourceTest, UnalignedOffsetRoundTrip) {
         )
     );
 
-    ASSERT_TRUE(std::filesystem::remove(path));
+    ASSERT_TRUE(disk_->remove(path));
 }
 
 TEST_F(DiskResourceTest, SequentialOffsetWritesPreserveExistingBytes) {
-    auto const path = test_path("two-ranges");
+    auto path = disk_->create_unique_path();
     auto const first = make_pattern(8 * 1024);
     auto const second = make_pattern(4 * 1024);
     auto const second_offset = std::ptrdiff_t{12 * 1024};
@@ -182,16 +187,16 @@ TEST_F(DiskResourceTest, SequentialOffsetWritesPreserveExistingBytes) {
         second.size()
     );
 
-    EXPECT_EQ(std::filesystem::file_size(path), second_offset + second.size());
+    EXPECT_EQ(path.file_size(), second_offset + second.size());
     check_file_contents(path, 0, first);
     check_file_contents(path, second_offset, second);
 
-    ASSERT_TRUE(std::filesystem::remove(path));
+    ASSERT_TRUE(disk_->remove(path));
 }
 
 TEST_F(DiskResourceTest, CopyPreservesBytesOutsideWrittenRange) {
-    auto const src_path = test_path("copy-src");
-    auto const dst_path = test_path("copy-dst");
+    auto src_path = disk_->create_unique_path();
+    auto dst_path = disk_->create_unique_path();
     auto const src = make_pattern(8 * 1024);
     auto const dst = make_pattern(16 * 1024);
     constexpr std::size_t size = 2 * 1024;
@@ -204,18 +209,18 @@ TEST_F(DiskResourceTest, CopyPreservesBytesOutsideWrittenRange) {
         disk_->copy(src_path, dst_path, size, stream_, src_offset, dst_offset), size
     );
 
-    EXPECT_EQ(std::filesystem::file_size(dst_path), dst.size());
+    EXPECT_EQ(dst_path.file_size(), dst.size());
     auto expected = dst;
     std::copy_n(src.begin() + src_offset, size, expected.begin() + dst_offset);
     check_file_contents(dst_path, 0, expected);
 
-    ASSERT_TRUE(std::filesystem::remove(src_path));
-    ASSERT_TRUE(std::filesystem::remove(dst_path));
+    ASSERT_TRUE(disk_->remove(src_path));
+    ASSERT_TRUE(disk_->remove(dst_path));
 }
 
 TEST_F(DiskResourceTest, CopyRejectsInvalidArguments) {
-    auto const src_path = test_path("copy-invalid-src");
-    auto const dst_path = test_path("copy-invalid-dst");
+    auto src_path = disk_->create_unique_path();
+    auto dst_path = disk_->create_unique_path();
     auto const src = make_pattern(1024);
     EXPECT_EQ(disk_->write(src_path, src.data(), src.size(), stream_), src.size());
 
@@ -233,7 +238,7 @@ TEST_F(DiskResourceTest, CopyRejectsInvalidArguments) {
         std::ignore = disk_->copy(src_path, src_path, 16, stream_), std::invalid_argument
     );
 
-    ASSERT_TRUE(std::filesystem::remove(src_path));
+    ASSERT_TRUE(disk_->remove(src_path));
 }
 
 TEST_F(DiskResourceTest, AdoptAcrossFilesystems) {
@@ -266,34 +271,27 @@ TEST_F(DiskResourceTest, AdoptAcrossFilesystems) {
     TempDir src_dir{*other_dir};
     auto const src_path = src_dir.path() / "src";
     auto const src = make_pattern(8 * 1024);
-    EXPECT_EQ(disk_->write(src_path, src.data(), src.size(), stream_), src.size());
+    write_external_file(src_path, src);
 
-    auto const adopted = disk_->adopt(src_path);
+    auto adopted = disk_->adopt(src_path);
 
     EXPECT_FALSE(std::filesystem::exists(src_path));
-    EXPECT_EQ(adopted.parent_path(), disk_->directory());
-    EXPECT_EQ(std::filesystem::file_size(adopted), src.size());
+    EXPECT_EQ(adopted.file_size(), src.size());
     check_file_contents(adopted, 0, src);
-    // No temporary file is left next to the adopted one.
-    EXPECT_EQ(
-        std::distance(
-            std::filesystem::directory_iterator{disk_->directory()},
-            std::filesystem::directory_iterator{}
-        ),
-        1
-    );
+    // The adopted file is the only one under the directory, so no temporary is left.
+    EXPECT_EQ(count_files(disk_->directory()), 1);
 
-    ASSERT_TRUE(std::filesystem::remove(adopted));
+    ASSERT_TRUE(disk_->remove(adopted));
 }
 
 TEST_F(DiskResourceTest, FlushDoesNotThrow) {
-    auto const path = test_path("flush");
+    auto path = disk_->create_unique_path();
     auto const pattern = make_pattern(4096);
     EXPECT_EQ(
         disk_->write(path, pattern.data(), pattern.size(), stream_), pattern.size()
     );
     EXPECT_NO_THROW(disk_->flush(path));
-    ASSERT_TRUE(std::filesystem::remove(path));
+    ASSERT_TRUE(disk_->remove(path));
 }
 
 TEST(DiskSpillDirectory, UnsetOptionIsEmpty) {
@@ -411,13 +409,11 @@ TEST(DiskResource, ResourcesOwnDistinctDirectories) {
 }
 
 TEST_F(DiskResourceTest, DiskBufferDestructorRemovesFile) {
-    std::filesystem::path path{};
     {
         DiskBuffer disk_buffer{disk_, 0, stream_};
-        path = disk_buffer.path();
-        ASSERT_TRUE(std::filesystem::exists(path));
+        EXPECT_EQ(count_files(disk_->directory()), 1);
     }
-    EXPECT_FALSE(std::filesystem::exists(path));
+    EXPECT_EQ(count_files(disk_->directory()), 0);
 }
 
 TEST_F(DiskResourceTest, DiskBufferMoveAssignmentReplacesBackingFile) {
@@ -428,33 +424,33 @@ TEST_F(DiskResourceTest, DiskBufferMoveAssignmentReplacesBackingFile) {
         disk_->write(target.path(), target_data.data(), target_data.size(), stream_),
         target_data.size()
     );
-    auto const old_target_path = target.path();
-    std::filesystem::path source_path;
     {
         DiskBuffer source{disk_, source_data.size(), stream_};
-        source_path = source.path();
         EXPECT_EQ(
-            disk_->write(source_path, source_data.data(), source_data.size(), stream_),
+            disk_->write(source.path(), source_data.data(), source_data.size(), stream_),
             source_data.size()
         );
+        auto const source_path = source.path();
+        ASSERT_EQ(count_files(disk_->directory()), 2);
 
         target = std::move(source);
 
         // The target's old file is deleted and it now holds the source's.
-        EXPECT_FALSE(std::filesystem::exists(old_target_path));
+        EXPECT_EQ(count_files(disk_->directory()), 1);
         EXPECT_EQ(target.path(), source_path);
         EXPECT_EQ(target.size(), source_data.size());
         EXPECT_EQ(source.size(), 0);  // NOLINT(bugprone-use-after-move)
         EXPECT_TRUE(source.path().empty());  // NOLINT(bugprone-use-after-move)
     }
     // The moved-from source must not have deleted the file it gave away.
-    ASSERT_TRUE(std::filesystem::exists(source_path));
+    EXPECT_EQ(count_files(disk_->directory()), 1);
     check_file_contents(target.path(), 0, source_data);
 
     // Self move-assignment keeps the file.
+    auto const path = target.path();
     auto& alias = target;
     target = std::move(alias);
-    EXPECT_EQ(target.path(), source_path);
+    EXPECT_EQ(target.path(), path);
     check_file_contents(target.path(), 0, source_data);
 }
 
@@ -465,21 +461,23 @@ TEST_F(DiskResourceTest, DiskBufferMoveAssignmentTakesSourceDiskResource) {
 
     auto const pattern = make_pattern(1234);
     DiskBuffer target{disk_, 0, stream_};
-    auto const old_target_path = target.path();
     DiskBuffer source{other_disk, pattern.size(), stream_};
-    auto const source_path = source.path();
     EXPECT_EQ(
-        disk_->write(source_path, pattern.data(), pattern.size(), stream_), pattern.size()
+        other_disk->write(source.path(), pattern.data(), pattern.size(), stream_),
+        pattern.size()
     );
+    auto const source_path = source.path();
 
     target = std::move(source);
 
-    // The file stays where it was and is now owned by the target.
+    // The file stays where it was and is now owned by the target. The target's old file
+    // was deleted through the resource that owned it.
     EXPECT_EQ(target.disk_resource(), other_disk);
     EXPECT_EQ(target.path(), source_path);
-    EXPECT_FALSE(std::filesystem::exists(old_target_path));
+    EXPECT_EQ(count_files(other_disk->directory()), 1);
+    EXPECT_EQ(count_files(disk_->directory()), 0);
     EXPECT_EQ(target.size(), pattern.size());
-    check_file_contents(target.path(), 0, pattern);
+    EXPECT_EQ(target.path().file_size(), pattern.size());
     EXPECT_EQ(source.size(), 0);  // NOLINT(bugprone-use-after-move)
 }
 
@@ -490,24 +488,25 @@ TEST_F(DiskResourceTest, DiskBufferRelocateMovesFileToOtherDiskResource) {
 
     auto const pattern = make_pattern(4 * 1024);
     DiskBuffer buffer{disk_, pattern.size(), stream_};
-    auto const old_path = buffer.path();
     EXPECT_EQ(
-        disk_->write(old_path, pattern.data(), pattern.size(), stream_), pattern.size()
+        disk_->write(buffer.path(), pattern.data(), pattern.size(), stream_),
+        pattern.size()
     );
 
     buffer.relocate(other_disk);
 
     EXPECT_EQ(buffer.disk_resource(), other_disk);
-    EXPECT_FALSE(std::filesystem::exists(old_path));
-    EXPECT_EQ(buffer.path().parent_path(), other_disk->directory());
+    EXPECT_EQ(count_files(disk_->directory()), 0);
+    EXPECT_EQ(count_files(other_disk->directory()), 1);
     EXPECT_EQ(buffer.size(), pattern.size());
-    check_file_contents(buffer.path(), 0, pattern);
+    EXPECT_EQ(buffer.path().file_size(), pattern.size());
+    EXPECT_FALSE(buffer.copy_to_uint8_vector().empty());
 
     // Relocating to the current resource keeps the file where it is.
     auto const path = buffer.path();
     buffer.relocate(other_disk);
     EXPECT_EQ(buffer.path(), path);
-    check_file_contents(buffer.path(), 0, pattern);
+    EXPECT_EQ(count_files(other_disk->directory()), 1);
 }
 
 TEST_F(DiskResourceTest, DiskBufferRelocateFailureLeavesBufferUnchanged) {
@@ -519,54 +518,58 @@ TEST_F(DiskResourceTest, DiskBufferRelocateFailureLeavesBufferUnchanged) {
 
     // Remove the backing file behind the buffer's back so adopt() rejects it.
     auto const path = buffer.path();
-    ASSERT_TRUE(std::filesystem::remove(path));
+    auto const entry = std::filesystem::directory_iterator{disk_->directory()}->path();
+    ASSERT_TRUE(std::filesystem::remove(entry));
     EXPECT_THROW(buffer.relocate(other_disk), std::invalid_argument);
     EXPECT_EQ(buffer.disk_resource(), disk_);
     EXPECT_EQ(buffer.path(), path);
-    EXPECT_TRUE(std::filesystem::is_empty(other_disk->directory()));
+    EXPECT_EQ(count_files(other_disk->directory()), 0);
 }
 
 TEST_F(DiskResourceTest, AdoptKeepsOwnedFileAndRelocatesForeignFile) {
     auto const pattern = make_pattern(1024);
 
     // A file already under the directory is returned unchanged.
-    auto const own_path = disk_->create_unique_path();
+    auto own_path = disk_->create_unique_path();
     EXPECT_EQ(disk_->adopt(own_path), own_path);
-    EXPECT_TRUE(std::filesystem::exists(own_path));
-    ASSERT_TRUE(std::filesystem::remove(own_path));
+    EXPECT_EQ(count_files(disk_->directory()), 1);
+    ASSERT_TRUE(disk_->remove(own_path));
 
-    // A file elsewhere is moved under the directory.
-    auto const foreign_path = test_path("adopt-foreign");
-    EXPECT_EQ(
-        disk_->write(foreign_path, pattern.data(), pattern.size(), stream_),
-        pattern.size()
-    );
-    auto const adopted = disk_->adopt(foreign_path);
-    EXPECT_EQ(adopted.parent_path(), disk_->directory());
+    // An external file is moved under the directory.
+    TempDir external;
+    auto const foreign_path = external.path() / "adopt-foreign";
+    write_external_file(foreign_path, pattern);
+    auto adopted = disk_->adopt(foreign_path);
     EXPECT_FALSE(std::filesystem::exists(foreign_path));
+    EXPECT_EQ(count_files(disk_->directory()), 1);
     check_file_contents(adopted, 0, pattern);
-    ASSERT_TRUE(std::filesystem::remove(adopted));
+    ASSERT_TRUE(disk_->remove(adopted));
 
-    // A missing file or a non-regular file is rejected and leaves nothing behind.
+    // A missing file, a directory or an empty handle is rejected and leaves nothing
+    // behind.
     EXPECT_THROW(
-        std::ignore = disk_->adopt(test_path("adopt-missing")), std::invalid_argument
+        std::ignore = disk_->adopt(external.path() / "adopt-missing"),
+        std::invalid_argument
     );
     EXPECT_THROW(std::ignore = disk_->adopt(disk_->directory()), std::invalid_argument);
-    EXPECT_TRUE(std::filesystem::is_empty(disk_->directory()));
+    EXPECT_THROW(std::ignore = disk_->adopt(FileHandle{}), std::invalid_argument);
+    EXPECT_EQ(count_files(disk_->directory()), 0);
 
     // A different spelling of a path already under the directory is not renamed.
-    auto const own_path2 = disk_->create_unique_path();
-    auto const respelled = disk_->directory() / "." / own_path2.filename();
-    EXPECT_EQ(disk_->adopt(respelled), respelled);
-    EXPECT_TRUE(std::filesystem::exists(own_path2));
-    ASSERT_TRUE(std::filesystem::remove(own_path2));
+    own_path = disk_->create_unique_path();
+    auto const entry = std::filesystem::directory_iterator{disk_->directory()}->path();
+    auto const respelled = disk_->directory() / "." / entry.filename();
+    std::ignore = disk_->adopt(respelled);
+    EXPECT_TRUE(std::filesystem::exists(entry));
+    EXPECT_EQ(count_files(disk_->directory()), 1);
+    ASSERT_TRUE(disk_->remove(own_path));
 }
 
 TEST_F(DiskResourceTest, DiskBufferReleaseHandsFileToAnotherBuffer) {
     auto const pattern = make_pattern(4 * 1024);
 
     // Release the file from one buffer.
-    std::filesystem::path released;
+    FileHandle released;
     {
         DiskBuffer first{disk_, pattern.size(), stream_};
         EXPECT_EQ(
@@ -574,6 +577,7 @@ TEST_F(DiskResourceTest, DiskBufferReleaseHandsFileToAnotherBuffer) {
             pattern.size()
         );
         released = first.release();
+        EXPECT_FALSE(released.empty());
         EXPECT_EQ(first.size(), 0);
         EXPECT_TRUE(first.path().empty());
         EXPECT_TRUE(first.release().empty());
@@ -583,7 +587,7 @@ TEST_F(DiskResourceTest, DiskBufferReleaseHandsFileToAnotherBuffer) {
         EXPECT_THROW(std::ignore = first.copy_to_uint8_vector(), std::logic_error);
     }
     // Destruction must not delete a released file; the caller owns it now.
-    ASSERT_TRUE(std::filesystem::exists(released));
+    EXPECT_EQ(count_files(disk_->directory()), 1);
 
     // Hand it to another buffer, which infers the size and takes ownership.
     {
@@ -593,13 +597,16 @@ TEST_F(DiskResourceTest, DiskBufferReleaseHandsFileToAnotherBuffer) {
         check_file_contents(second.path(), 0, pattern);
     }
     // The second buffer owns the adopted file and deletes it.
-    EXPECT_FALSE(std::filesystem::exists(released));
+    EXPECT_EQ(count_files(disk_->directory()), 0);
 
     // Invalid arguments.
+    TempDir external;
     EXPECT_THROW(
-        DiskBuffer(disk_, test_path("buffer-missing"), stream_), std::invalid_argument
+        DiskBuffer(disk_, disk_->adopt(external.path() / "buffer-missing"), stream_),
+        std::invalid_argument
     );
-    EXPECT_THROW(DiskBuffer(nullptr, released, stream_), std::logic_error);
+    EXPECT_THROW(DiskBuffer(disk_, FileHandle{}, stream_), std::invalid_argument);
+    EXPECT_THROW(DiskBuffer(nullptr, FileHandle{}, stream_), std::logic_error);
 }
 
 TEST_F(DiskResourceTest, DiskBufferZeroSizeIsEmpty) {
