@@ -62,9 +62,9 @@ std::vector<int> get_allowed_host_numa_nodes() noexcept;
 /**
  * @brief Get current NUMA node(s) for memory binding.
  *
- * Inspects the process memory policy and returns the host-memory NUMA nodes from which
- * the process may allocate. Only nodes that have CPUs are considered, which excludes
- * GPU HBM nodes exposed on GB/GH systems (CPU-less CXL expander nodes are also
+ * Inspects the calling thread's memory policy and returns the host-memory NUMA nodes
+ * from which the process may allocate. Only nodes that have CPUs are considered, which
+ * excludes GPU HBM nodes exposed on GB/GH systems (CPU-less CXL expander nodes are also
  * excluded). The result depends on the policy mode:
  * - `MPOL_DEFAULT`/`MPOL_LOCAL`: all allowed host nodes (respecting cpusets).
  * - `MPOL_BIND`: only the bound nodes. Throws if any bound node is not an allowed host

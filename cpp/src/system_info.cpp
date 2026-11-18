@@ -144,6 +144,9 @@ std::vector<int> get_current_numa_nodes() {
         policy_host_nodes = bitmask_to_nodes(policy, [&](int node) {
             return std::ranges::find(host_nodes, node) != host_nodes.end();
         });
+    } else {
+        // `mode` may have been written before a failure; fall back to the default.
+        mode = MPOL_DEFAULT;
     }
     numa_free_nodemask(policy);
     // The policy host nodes first, then every other allowed host node (used by

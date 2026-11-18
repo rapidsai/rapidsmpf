@@ -3,8 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cerrno>
+#include <cstring>
 #include <optional>
 #include <stdexcept>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -64,6 +67,11 @@ Topology discover_topology() {
     return topo;
 }
 
+/// Whether `err` means the environment doesn't permit/support the NUMA syscall.
+bool is_environmental_errno(int err) {
+    return err == EPERM || err == ENOSYS;
+}
+
 /**
  * @brief Calls `get_current_numa_nodes()` from a fresh thread with the given policy.
  *
@@ -74,12 +82,17 @@ Topology discover_topology() {
  * @param policy_nodes Nodes passed to `set_mempolicy()`.
  * @param pin_to_node If >= 0, also pin the thread's CPUs to this node.
  * @return The nodes (`{-1}` if `get_current_numa_nodes()` threw), or `std::nullopt` if
- * the policy could not be applied (e.g. `EPERM` in a container).
+ * the policy could not be applied for environmental reasons (`EPERM`/`ENOSYS`, e.g. in
+ * a container).
+ *
+ * @throws std::runtime_error On any other `set_mempolicy()` failure, so a broken helper
+ * doesn't silently skip every test.
  */
 std::optional<std::vector<int>> nodes_with_policy(
     int mode, std::vector<int> const& policy_nodes, int pin_to_node = -1
 ) {
     std::optional<std::vector<int>> ret;
+    std::string error;
     std::thread([&] {
         if (pin_to_node >= 0 && numa_run_on_node(pin_to_node) != 0) {
             return;
@@ -88,6 +101,9 @@ std::optional<std::vector<int>> nodes_with_policy(
         // --membind`), so always set the policy explicitly, including for MPOL_DEFAULT.
         if (mode == MPOL_DEFAULT) {
             if (set_mempolicy(MPOL_DEFAULT, nullptr, 0) != 0) {
+                if (!is_environmental_errno(errno)) {
+                    error = std::string("set_mempolicy failed: ") + std::strerror(errno);
+                }
                 return;
             }
         } else {
@@ -96,8 +112,12 @@ std::optional<std::vector<int>> nodes_with_policy(
                 numa_bitmask_setbit(mask, node);
             }
             auto const rc = set_mempolicy(mode, mask->maskp, mask->size + 1);
+            auto const err = errno;
             numa_free_nodemask(mask);
             if (rc != 0) {
+                if (!is_environmental_errno(err)) {
+                    error = std::string("set_mempolicy failed: ") + std::strerror(err);
+                }
                 return;
             }
         }
@@ -107,6 +127,9 @@ std::optional<std::vector<int>> nodes_with_policy(
             ret = std::vector<int>{-1};  // sentinel: threw
         }
     }).join();
+    if (!error.empty()) {
+        throw std::runtime_error(error);
+    }
     return ret;
 }
 
