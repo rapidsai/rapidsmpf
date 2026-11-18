@@ -233,7 +233,7 @@ class DiskResource : public BackRefMixin<BufferResource> {
     [[nodiscard]] bool operator==(DiskResource const& other) const noexcept = default;
 
   private:
-    explicit DiskResource(std::filesystem::path dir_prefix);
+    explicit DiskResource(std::filesystem::path const& parent);
 
     friend class BufferResource;
 

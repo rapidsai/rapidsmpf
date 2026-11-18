@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
-import os
 import pathlib
 
 import numpy as np
@@ -338,11 +337,11 @@ def test_reservation_split_releases_on_scope_exit(mem_type: MemoryType) -> None:
 
 
 def check_spill_directory(br: BufferResource, parent: pathlib.Path) -> None:
-    # The buffer resource owns a unique `<parent>/<pid>-XXXXXX` subdirectory.
+    # The buffer resource owns a unique `<parent>/XXXXXXXX` subdirectory.
     assert br.spill_directory is not None
     spill_dir = pathlib.Path(br.spill_directory)
     assert spill_dir.parent == parent
-    assert spill_dir.name.startswith(f"{os.getpid()}-")
+    assert len(spill_dir.name) == 8
     assert spill_dir.is_dir()
 
 
