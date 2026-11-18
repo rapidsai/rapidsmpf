@@ -40,7 +40,7 @@ DiskBuffer::DiskBuffer(
 }
 
 DiskBuffer::DiskBuffer(DiskBuffer&& other) noexcept
-    : disk_{other.disk_},
+    : disk_{std::move(other.disk_)},
       path_{std::exchange(other.path_, {})},
       size_{std::exchange(other.size_, 0)},
       stream_{other.stream_} {}
@@ -48,7 +48,7 @@ DiskBuffer::DiskBuffer(DiskBuffer&& other) noexcept
 DiskBuffer& DiskBuffer::operator=(DiskBuffer&& other) noexcept {
     if (this != &other) {
         deallocate();
-        disk_ = other.disk_;
+        disk_ = std::move(other.disk_);
         size_ = other.size_;  // Before `release()`, which resets it.
         path_ = other.release();
         stream_ = other.stream_;
