@@ -11,3 +11,6 @@ class OutOfMemory(MemoryError):
 
 class BadAlloc(MemoryError):
     pass
+
+class CommunicatorAborted(RuntimeError):
+    pass

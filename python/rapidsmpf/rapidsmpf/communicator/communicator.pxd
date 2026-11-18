@@ -1,7 +1,8 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from libc.stdint cimport int32_t
+from libcpp cimport bool
 from libcpp.memory cimport shared_ptr
 from libcpp.string cimport string
 
@@ -40,6 +41,7 @@ cdef extern from "<rapidsmpf/communicator/communicator.hpp>" nogil:
         string str() except +ex_handler
         shared_ptr[cpp_ProgressThread] progress_thread() except +ex_handler
         shared_ptr[cpp_Logger] logger()
+        bool is_aborted() noexcept
 
 cdef class Communicator:
     cdef shared_ptr[cpp_Communicator] _handle

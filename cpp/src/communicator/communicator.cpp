@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
-#include <iterator>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <ranges>
@@ -60,75 +60,153 @@ void Logger::set_name(std::string name) {
     name_ = std::move(name);
 }
 
+communicator_aborted::communicator_aborted(Rank origin, std::string const& reason)
+    : std::
+          runtime_error{"communicator aborted by rank " + std::to_string(origin) + ": " + reason},
+      origin_{origin},
+      reason_{reason} {}
+
+Rank communicator_aborted::origin() const noexcept {
+    return origin_;
+}
+
+std::string const& communicator_aborted::reason() const noexcept {
+    return reason_;
+}
+
+namespace detail {
+
+bool AbortState::set(Rank origin, std::string reason) noexcept {
+    bool expected = false;
+    if (!claimed_.compare_exchange_strong(
+            expected, true, std::memory_order_acq_rel, std::memory_order_relaxed
+        ))
+    {
+        return false;
+    }
+    origin_ = origin;
+    reason_ = std::move(reason);
+    is_set_.store(true, std::memory_order_release);
+    return true;
+}
+
+bool AbortState::is_set() const noexcept {
+    return is_set_.load(std::memory_order_acquire);
+}
+
+void AbortState::throw_if_set() const {
+    if (is_set()) {
+        throw communicator_aborted(origin_, reason_);
+    }
+}
+
 namespace {
-/// @brief How long `release_retired_futures()` waits for the retired futures, in total.
-constexpr auto retired_futures_timeout = std::chrono::seconds{1};
+/// @brief How long `FutureGraveyard::release()` waits for the graves, in total.
+constexpr auto graveyard_release_timeout = std::chrono::seconds{1};
 }  // namespace
 
-Communicator::~Communicator() noexcept {
-    // The backend did not release them, so whether they completed is unknown.
-    for (auto& future : retired_futures_) {
-        std::ignore = future.release();
+FutureGraveyard::FutureGraveyard(Rank rank, std::shared_ptr<AbortState> abort_state)
+    : rank_{rank}, abort_state_{std::move(abort_state)} {
+    RAPIDSMPF_EXPECTS(
+        abort_state_ != nullptr, "abort state cannot be null", std::invalid_argument
+    );
+}
+
+FutureGraveyard::~FutureGraveyard() noexcept {
+    // Not released, so whether they completed is unknown: never free a buffer that may
+    // still be accessed.
+    for (auto& grave : graves_) {
+        std::ignore = grave.release();
     }
 }
 
-void Communicator::retire_futures(
-    std::vector<std::unique_ptr<Future>>&& futures
-) noexcept {
-    std::erase(futures, nullptr);
-    auto const completed = [this](auto const& future) {
-        return retired_future_completed(*future);
-    };
-    // Nobody can consume the retired receives anymore. Cancel them right away, to narrow
-    // the window in which they can match later messages.
-    for (auto const& future : futures) {
-        cancel_retired_future(*future);
-    }
-    // Release the futures that completed already, while their stream is surely valid.
-    std::erase_if(futures, completed);
+void FutureGraveyard::bury(std::unique_ptr<Grave> grave) noexcept {
     try {
-        std::lock_guard lock(retired_futures_mutex_);
-        // Release the futures that completed since they were retired.
-        std::erase_if(retired_futures_, completed);
-        retired_futures_.reserve(retired_futures_.size() + futures.size());
-        std::ranges::move(futures, std::back_inserter(retired_futures_));
+        abort_state_->set(
+            rank_,
+            "a future was destroyed while its communication was in flight, e.g., "
+            "because its operation failed"
+        );
     } catch (...) {
-        // Never free a buffer that may still be accessed, leak instead.
-        for (auto& future : futures) {
-            std::ignore = future.release();
-        }
+        abort_state_->set(rank_, std::string{});
     }
-}
-
-void Communicator::retire_future(std::unique_ptr<Future>&& future) noexcept {
-    std::vector<std::unique_ptr<Future>> futures;
-    try {
-        futures.push_back(std::move(future));
-    } catch (...) {
-        // Never free a buffer that may still be accessed, leak instead.
-        std::ignore = future.release();
+    std::lock_guard lock(mutex_);
+    if (grave == nullptr) {
         return;
     }
-    retire_futures(std::move(futures));
+    if (released_) {
+        std::ignore = grave.release();
+        return;
+    }
+    try {
+        graves_.push_back(std::move(grave));
+    } catch (...) {
+        // Never free a buffer that may still be accessed, leak instead.
+        std::ignore = grave.release();
+    }
 }
 
-void Communicator::release_retired_futures() noexcept {
-    std::lock_guard lock(retired_futures_mutex_);
-    auto const completed = [this](auto const& future) {
-        return retired_future_completed(*future);
-    };
-    // A single deadline, so that destruction takes at most about the timeout, however
-    // many futures are stuck.
-    auto const deadline = std::chrono::steady_clock::now() + retired_futures_timeout;
-    while (!retired_futures_.empty() && std::chrono::steady_clock::now() < deadline) {
+bool FutureGraveyard::empty() const noexcept {
+    std::lock_guard lock(mutex_);
+    return graves_.empty();
+}
+
+void FutureGraveyard::release(std::function<void()> const& progress) noexcept {
+    // Take the graves out, so that the communication library is never called while
+    // holding the lock, which a future destroyed in one of its callbacks may need.
+    std::vector<std::unique_ptr<Grave>> graves;
+    {
+        std::lock_guard lock(mutex_);
+        released_ = true;
+        std::swap(graves, graves_);
+    }
+    if (graves.empty()) {
+        return;
+    }
+    for (auto& grave : graves) {
+        grave->cancel();
+    }
+    auto const completed = [](auto const& grave) { return grave->completed(); };
+    std::erase_if(graves, completed);
+    // A single deadline, so that this takes at most about the timeout, however much
+    // communication is stuck.
+    auto const deadline = std::chrono::steady_clock::now() + graveyard_release_timeout;
+    while (!graves.empty() && std::chrono::steady_clock::now() < deadline) {
+        if (progress) {
+            try {
+                progress();
+            } catch (...) {
+                // Best effort, what does not complete is leaked.
+            }
+        }
         std::this_thread::yield();
-        std::erase_if(retired_futures_, completed);
+        std::erase_if(graves, completed);
     }
     // Never free a buffer that may still be accessed, leak instead.
-    for (auto& future : retired_futures_) {
-        std::ignore = future.release();
+    for (auto& grave : graves) {
+        std::ignore = grave.release();
     }
-    retired_futures_.clear();
+}
+
+}  // namespace detail
+
+Communicator::Communicator(std::shared_ptr<detail::AbortState> abort_state)
+    : abort_state_{std::move(abort_state)} {
+    RAPIDSMPF_EXPECTS(
+        abort_state_ != nullptr, "abort state cannot be null", std::invalid_argument
+    );
+}
+
+bool Communicator::is_aborted() const noexcept {
+    return abort_state_->is_set();
+}
+
+void Communicator::throw_if_aborted() {
+    abort_state_->throw_if_set();
+}
+
+std::shared_ptr<detail::AbortState> const& Communicator::abort_state() const noexcept {
+    return abort_state_;
 }
 
 std::vector<Rank> all_remote_ranks(Communicator const& comm) {

@@ -238,74 +238,87 @@ TEST_F(BaseCommunicatorTest, LargeHostMessageRecvFrom) {
     }
 }
 
-TEST(RetiredFutures, ReceivesAreCancelledSendsAreKept) {
+TEST(DroppedFutures, InFlightCommunicationAbortsTheCommunicator) {
     auto comm = std::make_shared<FakeCommunicator>(GlobalEnvironment->comm_);
     auto const state = comm->state();
     rapidsmpf::Tag const tag{0, 0};
-    comm->retire_future(
-        comm->send(std::make_unique<std::vector<std::uint8_t>>(1), 1, tag)
+    auto send = comm->send(std::make_unique<std::vector<std::uint8_t>>(1), 1, tag);
+    auto recv =
+        comm->recv_sync_host_data(1, tag, std::make_unique<std::vector<std::uint8_t>>(1));
+    EXPECT_FALSE(comm->is_aborted());
+    // Destroying the futures doesn't free their in-flight communication, but aborts the
+    // communicator, since it may still match later messages.
+    send.reset();
+    recv.reset();
+    EXPECT_EQ(state->live.load(), 2);
+    EXPECT_TRUE(comm->is_aborted());
+    EXPECT_THROW(
+        std::ignore =
+            comm->send(std::make_unique<std::vector<std::uint8_t>>(1), 1, {1, 0}),
+        rapidsmpf::communicator_aborted
     );
-    comm->retire_future(
-        comm->recv_sync_host_data(1, tag, std::make_unique<std::vector<std::uint8_t>>(1))
-    );
-    // The receive is cancelled and released right away, the send stays in flight.
-    EXPECT_EQ(state->num_live(), 1);
-    comm->retire_futures({});
-    EXPECT_EQ(state->num_live(), 1);
-    // Retiring more futures releases those that completed since.
-    comm->complete_futures();
-    comm->retire_futures({});
-    EXPECT_EQ(state->num_live(), 0);
-    EXPECT_EQ(state->dropped.load(), 0);
+    // Destroying the communicator cancels the receive and frees it. The send never
+    // completes, so it is leaked.
+    comm.reset();
+    EXPECT_EQ(state->live.load(), 1);
+    EXPECT_EQ(state->freed_in_flight.load(), 0);
 }
 
-TEST(RetiredFutures, StuckSendsShareOneDeadline) {
+TEST(DroppedFutures, CompletedCommunicationDoesNotAbort) {
     auto comm = std::make_shared<FakeCommunicator>(GlobalEnvironment->comm_);
     auto const state = comm->state();
-    // Waited on one at a time, destroying the communicator would take `num_futures`
-    // times the deadline.
-    constexpr std::size_t num_futures = 10;
-    for (std::size_t i = 0; i < num_futures; ++i) {
-        comm->retire_future(
+    auto send = comm->send(std::make_unique<std::vector<std::uint8_t>>(1), 1, {0, 0});
+    comm->complete_futures();
+    send.reset();
+    EXPECT_EQ(state->live.load(), 0);
+    EXPECT_FALSE(comm->is_aborted());
+}
+
+TEST(DroppedFutures, StuckSendsShareOneDeadline) {
+    auto comm = std::make_shared<FakeCommunicator>(GlobalEnvironment->comm_);
+    auto const state = comm->state();
+    // Waited on one at a time, destroying the communicator would take `num_sends` times
+    // the deadline of about one second.
+    constexpr int num_sends = 10;
+    std::vector<std::unique_ptr<rapidsmpf::Communicator::Future>> sends;
+    for (int i = 0; i < num_sends; ++i) {
+        sends.push_back(
             comm->send(std::make_unique<std::vector<std::uint8_t>>(1), 1, {0, 0})
         );
     }
+    sends.clear();
     auto const start = std::chrono::steady_clock::now();
     comm.reset();
     EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds{3});
-    // The sends never completed, so they were leaked rather than destroyed.
-    EXPECT_EQ(state->num_live(), num_futures);
-    EXPECT_EQ(state->dropped.load(), 0);
-    state->destroy_live();
+    // The sends never completed, so they were leaked rather than freed.
+    EXPECT_EQ(state->live.load(), num_sends);
+    EXPECT_EQ(state->freed_in_flight.load(), 0);
 }
 
-TEST(RetiredFutures, ReceivesAreCancelledWhenRetired) {
-    auto const& comm = GlobalEnvironment->comm_;
-    if (comm->nranks() < 2) {
-        GTEST_SKIP() << "Requires 2+ ranks";
+TEST(DroppedFutures, InFlightReceiveAbortsTheCommunicator) {
+    // A communicator of its own, since it gets aborted.
+    auto comm = GlobalEnvironment->new_comm();
+    if (comm == nullptr) {
+        GTEST_SKIP() << "Requires a communicator with futures";
     }
-    rapidsmpf::Tag const tag{255, 0};
-    if (comm->rank() == 0) {
-        // Never matched: rank 1 only sends once the receive is retired.
-        comm->retire_future(comm->recv_sync_host_data(
-            1, tag, std::make_unique<std::vector<std::uint8_t>>(1)
-        ));
-    }
-    GlobalEnvironment->barrier();
-    // The retired receive is cancelled, so that it doesn't swallow a message sent
-    // after its cancellation.
-    if (comm->rank() == 1) {
-        auto future =
-            comm->send(std::make_unique<std::vector<std::uint8_t>>(1, 42), 0, tag);
-        EXPECT_TRUE(eventually([&] { return comm->test(future); }));
-    } else if (comm->rank() == 0) {
-        std::unique_ptr<std::vector<std::uint8_t>> msg;
-        EXPECT_TRUE(eventually([&] {
-            msg = comm->recv_from(1, tag);
-            return msg != nullptr;
-        }));
-        ASSERT_NE(msg, nullptr);
-        EXPECT_EQ(msg->at(0), 42);
-    }
-    GlobalEnvironment->barrier();
+    rapidsmpf::Tag const tag{0, 0};
+    auto const src = (comm->rank() + 1) % comm->nranks();
+    // Never matched, nothing is sent.
+    auto future = comm->recv_sync_host_data(
+        src, tag, std::make_unique<std::vector<std::uint8_t>>(1)
+    );
+    EXPECT_FALSE(comm->is_aborted());
+    future.reset();
+    EXPECT_TRUE(comm->is_aborted());
+    EXPECT_THROW(
+        std::ignore = comm->recv_sync_host_data(
+            src, tag, std::make_unique<std::vector<std::uint8_t>>(1)
+        ),
+        rapidsmpf::communicator_aborted
+    );
+    // Destroying the communicator cancels the receive, so it doesn't wait for the
+    // deadline of about one second.
+    auto const start = std::chrono::steady_clock::now();
+    comm.reset();
+    EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::milliseconds{900});
 }

@@ -20,20 +20,6 @@ Single::Single(
     logger_->set_name("0");
 }
 
-Single::~Single() noexcept {
-    release_retired_futures();
-}
-
-// A single rank never communicates, so a retired future can only be one of another
-// communicator. Like the other backends, never claim that it completed: it is leaked
-// rather than freed while its communication may be in flight. These cannot throw like
-// the communication operations, since they are called from destructors.
-bool Single::retired_future_completed(Communicator::Future&) noexcept {
-    return false;
-}
-
-void Single::cancel_retired_future(Communicator::Future&) noexcept {}
-
 std::unique_ptr<Communicator::Future> Single::send(
     std::unique_ptr<std::vector<std::uint8_t>>, Rank, Tag
 ) {

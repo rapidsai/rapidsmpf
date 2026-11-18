@@ -126,16 +126,16 @@ class UCXX final : public Communicator {
          *
          * @param req The UCXX request handle for the operation.
          * @param data_buffer A unique pointer to the data buffer.
-         * @param direction Whether this is a send or a receive.
+         * @param graveyard The graveyard of the communicator, see `~Future()`.
          */
         Future(
             std::shared_ptr<::ucxx::Request> req,
             std::unique_ptr<Buffer> data_buffer,
-            Direction direction
+            std::shared_ptr<rapidsmpf::detail::FutureGraveyard> graveyard
         )
             : req_{std::move(req)},
-              direction_{direction},
-              data_buffer_{std::move(data_buffer)} {}
+              data_buffer_{std::move(data_buffer)},
+              graveyard_{std::move(graveyard)} {}
 
         /**
          * @brief Construct a Future from synchronized host data.
@@ -145,26 +145,36 @@ class UCXX final : public Communicator {
          *
          * @param req The UCXX request handle for the operation.
          * @param synced_host_data A unique pointer to a vector containing host memory.
-         * @param direction Whether this is a send or a receive.
+         * @param graveyard The graveyard of the communicator, see `~Future()`.
          */
         Future(
             std::shared_ptr<::ucxx::Request> req,
             std::unique_ptr<std::vector<std::uint8_t>> synced_host_data,
-            Direction direction
+            std::shared_ptr<rapidsmpf::detail::FutureGraveyard> graveyard
         )
             : req_{std::move(req)},
-              direction_{direction},
-              synced_host_data_{std::move(synced_host_data)} {}
+              synced_host_data_{std::move(synced_host_data)},
+              graveyard_{std::move(graveyard)} {}
 
-        /// @brief Destructor.
-        ~Future() noexcept override = default;
+        /**
+         * @brief Destructor.
+         *
+         * If the completion of the communication was not observed, e.g., by `test()`,
+         * the request and buffers are handed over to the graveyard of the
+         * communicator, which aborts it, see `rapidsmpf::detail::FutureGraveyard`.
+         */
+        ~Future() noexcept override;
+
+        Future(Future&&) = delete;  ///< Not movable, it may own a request.
+        Future& operator=(Future&&) = delete;  ///< Not move-assignable.
 
       private:
         std::shared_ptr<::ucxx::Request> req_;
-        Direction const direction_;  ///< Whether this is a send or a receive.
         std::unique_ptr<Buffer> data_buffer_;
         // Dedicated storage for host data that is valid at the time of construction.
         std::unique_ptr<std::vector<std::uint8_t>> synced_host_data_;
+        std::shared_ptr<rapidsmpf::detail::FutureGraveyard> graveyard_;
+        bool completed_{false};  ///< Whether the completion was observed.
     };
 
     /**
@@ -350,25 +360,11 @@ class UCXX final : public Communicator {
      */
     std::shared_ptr<UCXX> split();
 
-  protected:
-    /**
-     * @copydoc Communicator::retired_future_completed
-     */
-    [[nodiscard]] bool retired_future_completed(
-        Communicator::Future& future
-    ) noexcept override;
-
-    /**
-     * @copydoc Communicator::cancel_retired_future
-     *
-     * Cancels the UCXX request of receives, `retired_future_completed()` progresses
-     * the worker.
-     */
-    void cancel_retired_future(Communicator::Future& future) noexcept override;
-
   private:
     std::shared_ptr<SharedResources> shared_resources_;
     std::shared_ptr<ProgressThread> progress_thread_;
+    /// @brief Keeps the in-flight communication of destroyed futures alive.
+    std::shared_ptr<rapidsmpf::detail::FutureGraveyard> graveyard_;
 
     std::shared_ptr<::ucxx::Endpoint> get_endpoint(Rank rank);
     void progress_worker();

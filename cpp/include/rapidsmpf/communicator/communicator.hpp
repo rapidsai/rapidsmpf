@@ -4,8 +4,10 @@
  */
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <cstdlib>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <ostream>
@@ -172,6 +174,190 @@ class Tag {
 };
 
 /**
+ * @brief Exception thrown by the communication operations of an aborted communicator.
+ *
+ * See `Communicator::is_aborted()`.
+ */
+class communicator_aborted : public std::runtime_error {
+  public:
+    /**
+     * @brief Construct the exception.
+     *
+     * @param origin The rank that aborted the communicator.
+     * @param reason The reason given by `origin`.
+     */
+    communicator_aborted(Rank origin, std::string const& reason);
+
+    /**
+     * @brief The rank that aborted the communicator.
+     *
+     * @return The rank.
+     */
+    [[nodiscard]] Rank origin() const noexcept;
+
+    /**
+     * @brief The reason given by the rank that aborted the communicator.
+     *
+     * @return The reason.
+     */
+    [[nodiscard]] std::string const& reason() const noexcept;
+
+  private:
+    Rank origin_;
+    std::string reason_;
+};
+
+namespace detail {
+
+/**
+ * @brief The abort state of a communicator.
+ *
+ * Set by the first abort only, and never cleared. All methods are thread-safe.
+ */
+class AbortState {
+  public:
+    /**
+     * @brief Record an abort, unless one has already been recorded.
+     *
+     * @param origin The rank that aborted the communicator.
+     * @param reason The reason given by `origin`.
+     * @return True if this abort was recorded, false if one was already recorded.
+     */
+    bool set(Rank origin, std::string reason) noexcept;
+
+    /**
+     * @brief Check whether an abort has been recorded.
+     *
+     * @return True if an abort has been recorded.
+     */
+    [[nodiscard]] bool is_set() const noexcept;
+
+    /**
+     * @brief Throw `communicator_aborted` if an abort has been recorded.
+     *
+     * @throws communicator_aborted If an abort has been recorded.
+     */
+    void throw_if_set() const;
+
+  private:
+    std::atomic<bool> claimed_{false};  ///< Whether a writer claimed the state.
+    std::atomic<bool> is_set_{false};  ///< Whether the state has been published.
+    Rank origin_{-1};
+    std::string reason_;
+};
+
+/**
+ * @brief Keeps the in-flight communication of destroyed futures alive.
+ *
+ * Destroying a future does not cancel nor wait for its communication, so the
+ * communication library may still access its buffers. A backend future destroyed before
+ * its completion was observed, e.g., because the operation it belongs to failed, hands
+ * its request and buffers over to the graveyard of its communicator instead, which keeps
+ * them alive. This aborts the communicator on this rank (see
+ * `Communicator::is_aborted()`): the abandoned communication may still match later
+ * messages with the same tag, so the communicator must not be used anymore.
+ *
+ * When the communicator is destroyed, it requests the cancellation of the buried
+ * communication where possible, and waits for it to complete against a single deadline
+ * (see `release()`). The graveyard is shared with the futures, so it may outlive the
+ * communicator: what is buried after `release()` is leaked.
+ *
+ * Burying never calls into the communication library, it only takes a lock: a future
+ * may be destroyed anywhere, e.g., in a callback of the communication library or after
+ * MPI is finalized.
+ */
+class FutureGraveyard {
+  public:
+    /**
+     * @brief The in-flight communication of a destroyed future: its request and buffers.
+     */
+    class Grave {
+      public:
+        Grave() = default;
+        /// @brief Destructor, frees the buffers.
+        virtual ~Grave() noexcept = default;
+        Grave(Grave const&) = delete;  ///< Not copyable.
+        Grave& operator=(Grave const&) = delete;  ///< Not copy-assignable.
+
+        /**
+         * @brief Check whether the communication has completed.
+         *
+         * Must not wait for the communication to complete. It may make a progress call
+         * that returns once the pending events are processed, e.g., `MPI_Test()`.
+         *
+         * @return True if the communication completed and its buffers may be freed.
+         */
+        [[nodiscard]] virtual bool completed() noexcept = 0;
+
+        /**
+         * @brief Request the cancellation of the communication, where possible.
+         *
+         * Called by `release()`. Must not block: whether the cancellation completed is
+         * observed through `completed()`. The default does nothing.
+         */
+        virtual void cancel() noexcept {}
+    };
+
+    /**
+     * @brief Construct the graveyard of a communicator.
+     *
+     * @param rank The rank of the communicator.
+     * @param abort_state The abort state of the communicator.
+     */
+    FutureGraveyard(Rank rank, std::shared_ptr<AbortState> abort_state);
+
+    /**
+     * @brief Destructor, leaks the graves that were not released.
+     */
+    ~FutureGraveyard() noexcept;
+
+    FutureGraveyard(FutureGraveyard const&) = delete;  ///< Not copyable.
+    FutureGraveyard& operator=(FutureGraveyard const&) = delete;  ///< Not assignable.
+
+    /**
+     * @brief Keep the in-flight communication of a destroyed future alive.
+     *
+     * Aborts the communicator. Only takes a lock, never calls into the communication
+     * library. Leaks `grave` if it cannot be kept, or once `release()` was called.
+     *
+     * @param grave The communication, or null if it was leaked already, which still
+     * aborts the communicator.
+     */
+    void bury(std::unique_ptr<Grave> grave) noexcept;
+
+    /**
+     * @brief Check whether anything was buried and not released yet.
+     *
+     * @return True if no grave is held.
+     */
+    [[nodiscard]] bool empty() const noexcept;
+
+    /**
+     * @brief Release the graves, when the communicator is destroyed.
+     *
+     * Requests the cancellation of all the buried communication, then waits for it to
+     * complete against a single deadline of about one second, however much there is,
+     * and frees the buffers of what completed. What still did not complete, e.g., a send
+     * to a dead peer, is leaked rather than freed while it may still be accessed. Must
+     * be called while the communication library is usable. Graves buried afterwards are
+     * leaked.
+     *
+     * @param progress Called repeatedly while waiting, e.g., to progress the
+     * communication library. May be empty.
+     */
+    void release(std::function<void()> const& progress = nullptr) noexcept;
+
+  private:
+    Rank const rank_;
+    std::shared_ptr<AbortState> const abort_state_;
+    mutable std::mutex mutex_;  ///< Protects `graves_` and `released_`.
+    std::vector<std::unique_ptr<Grave>> graves_;
+    bool released_{false};
+};
+
+}  // namespace detail
+
+/**
  * @brief Abstract base class for a communication mechanism between nodes.
  *
  * Provides an interface for sending and receiving messages between nodes, supporting
@@ -187,10 +373,11 @@ class Tag {
  * Sends and receives are matched on `(rank, tag)` pairs. The concrete implementation
  * _must_ provide that there is no message overtaking.
  *
- * Implementing a backend: besides the communication operations, a backend implements
- * `retired_future_completed()` and `cancel_retired_future()`, and _must_ call
- * `release_retired_futures()` from its destructor, see `retire_futures()`. Otherwise,
- * the retired futures still held when the communicator is destroyed are leaked.
+ * Destroying a future while its communication is in flight, e.g., because the operation
+ * it belongs to failed, aborts the communicator on this rank: the communication is kept
+ * alive (see `detail::FutureGraveyard`), but it may still match later messages with the
+ * same tag, so later communication throws `communicator_aborted`. Create a new
+ * communicator to communicate again.
  */
 class Communicator {
   public:
@@ -198,8 +385,8 @@ class Communicator {
      * @brief The direction of a communication operation.
      */
     enum class Direction : std::uint8_t {
-        Send,  ///< A send, never cancelled once retired.
-        Receive,  ///< A receive, cancelled once retired, see `retire_futures()`.
+        Send,  ///< A send, which its peer may still expect, so it is not cancelled.
+        Receive,  ///< A receive, cancelled once abandoned, see `detail::FutureGraveyard`.
     };
 
     /**
@@ -225,15 +412,18 @@ class Communicator {
     };
 
   protected:
-    Communicator() = default;
+    /**
+     * @brief Construct a communicator.
+     *
+     * @param abort_state The abort state of the communicator.
+     */
+    explicit Communicator(
+        std::shared_ptr<detail::AbortState> abort_state =
+            std::make_shared<detail::AbortState>()
+    );
 
   public:
-    /**
-     * @brief Destructor.
-     *
-     * Leaks the retired futures still held, see `retire_futures()`.
-     */
-    virtual ~Communicator() noexcept;
+    virtual ~Communicator() noexcept = default;
 
     /**
      * @brief Retrieves the rank of the current node.
@@ -452,87 +642,36 @@ class Communicator {
     [[nodiscard]] virtual std::string str() const = 0;
 
     /**
-     * @brief Keep the futures of possibly in-flight communication alive.
+     * @brief Check whether the communicator has been aborted on this rank.
      *
-     * Destroying a future does not cancel nor wait for its communication, so the
-     * communication library may still access its buffer. Operations that are destroyed
-     * with communication possibly in flight, e.g., after a failure, can hand their
-     * futures over instead. The communicator keeps them until their communication
-     * completes:
-     * - Retired receives can no longer be consumed, so their cancellation is requested
-     *   right away, which narrows the window in which they can match a later message
-     *   with the same tag.
-     * - Retired sends are not cancelled, since their peer may still expect them.
-     * - Retired futures are released once their communication completed: right away if
-     *   it already did, otherwise by a later call to `retire_futures()`. Those that
-     *   still did not complete when the communicator is destroyed are leaked. A buffer
-     *   that may still be accessed is never freed.
+     * A communicator is aborted when a future is destroyed while its communication is
+     * in flight, see `detail::FutureGraveyard`. Communication through an aborted
+     * communicator throws `communicator_aborted`.
      *
-     * @note The buffers of retired futures keep their `BufferResource` alive, and are
-     * freed on their stream, which must remain valid until then: at the latest until
-     * the communicator is destroyed.
-     *
-     * @note Retired communication may still match later messages with the same tag:
-     * a retired receive whose cancellation loses the race against a matching message
-     * consumes that message, and a retired send may still be delivered and match a
-     * receive on its peer. So the `OpID` of an operation that retired communication
-     * still in flight, e.g., after a failure, must not be reused.
-     *
-     * @param futures The futures, null futures are ignored.
+     * @return True if the communicator has been aborted.
      */
-    void retire_futures(std::vector<std::unique_ptr<Future>>&& futures) noexcept;
+    [[nodiscard]] bool is_aborted() const noexcept;
 
     /**
-     * @brief Keep the future of possibly in-flight communication alive.
+     * @brief Throw `communicator_aborted` if the communicator has been aborted.
      *
-     * See `retire_futures()`.
+     * Called by the communication operations of the backends before posting new
+     * communication.
      *
-     * @param future The future, ignored if null.
+     * @throws communicator_aborted If the communicator has been aborted.
      */
-    void retire_future(std::unique_ptr<Future>&& future) noexcept;
+    void throw_if_aborted();
 
   protected:
     /**
-     * @brief Check whether the communication of a retired future has completed.
+     * @brief Get the abort state of the communicator.
      *
-     * Must not wait for the communication to complete. It may make a progress call
-     * that returns once the pending events are processed, e.g., `MPI_Test()` or
-     * `ucp_worker_progress()`. See `retire_futures()`.
-     *
-     * @param future A retired future, returned by this communicator.
-     * @return True if the communication has completed and its buffer may be freed.
+     * @return The abort state, e.g., to share with a `detail::FutureGraveyard`.
      */
-    [[nodiscard]] virtual bool retired_future_completed(Future& future) noexcept = 0;
-
-    /**
-     * @brief Request the cancellation of a retired future, if it is a receive.
-     *
-     * Called by `retire_futures()` for every retired future. Receives can no longer be
-     * consumed and must be cancelled, to narrow the window in which they can match later
-     * messages. Sends must not be cancelled, since their peer may still expect them.
-     * Must not block: whether the cancellation completed is observed through
-     * `retired_future_completed()`.
-     *
-     * @param future A retired future, returned by this communicator.
-     */
-    virtual void cancel_retired_future(Future& future) noexcept = 0;
-
-    /**
-     * @brief Release all the retired futures.
-     *
-     * Waits for the retired futures to complete against a single deadline of about one
-     * second, however many there are, and leaks those that still did not complete,
-     * e.g., sends to a dead peer.
-     *
-     * Every backend _must_ call this from its destructor: it relies on the functions
-     * above, which cannot be called from the destructor of the base class. The futures
-     * still retired when the base class is destroyed are leaked.
-     */
-    void release_retired_futures() noexcept;
+    [[nodiscard]] std::shared_ptr<detail::AbortState> const& abort_state() const noexcept;
 
   private:
-    std::mutex retired_futures_mutex_;  ///< Protects `retired_futures_`.
-    std::vector<std::unique_ptr<Future>> retired_futures_;  ///< See `retire_futures()`.
+    std::shared_ptr<detail::AbortState> abort_state_;
 };
 
 /// @brief Whether RapidsMPF was built with the UCXX Communicator.
