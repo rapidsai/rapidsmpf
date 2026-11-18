@@ -191,6 +191,18 @@ class SharedResources {
           logger{Logger::from_options(options)},
           options{std::move(options)} {}
 
+    /**
+     * @brief Destroy UCXX shared resources.
+     *
+     * The listener is destroyed first, before any other member. `listener_callback`
+     * receives a raw pointer to this object, so destroying the listener first ensures
+     * a late connection request can never reach a partially destroyed object (e.g.,
+     * if the worker were progressed while endpoints are being destroyed).
+     */
+    ~SharedResources() noexcept {
+        listener_.reset();
+    }
+
     SharedResources(SharedResources&&) = delete;  ///< Not movable.
     SharedResources(SharedResources&) = delete;  ///< Not copyable.
 
@@ -842,29 +854,32 @@ void control_unpack(
         // which isn't allowed from within the callback this is already running in.
         // Therefore we make it a callback that is registered with SharedResources
         // and executed before progressing the worker in the next loop.
-        auto callback = [shared_resources, client_rank]() {
+        auto callback = [weak_resources = std::weak_ptr{shared_resources},
+                         client_rank]() {
+            auto resources = weak_resources.lock();
+            if (!resources)
+                return;
             auto worker_address = std::get<std::shared_ptr<::ucxx::Address>>(
-                shared_resources->get_listener_address(client_rank).address
+                resources->get_listener_address(client_rank).address
             );
             auto endpoint =
-                shared_resources->get_worker()
+                resources->get_worker()
                     ->endpointBuilder(worker_address)
-                    .endpointErrorHandling(shared_resources->endpoint_error_handling())
+                    .endpointErrorHandling(resources->endpoint_error_handling())
                     .build();
-            shared_resources->register_endpoint(client_rank, endpoint);
+            resources->register_endpoint(client_rank, endpoint);
 
             auto packed_client_rank =
                 control_pack(ControlMessage::AssignRank, client_rank);
-            auto req =
-                endpoint
-                    ->amSendBuilder(
-                        packed_client_rank->data(),
-                        packed_client_rank->size(),
-                        UCS_MEMORY_TYPE_HOST
-                    )
-                    .receiverCallbackInfo(shared_resources->get_control_callback_info())
-                    .build();
-            shared_resources->add_future(
+            auto req = endpoint
+                           ->amSendBuilder(
+                               packed_client_rank->data(),
+                               packed_client_rank->size(),
+                               UCS_MEMORY_TYPE_HOST
+                           )
+                           .receiverCallbackInfo(resources->get_control_callback_info())
+                           .build();
+            resources->add_future(
                 std::make_unique<HostFuture>(req, std::move(packed_client_rank))
             );
         };
@@ -896,6 +911,21 @@ void control_unpack(
         }
     }
 };
+
+void register_control_callback(
+    std::shared_ptr<::ucxx::Worker> const& worker,
+    std::shared_ptr<rapidsmpf::ucxx::SharedResources> const& shared_resources
+) {
+    std::weak_ptr weak_resources{shared_resources};
+    worker->registerAmReceiverCallback(
+        shared_resources->get_control_callback_info(),
+        [weak_resources](std::shared_ptr<::ucxx::Request> req, ucp_ep_h ep) {
+            if (auto resources = weak_resources.lock()) {
+                control_unpack(req->getRecvBuffer(), ep, std::move(resources));
+            }
+        }
+    );
+}
 
 /**
  * @brief Listener callback executed each time a new client connects.
@@ -1041,16 +1071,7 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
         );
         auto listener = shared_resources->get_listener();
 
-        auto control_callback = ::ucxx::AmReceiverCallbackType(
-            [shared_resources](std::shared_ptr<::ucxx::Request> req, ucp_ep_h ep) {
-                auto buffer = req->getRecvBuffer();
-                control_unpack(req->getRecvBuffer(), ep, shared_resources);
-            }
-        );
-
-        worker->registerAmReceiverCallback(
-            shared_resources->get_control_callback_info(), control_callback
-        );
+        register_control_callback(worker, shared_resources);
 
         // Connect to root
         // TODO: Enable when Logger can be created before the UCXX communicator object.
@@ -1170,15 +1191,7 @@ std::unique_ptr<rapidsmpf::ucxx::InitializedRank> init(
         // log.info("Root running at address ", listener->getIp(), ":",
         // listener->getPort());
 
-        auto control_callback = ::ucxx::AmReceiverCallbackType(
-            [shared_resources](std::shared_ptr<::ucxx::Request> req, ucp_ep_h ep) {
-                control_unpack(req->getRecvBuffer(), ep, shared_resources);
-            }
-        );
-
-        worker->registerAmReceiverCallback(
-            shared_resources->get_control_callback_info(), control_callback
-        );
+        register_control_callback(worker, shared_resources);
 
         register_self_endpoint(*worker, *shared_resources);
 
@@ -1575,15 +1588,7 @@ std::shared_ptr<UCXX> UCXX::split() {
     );
 
     // Set up control callback
-    auto control_callback = ::ucxx::AmReceiverCallbackType(
-        [shared_resources](std::shared_ptr<::ucxx::Request> req, ucp_ep_h ep) {
-            control_unpack(req->getRecvBuffer(), ep, shared_resources);
-        }
-    );
-
-    worker->registerAmReceiverCallback(
-        shared_resources->get_control_callback_info(), control_callback
-    );
+    register_control_callback(worker, shared_resources);
 
     // Create the new UCXX instance with its own logger. We deliberately do not
     // share the parent's logger because the split rank is logically rank 0 in

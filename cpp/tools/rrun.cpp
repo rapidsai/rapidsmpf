@@ -76,6 +76,10 @@ void print_usage(std::string_view prog_name) {
         << "  --no-cleanup       Don't cleanup coordination directory on exit\n"
         << "  --file-backend     Use file-based coordination instead of the default\n"
         << "                     socket-based backend. Implies -d if not set.\n"
+        << "  --kill-after <s>   On SIGINT or SIGTERM, forward the signal to all ranks\n"
+        << "                     and send SIGKILL to the ranks still running <s>\n"
+        << "                     seconds later, or on a second signal (default: 30)\n"
+        << "                     No effect in Slurm passthrough mode\n"
         << "  -h, --help         Display this help message\n\n"
         << "Environment Variables:\n"
         << "  CUDA_VISIBLE_DEVICES is set for each rank based on GPU assignment\n"
@@ -210,6 +214,23 @@ Config parse_args(int argc, char* argv[]) {
             cfg.cleanup = false;
         } else if (arg == "--file-backend") {
             cfg.file_backend = true;
+        } else if (arg == "--kill-after") {
+            if (i + 1 >= argc) {
+                throw std::runtime_error("Missing argument for --kill-after");
+            }
+            std::string value = argv[++i];
+            try {
+                std::size_t pos = 0;
+                cfg.kill_after_seconds = std::stoi(value, &pos);
+                if (pos != value.size()) {
+                    throw std::invalid_argument(value);
+                }
+            } catch (std::exception const&) {
+                throw std::runtime_error("Invalid --kill-after value: " + value);
+            }
+            if (cfg.kill_after_seconds < 0) {
+                throw std::runtime_error("--kill-after must not be negative");
+            }
         } else if (arg == "--slurm") {
             cfg.slurm_mode = true;
         } else if (arg == "--") {
@@ -316,9 +337,11 @@ Config parse_args(int argc, char* argv[]) {
 }  // namespace rrun
 
 int main(int argc, char* argv[]) {
+    rrun::block_forwarded_signals();
     try {
         // Parse arguments
         rrun::Config cfg = rrun::parse_args(argc, argv);
+        rrun::start_signal_thread(cfg.kill_after_seconds);
 
         if (cfg.verbose) {
             std::cout << "rrun configuration:\n";

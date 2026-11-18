@@ -14,6 +14,7 @@
 
 #include <cucascade/memory/topology_discovery.hpp>
 
+#include <rapidsmpf/detail/system_info.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/system_info.hpp>
 
@@ -133,14 +134,27 @@ std::vector<int> get_current_numa_nodes() {
     auto const host_nodes = get_allowed_host_numa_nodes();
     // Policy nodes that are valid host nodes.
     std::vector<int> policy_host_nodes;
-    // All nodes in the policy, including non-host ones.
+    // Policy nodes within the cpuset, including non-host ones (e.g. GPU HBM nodes).
+    // Nodes outside the cpuset are ignored: with MPOL_F_STATIC_NODES the policy mask
+    // is the user-supplied one and may include nodes the kernel never allocates from.
     std::vector<int> bound_nodes;
     int mode = MPOL_DEFAULT;
     struct bitmask* policy = numa_allocate_nodemask();
-    if (policy != nullptr
-        && get_mempolicy(&mode, policy->maskp, policy->size, nullptr, 0) == 0)
+    struct bitmask* mems_allowed = numa_allocate_nodemask();
+    if (policy != nullptr && mems_allowed != nullptr
+        && get_mempolicy(&mode, policy->maskp, policy->size, nullptr, 0) == 0
+        && get_mempolicy(
+               nullptr,
+               mems_allowed->maskp,
+               mems_allowed->size,
+               nullptr,
+               MPOL_F_MEMS_ALLOWED
+           ) == 0)
     {
-        bound_nodes = bitmask_to_nodes(policy, [](int) { return true; });
+        bound_nodes = bitmask_to_nodes(policy, [&](int node) {
+            return numa_bitmask_isbitset(mems_allowed, static_cast<unsigned int>(node))
+                   != 0;
+        });
         policy_host_nodes = bitmask_to_nodes(policy, [&](int node) {
             return std::ranges::find(host_nodes, node) != host_nodes.end();
         });
@@ -149,6 +163,7 @@ std::vector<int> get_current_numa_nodes() {
         mode = MPOL_DEFAULT;
     }
     numa_free_nodemask(policy);
+    numa_free_nodemask(mems_allowed);
     // The policy host nodes first, then every other allowed host node (used by
     // policies that may fall back to any allowed node).
     auto const policy_first = [&] {
@@ -233,17 +248,12 @@ std::uint64_t get_host_memory_per_gpu() {
         auto const& gpus = get_topology().gpus;
         // gpu.numa_node == -1 means the kernel has no NUMA affinity info for the
         // device (common in VMs and single-socket machines without ACPI SRAT/SLIT
-        // entries for PCIe).  Treat those GPUs as local to every NUMA node.
-        auto const num_local_gpus = std::ranges::count_if(gpus, [&](auto const& gpu) {
-            return gpu.numa_node == current_numa_node || gpu.numa_node == -1;
-        });
-        RAPIDSMPF_EXPECTS(
-            num_local_gpus > 0,
-            "No GPUs found on current NUMA node " + std::to_string(current_numa_node),
-            std::runtime_error
-        );
+        // entries for PCIe). Those GPUs count as local to every NUMA node. If none
+        // are local, an unbound process can still use GPUs on other NUMA nodes.
+        auto const gpu_count = detail::gpu_count_for_host_memory(gpus, current_numa_node);
+        RAPIDSMPF_EXPECTS(gpu_count > 0, "No GPUs found in topology", std::runtime_error);
         return get_numa_node_host_memory(current_numa_node)
-               / safe_cast<std::uint64_t>(num_local_gpus);
+               / safe_cast<std::uint64_t>(gpu_count);
     }();
     return ret;
 }

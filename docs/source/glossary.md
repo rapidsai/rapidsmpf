@@ -69,13 +69,13 @@ Rank
   A unique integer identifier for a process in a distributed system, ranging from 0 to nranks-1. Each rank typically corresponds to one GPU. The rank is used to determine how to distribute work among processes and how to route messages between processes.
 
 Shuffler
-  A service for redistributing partitioned data across ranks. The Shuffler accepts packed data chunks, routes them to the appropriate destination ranks based on partition ownership, and allows extraction of completed partitions. It supports asynchronous operation with pipelining of insertions and extractions, and can spill data to host memory under memory pressure.
+  A service for redistributing partitioned data across ranks. The Shuffler accepts packed data chunks, routes them to the appropriate destination ranks based on partition ownership, and allows extraction of completed partitions. It supports asynchronous operation with pipelining of insertions and extractions, and can spill data from device to pinned host memory, host memory and disk under memory pressure.
 
 SpillableMessages
-  A collection that manages {term}`Message`s that can be spilled to different memory types (typically from device to host memory) when GPU memory is scarce. Messages are inserted with a unique ID and can be extracted or spilled on demand, enabling out-of-core processing of data larger than GPU memory.
+  A collection that manages {term}`Message`s that can be spilled to different memory types (from device to pinned host memory, host memory and disk) when memory is scarce. Messages are inserted with a unique ID and can be extracted or spilled on demand, enabling out-of-core processing of data larger than GPU memory.
 
 SpillManager
-  A component that coordinates memory spilling across different parts of the system. The SpillManager maintains a registry of spill functions with priorities, and when memory pressure occurs, it invokes these functions to free up memory by moving data from device memory to host memory or storage.
+  A component that coordinates memory spilling across different parts of the system. The SpillManager maintains a registry of spill functions with priorities, and when memory pressure occurs, it invokes these functions to free up memory by moving data from device memory to pinned host memory, host memory and finally disk.
 
 Spilling
   The process of moving data from GPU (device) memory to host memory or storage when GPU memory is scarce. Spilling enables out-of-core processing where the working set exceeds available GPU memory. Data is later "unspilled" (moved back to GPU memory) when needed for computation.

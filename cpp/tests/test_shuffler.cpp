@@ -202,6 +202,82 @@ TEST(ReceivedChunks, spill_to_disk_and_unspill) {
     validate_packed_data(std::move(restored[0]), n_elements, 0, stream, *br);
 }
 
+TEST(ReceivedChunks, spill_from_host_to_disk) {
+    using rapidsmpf::MemoryType;
+    constexpr std::size_t n_elements = 100;
+    constexpr std::size_t data_size = n_elements * sizeof(int);
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+    TempDir temp_dir;
+    auto br = create_br(temp_dir.path());
+
+    rapidsmpf::shuffler::detail::ReceivedChunks received;
+    for (rapidsmpf::shuffler::PartID pid = 0; pid < 2; ++pid) {
+        received.insert(
+            rapidsmpf::shuffler::detail::Chunk::from_packed_data(
+                0, pid, generate_packed_data(n_elements, 0, stream, *br, MemoryType::HOST)
+            )
+        );
+    }
+    EXPECT_EQ(received.data_size(MemoryType::HOST), 2 * data_size);
+
+    // Nothing on the device to spill.
+    EXPECT_EQ(received.spill(br.get(), data_size), 0UL);
+
+    EXPECT_EQ(received.spill(br.get(), data_size, MemoryType::HOST), data_size);
+    EXPECT_EQ(received.data_size(MemoryType::HOST), data_size);
+    EXPECT_EQ(received.data_size(MemoryType::DISK), data_size);
+
+    // DISK has no spill target.
+    EXPECT_EQ(received.spill(br.get(), data_size, MemoryType::DISK), 0UL);
+}
+
+TEST(ReceivedChunks, spill_to_full_target_is_partial_without_throwing) {
+    using rapidsmpf::MemoryType;
+    constexpr std::size_t n_elements = 100;
+    constexpr std::size_t data_size = n_elements * sizeof(int);
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+    // The host limit is zero and there is no disk, so DEVICE has no target with room.
+    auto br = create_br(std::nullopt, 0);
+
+    rapidsmpf::shuffler::detail::ReceivedChunks received;
+    received.insert(
+        rapidsmpf::shuffler::detail::Chunk::from_packed_data(
+            0, 0, generate_packed_data(n_elements, 0, stream, *br)
+        )
+    );
+    std::size_t spilled{1};
+    EXPECT_NO_THROW(spilled = received.spill(br.get(), data_size));
+    EXPECT_EQ(spilled, 0UL);
+    EXPECT_EQ(received.data_size(MemoryType::DEVICE), data_size);
+}
+
+TEST(ReceivedChunks, spill_from_pinned_host_to_host) {
+    using rapidsmpf::MemoryType;
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        GTEST_SKIP() << "PinnedMemoryResource is not supported";
+    }
+    constexpr std::size_t n_elements = 100;
+    constexpr std::size_t data_size = n_elements * sizeof(int);
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+    auto br = rapidsmpf::BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(), rapidsmpf::PinnedPoolProperties{}
+    );
+
+    rapidsmpf::shuffler::detail::ReceivedChunks received;
+    received.insert(
+        rapidsmpf::shuffler::detail::Chunk::from_packed_data(
+            0,
+            0,
+            generate_packed_data(n_elements, 0, stream, *br, MemoryType::PINNED_HOST)
+        )
+    );
+    EXPECT_EQ(received.data_size(MemoryType::PINNED_HOST), data_size);
+
+    EXPECT_EQ(received.spill(br.get(), data_size, MemoryType::PINNED_HOST), data_size);
+    EXPECT_EQ(received.data_size(MemoryType::PINNED_HOST), 0UL);
+    EXPECT_EQ(received.data_size(MemoryType::HOST), data_size);
+}
+
 TEST(MetadataMessage, round_trip) {
     auto stream = cuda::stream_ref{cudaStreamLegacy};
     auto mr = rmm::mr::get_current_device_resource_ref();
@@ -789,9 +865,12 @@ TEST(Shuffler, InsertsDiskBackedData) {
     for (rapidsmpf::shuffler::PartID pid = 0; pid < total_num_partitions; ++pid) {
         chunks.emplace(
             pid,
-            move_to_disk(
-                generate_packed_data(n_elements, offset(comm->rank(), pid), stream, *br),
-                *br
+            generate_packed_data(
+                n_elements,
+                offset(comm->rank(), pid),
+                stream,
+                *br,
+                rapidsmpf::MemoryType::DISK
             )
         );
     }

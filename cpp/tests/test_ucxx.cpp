@@ -4,6 +4,8 @@
  */
 
 #include <cstdint>
+#include <memory>
+#include <optional>
 
 #include <gtest/gtest.h>
 #include <ucp/api/ucp.h>
@@ -45,5 +47,32 @@ INSTANTIATE_TEST_SUITE_P(
         ProgressModeFeatureFlagsParam{rapidsmpf::ucxx::ProgressMode::ThreadPolling, false}
     )
 );
+
+TEST(UCXXLifetimeTest, ReleasesWorkerAndContextWhenCommunicatorIsDestroyed) {
+    auto options =
+        rapidsmpf::config::Options(rapidsmpf::config::get_environment_variables());
+    auto context =
+        rapidsmpf::ucxx::detail::create_context(rapidsmpf::ucxx::ProgressMode::Polling);
+    auto worker = context->workerBuilder().build();
+    std::weak_ptr<::ucxx::Context> weak_context = context;
+    std::weak_ptr<::ucxx::Worker> weak_worker = worker;
+    context.reset();
+
+    auto initialized_rank =
+        rapidsmpf::ucxx::init(std::move(worker), 1, std::nullopt, options);
+    std::weak_ptr<rapidsmpf::ucxx::SharedResources> weak_resources =
+        initialized_rank->shared_resources_;
+    auto communicator = std::make_shared<rapidsmpf::ucxx::UCXX>(
+        std::move(initialized_rank),
+        std::make_shared<rapidsmpf::ProgressThread>(),
+        rapidsmpf::Logger::from_options(options)
+    );
+
+    communicator.reset();
+
+    EXPECT_TRUE(weak_resources.expired());
+    EXPECT_TRUE(weak_worker.expired());
+    EXPECT_TRUE(weak_context.expired());
+}
 
 }  // namespace

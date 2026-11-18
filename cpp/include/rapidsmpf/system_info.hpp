@@ -69,8 +69,14 @@ std::vector<int> get_allowed_host_numa_nodes() noexcept;
  * - `MPOL_DEFAULT`/`MPOL_LOCAL`: all allowed host nodes (respecting cpusets).
  * - `MPOL_BIND`: only the bound nodes. Throws if any bound node is not an allowed host
  *   node (e.g. a CPU-less GPU memory node), rather than silently dropping it.
- * - `MPOL_PREFERRED`: all allowed host nodes, with the preferred node(s) first.
- * - `MPOL_INTERLEAVE`: all allowed host nodes, with the interleave nodes first.
+ * - `MPOL_PREFERRED`, `MPOL_PREFERRED_MANY`: all allowed host nodes, with the preferred
+ *   node(s) first.
+ * - `MPOL_INTERLEAVE`, `MPOL_WEIGHTED_INTERLEAVE`: all allowed host nodes, with the
+ *   interleave nodes first.
+ *
+ * The memory policy is per-thread in Linux, so this reads the policy of the calling
+ * thread, not of the process as a whole. A policy set in one thread (e.g. via
+ * `numa_set_membind()`) is not seen when called from another thread.
  *
  * If NUMA support is not available or the NUMA nodes cannot be determined, the
  * function returns a vector containing a single element, `0`, which corresponds
@@ -104,9 +110,11 @@ std::uint64_t get_numa_node_host_memory(int numa_id = get_current_numa_node()) n
  * @brief Get the amount of host memory per GPU.
  *
  * This is calculated as the total host memory available for the current NUMA node divided
- * by the number of GPUs bound to that NUMA node. The result is computed once and cached.
+ * by the number of visible GPUs bound to that NUMA node. GPUs with unknown NUMA affinity
+ * count as local. If there are no local GPUs, it is divided by the number of visible GPUs
+ * across all nodes instead. The result is computed once and cached.
  *
- * @throws std::runtime_error if no GPUs are found on the current NUMA node.
+ * @throws std::runtime_error if no GPUs are found in the topology.
  *
  * @return Amount of host memory per GPU in bytes.
  */

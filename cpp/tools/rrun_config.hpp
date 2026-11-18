@@ -62,6 +62,7 @@ struct Config {
         BindToState::NotSpecified
     };  // State of --bind-to specification
     bool file_backend{false};  // Force file-based coordination instead of socket
+    int kill_after_seconds{30};  // Grace period before SIGKILL after a signal
     bool slurm_mode{false};  // Running under Slurm (--slurm or auto-detected)
     std::optional<SlurmEnv> slurm;  // Set when slurm_mode is true
 };
