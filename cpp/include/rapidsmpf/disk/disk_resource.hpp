@@ -123,6 +123,24 @@ class DiskResource : public BackRefMixin<BufferResource> {
     ) const;
 
     /**
+     * @brief Take ownership of a file by placing it under `directory()`.
+     *
+     * If @p path is already directly under `directory()` (compared by device and inode,
+     * so equivalent spellings of the directory match), it is returned unchanged.
+     * Otherwise the file is relocated to a new unique path under `directory()`.
+     * This uses `rename(2)` (atomic, no copy) and, if @p path is on a different
+     * filesystem, falls back to copying the file and removing the source, which is
+     * proportional to the file size. If relocation fails, the source is left in place
+     * and nothing is left behind in `directory()`.
+     *
+     * @param path Existing regular file to adopt.
+     * @return Path of the file under `directory()`.
+     * @throws std::invalid_argument if @p path is not an existing regular file.
+     * @throws std::runtime_error if the file cannot be relocated.
+     */
+    [[nodiscard]] std::filesystem::path adopt(std::filesystem::path const& path) const;
+
+    /**
      * @brief Durably synchronize file data to storage.
      *
      * Not used on the default spill path; exposed for benchmark durability cases.
