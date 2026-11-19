@@ -6,7 +6,9 @@
 
 #include <algorithm>
 #include <iterator>
+#include <span>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 #include <sched.h>
@@ -254,6 +256,26 @@ std::uint64_t get_host_memory_per_gpu() {
         RAPIDSMPF_EXPECTS(gpu_count > 0, "No GPUs found in topology", std::runtime_error);
         return get_numa_node_host_memory(current_numa_node)
                / safe_cast<std::uint64_t>(gpu_count);
+    }();
+    return ret;
+}
+
+std::span<NetworkMount const> get_network_mounts() {
+    static std::vector<NetworkMount> const ret = [] {
+        std::vector<NetworkMount> mounts;
+        try {
+            for (auto const& m : get_topology().network_mounts) {
+                mounts.push_back(
+                    {.mount_point = m.mount_point,
+                     .fs_type = std::string{cucascade::memory::to_string(m.fs_type)},
+                     .source = m.source}
+                );
+            }
+        } catch (std::exception const&) {
+            // The topology could not be discovered; report no network mounts.
+            mounts.clear();
+        }
+        return mounts;
     }();
     return ret;
 }

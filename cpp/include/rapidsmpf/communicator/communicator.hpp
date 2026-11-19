@@ -40,7 +40,8 @@ using Rank = std::int32_t;
  * multiple operations, and each operation will be identified by its OpID.
  *
  * @note Although typed as an `int32`, the number of distinct operations is limited to
- * `2^20`.
+ * `2^20`. The largest value, `detail::rank_topology_op_id`, is reserved for rapidsmpf
+ * internals, so user operations must use OpIDs in `[0, 2^20 - 1)`.
  */
 using OpID = std::int32_t;
 
@@ -169,6 +170,11 @@ class Tag {
   private:
     StorageT const tag_;
 };
+
+namespace detail {
+/// @brief Reserved OpID (the largest valid one) for building a `RankTopology`.
+inline constexpr OpID rank_topology_op_id = (1 << Tag::op_id_bits) - 1;
+}  // namespace detail
 
 /**
  * @brief Abstract base class for a communication mechanism between nodes.

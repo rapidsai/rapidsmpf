@@ -8,12 +8,15 @@
 #include <chrono>
 #include <cmath>
 #include <concepts>
+#include <cstdint>
 #include <cstdlib>
 #include <functional>
+#include <initializer_list>
 #include <memory>
 #include <ranges>
 #include <source_location>
 #include <stdexcept>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -410,6 +413,35 @@ constexpr To safe_cast(
         // Floating point conversions: direct cast (well-defined overflow behavior).
         return static_cast<To>(value);
     }
+}
+
+/**
+ * @brief 64-bit FNV-1a hash of a sequence of strings.
+ *
+ * Each string is followed by a NUL byte, so `{"ab", "c"}` and `{"a", "bc"}` hash
+ * differently. Unlike `std::hash`, the result is the same in every process and on
+ * every host.
+ *
+ * @param parts The strings to hash.
+ * @return The hash.
+ */
+[[nodiscard]] constexpr std::uint64_t fnv1a(
+    std::initializer_list<std::string_view> parts
+) noexcept {
+    constexpr std::uint64_t offset_basis = 14695981039346656037ULL;
+    constexpr std::uint64_t prime = 1099511628211ULL;
+    std::uint64_t hash = offset_basis;
+    auto mix = [&](unsigned char byte) {
+        hash ^= byte;
+        hash *= prime;
+    };
+    for (auto part : parts) {
+        for (char c : part) {
+            mix(static_cast<unsigned char>(c));
+        }
+        mix(0);
+    }
+    return hash;
 }
 
 }  // namespace rapidsmpf
