@@ -9,6 +9,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 #include <utility>
 
 #include <fcntl.h>
@@ -205,6 +206,91 @@ std::size_t DiskResource::copy(
         done += static_cast<std::size_t>(n);
     }
     return done;
+}
+
+namespace {
+
+/**
+ * @brief Replace @p dst_path with a copy of @p src_path, then remove @p src_path.
+ *
+ * Fallback for moving a file across filesystems, where `rename(2)` is not possible. The
+ * data is first copied to a temporary sibling of @p dst_path and renamed into place, so
+ * @p dst_path never holds a partial file.
+ *
+ * On failure the temporary file is removed and @p src_path is left in place. If only the
+ * final removal of @p src_path fails, @p dst_path already holds the complete copy.
+ *
+ * @throws std::runtime_error if the copy, rename or removal fails.
+ */
+void copy_then_replace(
+    std::filesystem::path const& src_path, std::filesystem::path const& dst_path
+) {
+    // Copy to a temporary sibling of the destination and rename it into place, so the
+    // destination never holds a partial file.
+    auto const tmp_path = std::filesystem::path{dst_path.string() + ".moving"};
+    std::error_code ec;
+    std::filesystem::copy_file(
+        src_path, tmp_path, std::filesystem::copy_options::overwrite_existing, ec
+    );
+    if (!ec) {
+        std::filesystem::rename(tmp_path, dst_path, ec);
+    }
+    if (!ec) {
+        std::filesystem::remove(src_path, ec);
+    }
+    if (ec) {
+        std::error_code ignored;
+        std::filesystem::remove(tmp_path, ignored);
+        RAPIDSMPF_FAIL(
+            "failed to copy " + src_path.string() + " to " + dst_path.string() + ": "
+                + ec.message(),
+            std::runtime_error
+        );
+    }
+}
+
+}  // namespace
+
+std::filesystem::path DiskResource::adopt(std::filesystem::path const& path) const {
+    RAPIDSMPF_EXPECTS(
+        std::filesystem::is_regular_file(path),
+        "cannot adopt " + path.string() + ": not a regular file",
+        std::invalid_argument
+    );
+    // Compare directories by device and inode, not by path text, so that relative paths,
+    // `./` and symlinked parents of `dir_` are recognized. On error `equivalent()`
+    // returns false and we fall through to relocation, which is always safe.
+    std::error_code ec;
+    if (std::filesystem::equivalent(
+            std::filesystem::absolute(path, ec).parent_path(), dir_, ec
+        ))
+    {
+        return path;
+    }
+
+    // The reserved file is replaced by the rename (or copy) below.
+    auto new_path = create_unique_path();
+    auto cleanup = [&] {
+        std::error_code ignored;
+        std::filesystem::remove(new_path, ignored);
+    };
+    std::filesystem::rename(path, new_path, ec);
+    if (ec == std::errc::cross_device_link) {
+        try {
+            copy_then_replace(path, new_path);
+        } catch (...) {
+            cleanup();
+            throw;
+        }
+    } else if (ec) {
+        cleanup();
+        RAPIDSMPF_FAIL(
+            "failed to adopt " + path.string() + " into " + dir_.string() + ": "
+                + ec.message(),
+            std::runtime_error
+        );
+    }
+    return new_path;
 }
 
 void DiskResource::flush(std::filesystem::path const& path) const {

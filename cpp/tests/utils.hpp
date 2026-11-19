@@ -43,7 +43,13 @@
  */
 class TempDir {
   public:
-    TempDir() : path_(unique_path()) {
+    /**
+     * @brief Create a temporary directory.
+     *
+     * @param parent Directory to create it under. Defaults to `testing::TempDir()`.
+     */
+    explicit TempDir(std::optional<std::filesystem::path> parent = std::nullopt)
+        : path_(unique_path(parent.value_or(std::filesystem::path(testing::TempDir())))) {
         std::error_code ec;
         if (!std::filesystem::create_directories(path_, ec) || ec) {
             throw std::runtime_error(
@@ -69,9 +75,9 @@ class TempDir {
     }
 
   private:
-    static std::filesystem::path unique_path() {
+    static std::filesystem::path unique_path(std::filesystem::path const& parent) {
         static std::atomic<std::uint64_t> counter{0};
-        return std::filesystem::path(testing::TempDir())
+        return parent
                / ("tmp_" + std::to_string(::getpid()) + "_"
                   + std::to_string(counter.fetch_add(1, std::memory_order_relaxed)));
     }
