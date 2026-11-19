@@ -23,9 +23,12 @@ pytest does not collect this file, because its name does not start with
 
 from __future__ import annotations
 
-from typing import assert_type
+from typing import TYPE_CHECKING, assert_type
 
-from rapidsmpf.config import Options, get_environment_variables
+from rapidsmpf.config import get_environment_variables
+
+if TYPE_CHECKING:
+    from rapidsmpf.config import Options
 
 
 def _check_options(options: Options) -> None:
