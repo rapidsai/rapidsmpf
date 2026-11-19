@@ -189,8 +189,8 @@ TEST(ReceivedChunks, spill_to_disk_and_unspill) {
     ASSERT_EQ(chunks.size(), 1);
     auto data = chunks[0].release_data_buffer();
     ASSERT_EQ(data->mem_type(), MemoryType::DISK);
-    auto const path = data->get_storage<rapidsmpf::Buffer::DiskBufferT>()->path();
-    EXPECT_TRUE(std::filesystem::exists(path));
+    EXPECT_FALSE(data->get_storage<rapidsmpf::Buffer::DiskBufferT>()->is_empty());
+    auto const disk_dir = br->disk_resource()->directory();
 
     std::vector<rapidsmpf::PackedData> packed_data;
     packed_data.emplace_back(chunks[0].release_metadata_buffer(), std::move(data));
@@ -199,7 +199,7 @@ TEST(ReceivedChunks, spill_to_disk_and_unspill) {
     );
     ASSERT_EQ(restored.size(), 1);
     EXPECT_EQ(restored[0].data->mem_type(), MemoryType::DEVICE);
-    EXPECT_FALSE(std::filesystem::exists(path));
+    EXPECT_TRUE(std::filesystem::is_empty(disk_dir));
     validate_packed_data(std::move(restored[0]), n_elements, 0, stream, *br);
 }
 

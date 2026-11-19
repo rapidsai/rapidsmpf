@@ -30,6 +30,7 @@ warn_unused_configs = true
 [[tool.mypy.overrides]]
 module = "rapidsmpf.*"
 disallow_untyped_defs = true
+ignore_missing_imports = false
 
 [tool.pytest.ini_options]
 addopts = [

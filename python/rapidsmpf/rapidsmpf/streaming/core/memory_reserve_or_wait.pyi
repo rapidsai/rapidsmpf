@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from rapidsmpf.config import Options
+from rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.memory.memory_reservation import MemoryReservation
 from rapidsmpf.memory.reservation_events import ReservationContext
-from rapidsmpf.rapidsmpf.memory.buffer import MemoryType
 from rapidsmpf.streaming.core.context import Context
 
 missing_net_memory_delta: int

@@ -638,9 +638,10 @@ TEST(PostBox, spill_to_disk_preserves_payload) {
     // Spilling prefers host over disk, so move the payload to disk explicitly.
     packed_data = move_to_disk(std::move(packed_data), *br);
     ASSERT_EQ(packed_data.data->mem_type(), rapidsmpf::MemoryType::DISK);
-    auto const path =
-        (*packed_data.data->get_storage<rapidsmpf::Buffer::DiskBufferT>()).path();
-    EXPECT_TRUE(std::filesystem::exists(path));
+    EXPECT_FALSE(
+        packed_data.data->get_storage<rapidsmpf::Buffer::DiskBufferT>()->is_empty()
+    );
+    auto const disk_dir = br->disk_resource()->directory();
 
     std::vector<rapidsmpf::PackedData> spilled;
     spilled.emplace_back(std::move(packed_data));
@@ -648,7 +649,7 @@ TEST(PostBox, spill_to_disk_preserves_payload) {
         std::move(spilled), br.get(), rapidsmpf::AllowOverbooking::NO
     );
     ASSERT_EQ(restored.size(), 1);
-    EXPECT_FALSE(std::filesystem::exists(path));
+    EXPECT_TRUE(std::filesystem::is_empty(disk_dir));
     EXPECT_NO_FATAL_FAILURE(
         validate_packed_data(std::move(restored[0]), n_elements, 5, stream, *br)
     );
