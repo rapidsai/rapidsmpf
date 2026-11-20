@@ -9,12 +9,10 @@ from rapidsmpf.memory.packed_data import PackedData
 
 def spill_partitions(
     partitions: Iterable[PackedData],
-    *,
     br: BufferResource,
 ) -> list[PackedData]: ...
 def unspill_partitions(
     partitions: Iterable[PackedData],
-    *,
     br: BufferResource,
     allow_overbooking: bool,
 ) -> list[PackedData]: ...

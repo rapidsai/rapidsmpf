@@ -11,6 +11,7 @@ class PinnedPoolProperties:
     initial_pool_size: int = 0
     max_pool_size: int | None = None
     numa_id: int | None = None
+    def __post_init__(self) -> None: ...
 
 class PinnedMemoryResource:
     @property
