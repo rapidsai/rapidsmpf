@@ -60,12 +60,7 @@ DiskResource::~DiskResource() noexcept {
     }
 }
 
-std::size_t FileHandle::file_size() const {
-    RAPIDSMPF_EXPECTS(!empty(), "cannot query the size of an empty FileHandle");
-    return safe_cast<std::size_t>(std::filesystem::file_size(path_));
-}
-
-FileHandle DiskResource::create_unique_path() const {
+std::filesystem::path DiskResource::create_unique_path() const {
     auto path_template = (dir_ / "XXXXXX").string();
     auto const fd = ::mkstemp(path_template.data());
     auto const open_error = errno;
@@ -84,19 +79,19 @@ FileHandle DiskResource::create_unique_path() const {
             std::runtime_error
         );
     }
-    return FileHandle{std::filesystem::path{path_template}};
+    return path_template;
 }
 
 std::size_t DiskResource::write(
-    FileHandle const& path,
+    std::filesystem::path const& path,
     void const* data,
     std::size_t size,
     cuda::stream_ref stream,
     std::ptrdiff_t file_offset
 ) const {
     kvikio::FileHandle file{
-        path.path_.string(),
-        std::filesystem::exists(path.path_) ? "r+" : "w+",
+        path.string(),
+        std::filesystem::exists(path) ? "r+" : "w+",
         kvikio::FileHandle::m644,
         kvikio::CompatMode::AUTO
     };
@@ -114,14 +109,14 @@ std::size_t DiskResource::write(
 }
 
 std::size_t DiskResource::read(
-    FileHandle const& path,
+    std::filesystem::path const& path,
     void* data,
     std::size_t size,
     cuda::stream_ref stream,
     std::ptrdiff_t file_offset
 ) const {
     kvikio::FileHandle file{
-        path.path_.string(), "r", kvikio::FileHandle::m644, kvikio::CompatMode::AUTO
+        path.string(), "r", kvikio::FileHandle::m644, kvikio::CompatMode::AUTO
     };
     stream.sync();
     return file
@@ -168,8 +163,8 @@ class ScopedFd {
 }  // namespace
 
 std::size_t DiskResource::copy(
-    FileHandle const& src_path,
-    FileHandle const& dst_path,
+    std::filesystem::path const& src_path,
+    std::filesystem::path const& dst_path,
     std::size_t size,
     cuda::stream_ref stream,
     std::ptrdiff_t src_offset,
@@ -185,8 +180,8 @@ std::size_t DiskResource::copy(
         "file offsets must be non-negative",
         std::invalid_argument
     );
-    ScopedFd src{src_path.path_, O_RDONLY};
-    ScopedFd dst{dst_path.path_, O_WRONLY | O_CREAT};
+    ScopedFd src{src_path, O_RDONLY};
+    ScopedFd dst{dst_path, O_WRONLY | O_CREAT};
     stream.sync();
 
     auto in_off = static_cast<off_t>(src_offset);
@@ -256,7 +251,7 @@ void copy_then_replace(
 
 }  // namespace
 
-FileHandle DiskResource::adopt(std::filesystem::path const& path) const {
+std::filesystem::path DiskResource::adopt(std::filesystem::path const& path) const {
     RAPIDSMPF_EXPECTS(
         std::filesystem::is_regular_file(path),
         "cannot adopt " + path.string() + ": not a regular file",
@@ -270,16 +265,19 @@ FileHandle DiskResource::adopt(std::filesystem::path const& path) const {
             std::filesystem::absolute(path, ec).parent_path(), dir_, ec
         ))
     {
-        return FileHandle{path};
+        return path;
     }
 
     // The reserved file is replaced by the rename (or copy) below.
     auto new_path = create_unique_path();
-    auto cleanup = [&] { remove(new_path); };
-    std::filesystem::rename(path, new_path.path_, ec);
+    auto cleanup = [&] {
+        std::error_code ignored;
+        std::filesystem::remove(new_path, ignored);
+    };
+    std::filesystem::rename(path, new_path, ec);
     if (ec == std::errc::cross_device_link) {
         try {
-            copy_then_replace(path, new_path.path_);
+            copy_then_replace(path, new_path);
         } catch (...) {
             cleanup();
             throw;
@@ -295,29 +293,8 @@ FileHandle DiskResource::adopt(std::filesystem::path const& path) const {
     return new_path;
 }
 
-FileHandle DiskResource::adopt(FileHandle const& path) const {
-    RAPIDSMPF_EXPECTS(
-        !path.empty(), "cannot adopt an empty FileHandle", std::invalid_argument
-    );
-    return adopt(path.path_);
-}
-
-bool DiskResource::remove(FileHandle& path) const noexcept {
-    if (path.path_.empty()) {
-        return true;
-    }
-    std::error_code ec;
-    std::filesystem::remove(path.path_, ec);
-    if (ec) {
-        std::cerr << "Error removing file '" << path.path_ << "': " << ec.message()
-                  << '\n';
-    }
-    path.path_.clear();
-    return !ec;
-}
-
-void DiskResource::flush(FileHandle const& path) const {
-    auto const fd = ::open(path.path_.c_str(), O_RDONLY);
+void DiskResource::flush(std::filesystem::path const& path) const {
+    auto const fd = ::open(path.c_str(), O_RDONLY);
     RAPIDSMPF_EXPECTS(
         fd >= 0,
         "open for fdatasync failed: " + std::string{std::strerror(errno)},

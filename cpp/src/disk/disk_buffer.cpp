@@ -4,6 +4,7 @@
  */
 
 #include <filesystem>
+#include <iostream>
 #include <stdexcept>
 #include <utility>
 
@@ -21,7 +22,9 @@ DiskBuffer::DiskBuffer(
 }
 
 DiskBuffer::DiskBuffer(
-    std::shared_ptr<DiskResource> disk, FileHandle path, cuda::stream_ref stream
+    std::shared_ptr<DiskResource> disk,
+    std::filesystem::path path,
+    cuda::stream_ref stream
 )
     : disk_{std::move(disk)}, size_{0}, stream_{stream} {
     RAPIDSMPF_EXPECTS(disk_ != nullptr, "disk resource cannot be null");
@@ -53,7 +56,7 @@ DiskBuffer& DiskBuffer::operator=(DiskBuffer&& other) noexcept {
     return *this;
 }
 
-FileHandle DiskBuffer::release() noexcept {
+std::filesystem::path DiskBuffer::release() noexcept {
     size_ = 0;
     return std::exchange(path_, {});
 }
@@ -67,7 +70,8 @@ void DiskBuffer::relocate(std::shared_ptr<DiskResource> disk) {
 }
 
 std::size_t DiskBuffer::file_size() const {
-    return path_.file_size();
+    RAPIDSMPF_EXPECTS(!path_.empty(), "DiskBuffer has no backing file");
+    return safe_cast<std::size_t>(std::filesystem::file_size(path_));
 }
 
 bool DiskBuffer::is_empty() const {
@@ -98,9 +102,14 @@ void DiskBuffer::set_stream(cuda::stream_ref stream) noexcept {
 }
 
 void DiskBuffer::deallocate() noexcept {
-    // `disk_` is null in a moved-from buffer, which has no file either.
-    if (disk_ != nullptr) {
-        disk_->remove(path_);
+    if (!path_.empty()) {
+        std::error_code ec;
+        std::filesystem::remove(path_, ec);
+        if (ec) {
+            std::cerr << "Error removing DiskBuffer backing file '" << path_
+                      << "': " << ec.message() << '\n';
+        }
+        path_.clear();
     }
 }
 

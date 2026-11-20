@@ -23,9 +23,8 @@ namespace rapidsmpf {
  * destruction. Disk-backed `Buffer` objects store a `DiskBuffer` as their
  * storage.
  *
- * @note The backing file is owned by the `DiskBuffer` and is only reachable through an
- * opaque `FileHandle`. All file operations go through the `DiskResource`. `release()`
- * hands the file over to the caller.
+ * @note The backing file is owned by the `DiskBuffer`. Callers must not modify or delete
+ * it through `path()`. `release()` hands the file over to the caller.
  */
 class DiskBuffer {
   public:
@@ -43,22 +42,22 @@ class DiskBuffer {
     /**
      * @brief Create a buffer that takes ownership of an existing file.
      *
-     * Typically a file handed over by `release()`, or an external file wrapped with
-     * `DiskResource::adopt()`. The file is placed under @p disk's directory with
-     * `DiskResource::adopt()`, which copies it if it is on a different filesystem (a
-     * no-op if it is already there). The logical size is the file's size. Like any
-     * backing file, it is deleted when the buffer is deallocated or destroyed.
+     * The file is placed under @p disk's directory with `DiskResource::adopt()`, which
+     * copies it if it is on a different filesystem. The logical size is the file's size.
+     * Like any backing file, it is deleted when the buffer is deallocated or destroyed.
      *
      * @param disk Disk resource used to access the backing file.
-     * @param path Handle to the file to take ownership of.
+     * @param path Existing regular file to take ownership of.
      * @param stream CUDA stream associated with the buffer.
-     * @throws std::invalid_argument if @p path is empty or not an existing regular file.
+     * @throws std::invalid_argument if @p path is not an existing regular file.
      * @throws std::runtime_error if the file cannot be placed under @p disk's directory.
      * @throws std::filesystem::filesystem_error if the file's size cannot be queried. The
      *         file is deleted in that case.
      */
     DiskBuffer(
-        std::shared_ptr<DiskResource> disk, FileHandle path, cuda::stream_ref stream
+        std::shared_ptr<DiskResource> disk,
+        std::filesystem::path path,
+        cuda::stream_ref stream
     );
 
     ~DiskBuffer();
@@ -125,14 +124,13 @@ class DiskBuffer {
     [[nodiscard]] std::vector<std::uint8_t> copy_to_uint8_vector() const;
 
     /**
-     * @brief Handle to the backing file.
+     * @brief Path to the backing file.
      *
-     * The file is owned by this buffer. The handle is opaque: all operations on it go
-     * through `disk_resource()`.
+     * The file is owned by this buffer: callers must not modify or delete it.
      *
-     * @return Handle to the backing file (empty if there is none).
+     * @return Filesystem path to the backing file (empty if there is none).
      */
-    [[nodiscard]] FileHandle const& path() const noexcept {
+    [[nodiscard]] std::filesystem::path const& path() const noexcept {
         return path_;
     }
 
@@ -172,12 +170,12 @@ class DiskBuffer {
      * @brief Release ownership of the backing file without deleting it.
      *
      * After this call the buffer has no backing file, `size()` is zero, and this buffer
-     * no longer deletes the file. The caller owns it. Returns an empty handle if there is
+     * no longer deletes the file. The caller owns it. Returns an empty path if there is
      * no backing file.
      *
-     * @return Handle to the released backing file.
+     * @return Path of the released backing file.
      */
-    [[nodiscard]] FileHandle release() noexcept;
+    [[nodiscard]] std::filesystem::path release() noexcept;
 
     /**
      * @brief Move the backing file under another disk resource.
@@ -193,7 +191,7 @@ class DiskBuffer {
 
   private:
     std::shared_ptr<DiskResource> disk_;
-    FileHandle path_;
+    std::filesystem::path path_;
     std::size_t size_;
     cuda::stream_ref stream_;
 };
