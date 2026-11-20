@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -79,6 +80,24 @@ void check_file_contents(
     EXPECT_EQ(actual, expected);
 }
 
+/// Regular files directly under @p dir.
+std::vector<std::filesystem::path> files_in(std::filesystem::path const& dir) {
+    std::vector<std::filesystem::path> ret;
+    for (auto const& entry : std::filesystem::directory_iterator{dir}) {
+        if (entry.is_regular_file()) {
+            ret.push_back(entry.path());
+        }
+    }
+    return ret;
+}
+
+bool bytes_equal(
+    std::vector<std::uint8_t> const& lhs, std::vector<std::byte> const& rhs
+) {
+    return lhs.size() == rhs.size()
+           && std::memcmp(lhs.data(), rhs.data(), lhs.size()) == 0;
+}
+
 class DiskResourceTest : public ::testing::Test {
   protected:
     void SetUp() override {
@@ -95,6 +114,16 @@ class DiskResourceTest : public ::testing::Test {
             test_spill_dir()
         );
         disk_ = br_->disk_resource();
+    }
+
+    /// A disk buffer on @p disk holding @p data. Its file is created through the disk
+    /// resource and handed to the buffer, since the buffer's path is not exposed.
+    DiskBuffer make_disk_buffer(
+        std::shared_ptr<DiskResource> const& disk, std::vector<std::byte> const& data
+    ) {
+        auto const file = test_path("fixture");
+        EXPECT_EQ(disk->write(file, data.data(), data.size(), stream_), data.size());
+        return DiskBuffer{disk, file, stream_};
     }
 
     /// A second buffer resource, and so a second disk directory.
@@ -411,51 +440,41 @@ TEST(DiskResource, ResourcesOwnDistinctDirectories) {
 }
 
 TEST_F(DiskResourceTest, DiskBufferDestructorRemovesFile) {
-    std::filesystem::path path{};
     {
         DiskBuffer disk_buffer{disk_, 0, stream_};
-        path = disk_buffer.path();
-        ASSERT_TRUE(std::filesystem::exists(path));
+        EXPECT_EQ(files_in(disk_->directory()).size(), 1);
     }
-    EXPECT_FALSE(std::filesystem::exists(path));
+    EXPECT_TRUE(files_in(disk_->directory()).empty());
 }
 
 TEST_F(DiskResourceTest, DiskBufferMoveAssignmentReplacesBackingFile) {
     auto const target_data = make_pattern(1024);
     auto const source_data = make_pattern(2048);
-    DiskBuffer target{disk_, target_data.size(), stream_};
-    EXPECT_EQ(
-        disk_->write(target.path(), target_data.data(), target_data.size(), stream_),
-        target_data.size()
-    );
-    auto const old_target_path = target.path();
-    std::filesystem::path source_path;
+    auto target = make_disk_buffer(disk_, target_data);
     {
-        DiskBuffer source{disk_, source_data.size(), stream_};
-        source_path = source.path();
-        EXPECT_EQ(
-            disk_->write(source_path, source_data.data(), source_data.size(), stream_),
-            source_data.size()
-        );
+        auto source = make_disk_buffer(disk_, source_data);
+        ASSERT_EQ(files_in(disk_->directory()).size(), 2);
 
         target = std::move(source);
 
         // The target's old file is deleted and it now holds the source's.
-        EXPECT_FALSE(std::filesystem::exists(old_target_path));
-        EXPECT_EQ(target.path(), source_path);
-        EXPECT_EQ(target.size(), source_data.size());
+        EXPECT_EQ(files_in(disk_->directory()).size(), 1);
+        EXPECT_TRUE(bytes_equal(target.copy_to_uint8_vector(), source_data));
         EXPECT_EQ(source.size(), 0);  // NOLINT(bugprone-use-after-move)
-        EXPECT_TRUE(source.path().empty());  // NOLINT(bugprone-use-after-move)
+        EXPECT_THROW(
+            std::ignore = source.file_size(),  // NOLINT(bugprone-use-after-move)
+            std::logic_error
+        );
     }
     // The moved-from source must not have deleted the file it gave away.
-    ASSERT_TRUE(std::filesystem::exists(source_path));
-    check_file_contents(target.path(), 0, source_data);
+    EXPECT_EQ(files_in(disk_->directory()).size(), 1);
+    EXPECT_TRUE(bytes_equal(target.copy_to_uint8_vector(), source_data));
 
     // Self move-assignment keeps the file.
     auto& alias = target;
     target = std::move(alias);
-    EXPECT_EQ(target.path(), source_path);
-    check_file_contents(target.path(), 0, source_data);
+    EXPECT_EQ(files_in(disk_->directory()).size(), 1);
+    EXPECT_TRUE(bytes_equal(target.copy_to_uint8_vector(), source_data));
 }
 
 TEST_F(DiskResourceTest, DiskBufferMoveAssignmentTakesSourceDiskResource) {
@@ -465,21 +484,16 @@ TEST_F(DiskResourceTest, DiskBufferMoveAssignmentTakesSourceDiskResource) {
 
     auto const pattern = make_pattern(1234);
     DiskBuffer target{disk_, 0, stream_};
-    auto const old_target_path = target.path();
-    DiskBuffer source{other_disk, pattern.size(), stream_};
-    auto const source_path = source.path();
-    EXPECT_EQ(
-        disk_->write(source_path, pattern.data(), pattern.size(), stream_), pattern.size()
-    );
+    auto source = make_disk_buffer(other_disk, pattern);
 
     target = std::move(source);
 
     // The file stays where it was and is now owned by the target.
     EXPECT_EQ(target.disk_resource(), other_disk);
-    EXPECT_EQ(target.path(), source_path);
-    EXPECT_FALSE(std::filesystem::exists(old_target_path));
+    EXPECT_EQ(files_in(other_disk->directory()).size(), 1);
+    EXPECT_TRUE(files_in(disk_->directory()).empty());
     EXPECT_EQ(target.size(), pattern.size());
-    check_file_contents(target.path(), 0, pattern);
+    EXPECT_TRUE(bytes_equal(target.copy_to_uint8_vector(), pattern));
     EXPECT_EQ(source.size(), 0);  // NOLINT(bugprone-use-after-move)
 }
 
@@ -489,25 +503,21 @@ TEST_F(DiskResourceTest, DiskBufferRelocateMovesFileToOtherDiskResource) {
     ASSERT_NE(other_disk->directory(), disk_->directory());
 
     auto const pattern = make_pattern(4 * 1024);
-    DiskBuffer buffer{disk_, pattern.size(), stream_};
-    auto const old_path = buffer.path();
-    EXPECT_EQ(
-        disk_->write(old_path, pattern.data(), pattern.size(), stream_), pattern.size()
-    );
+    auto buffer = make_disk_buffer(disk_, pattern);
 
     buffer.relocate(other_disk);
 
     EXPECT_EQ(buffer.disk_resource(), other_disk);
-    EXPECT_FALSE(std::filesystem::exists(old_path));
-    EXPECT_EQ(buffer.path().parent_path(), other_disk->directory());
+    EXPECT_TRUE(files_in(disk_->directory()).empty());
+    EXPECT_EQ(files_in(other_disk->directory()).size(), 1);
     EXPECT_EQ(buffer.size(), pattern.size());
-    check_file_contents(buffer.path(), 0, pattern);
+    EXPECT_TRUE(bytes_equal(buffer.copy_to_uint8_vector(), pattern));
 
     // Relocating to the current resource keeps the file where it is.
-    auto const path = buffer.path();
+    auto const files = files_in(other_disk->directory());
     buffer.relocate(other_disk);
-    EXPECT_EQ(buffer.path(), path);
-    check_file_contents(buffer.path(), 0, pattern);
+    EXPECT_EQ(files_in(other_disk->directory()), files);
+    EXPECT_TRUE(bytes_equal(buffer.copy_to_uint8_vector(), pattern));
 }
 
 TEST_F(DiskResourceTest, DiskBufferRelocateFailureLeavesBufferUnchanged) {
@@ -518,12 +528,12 @@ TEST_F(DiskResourceTest, DiskBufferRelocateFailureLeavesBufferUnchanged) {
     EXPECT_THROW(buffer.relocate(nullptr), std::logic_error);
 
     // Remove the backing file behind the buffer's back so adopt() rejects it.
-    auto const path = buffer.path();
-    ASSERT_TRUE(std::filesystem::remove(path));
+    auto const files = files_in(disk_->directory());
+    ASSERT_EQ(files.size(), 1);
+    ASSERT_TRUE(std::filesystem::remove(files.front()));
     EXPECT_THROW(buffer.relocate(other_disk), std::invalid_argument);
     EXPECT_EQ(buffer.disk_resource(), disk_);
-    EXPECT_EQ(buffer.path(), path);
-    EXPECT_TRUE(std::filesystem::is_empty(other_disk->directory()));
+    EXPECT_TRUE(files_in(other_disk->directory()).empty());
 }
 
 TEST_F(DiskResourceTest, AdoptKeepsOwnedFileAndRelocatesForeignFile) {
@@ -568,14 +578,9 @@ TEST_F(DiskResourceTest, DiskBufferReleaseHandsFileToAnotherBuffer) {
     // Release the file from one buffer.
     std::filesystem::path released;
     {
-        DiskBuffer first{disk_, pattern.size(), stream_};
-        EXPECT_EQ(
-            disk_->write(first.path(), pattern.data(), pattern.size(), stream_),
-            pattern.size()
-        );
+        auto first = make_disk_buffer(disk_, pattern);
         released = first.release();
         EXPECT_EQ(first.size(), 0);
-        EXPECT_TRUE(first.path().empty());
         EXPECT_TRUE(first.release().empty());
         // Without a backing file, querying the file is a usage error.
         EXPECT_THROW(std::ignore = first.file_size(), std::logic_error);
@@ -588,9 +593,9 @@ TEST_F(DiskResourceTest, DiskBufferReleaseHandsFileToAnotherBuffer) {
     // Hand it to another buffer, which infers the size and takes ownership.
     {
         DiskBuffer second{disk_, released, stream_};
-        EXPECT_EQ(second.path(), released);  // Already under the directory.
         EXPECT_EQ(second.size(), pattern.size());
-        check_file_contents(second.path(), 0, pattern);
+        EXPECT_EQ(files_in(disk_->directory()).size(), 1);
+        EXPECT_TRUE(bytes_equal(second.copy_to_uint8_vector(), pattern));
     }
     // The second buffer owns the adopted file and deletes it.
     EXPECT_FALSE(std::filesystem::exists(released));
@@ -624,29 +629,21 @@ TEST_F(DiskResourceTest, DiskBufferReportsFileSize) {
     EXPECT_TRUE(disk_buffer.is_empty());
     EXPECT_TRUE(disk_buffer.copy_to_uint8_vector().empty());
 
+    // Write to the buffer's file behind its back, to exercise the size checks.
+    auto const files = files_in(disk_->directory());
+    ASSERT_EQ(files.size(), 1);
+    auto const& file = files.front();
     EXPECT_EQ(
-        disk_->write(disk_buffer.path(), pattern.data(), pattern.size(), stream_),
-        pattern.size()
+        disk_->write(file, pattern.data(), pattern.size(), stream_), pattern.size()
     );
 
     EXPECT_EQ(disk_buffer.file_size(), pattern.size());
     EXPECT_FALSE(disk_buffer.is_empty());
-    EXPECT_TRUE(
-        std::ranges::equal(
-            disk_buffer.copy_to_uint8_vector(),
-            pattern,
-            [](std::uint8_t lhs, std::byte rhs) {
-                return lhs == std::to_integer<std::uint8_t>(rhs);
-            }
-        )
-    );
+    EXPECT_TRUE(bytes_equal(disk_buffer.copy_to_uint8_vector(), pattern));
 
     // A file larger than the logical size is rejected instead of being read.
     auto const extra = make_pattern(pattern.size() + 1);
-    EXPECT_EQ(
-        disk_->write(disk_buffer.path(), extra.data(), extra.size(), stream_),
-        extra.size()
-    );
+    EXPECT_EQ(disk_->write(file, extra.data(), extra.size(), stream_), extra.size());
     EXPECT_THROW(std::ignore = disk_buffer.copy_to_uint8_vector(), std::runtime_error);
 }
 

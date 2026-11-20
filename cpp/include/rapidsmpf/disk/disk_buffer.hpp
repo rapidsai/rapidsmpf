@@ -16,6 +16,9 @@
 
 namespace rapidsmpf {
 
+class Buffer;
+class Statistics;
+
 /**
  * @brief File-backed handle to a byte buffer.
  *
@@ -23,10 +26,20 @@ namespace rapidsmpf {
  * destruction. Disk-backed `Buffer` objects store a `DiskBuffer` as their
  * storage.
  *
- * @note The backing file is owned by the `DiskBuffer`. Callers must not modify or delete
- * it through `path()`. `release()` hands the file over to the caller.
+ * @note The backing file is owned by the `DiskBuffer` and its path is not exposed, so the
+ * file can only change through this class (or `buffer_copy()`, which is a friend).
+ * `release()` hands the file over to the caller.
  */
 class DiskBuffer {
+    friend void buffer_copy(
+        std::shared_ptr<Statistics> statistics,
+        Buffer& dst,
+        Buffer const& src,
+        std::size_t size,
+        std::ptrdiff_t dst_offset,
+        std::ptrdiff_t src_offset
+    );
+
   public:
     /**
      * @brief Create a file-backed buffer.
@@ -124,17 +137,6 @@ class DiskBuffer {
     [[nodiscard]] std::vector<std::uint8_t> copy_to_uint8_vector() const;
 
     /**
-     * @brief Path to the backing file.
-     *
-     * The file is owned by this buffer: callers must not modify or delete it.
-     *
-     * @return Filesystem path to the backing file (empty if there is none).
-     */
-    [[nodiscard]] std::filesystem::path const& path() const noexcept {
-        return path_;
-    }
-
-    /**
      * @brief Disk resource used for backing-file I/O.
      *
      * @return Shared pointer to the disk resource.
@@ -190,6 +192,17 @@ class DiskBuffer {
     void relocate(std::shared_ptr<DiskResource> disk);
 
   private:
+    /**
+     * @brief Path to the backing file.
+     *
+     * Private so that nobody outside the buffer can modify or delete the file.
+     *
+     * @return Filesystem path to the backing file (empty if there is none).
+     */
+    [[nodiscard]] std::filesystem::path const& path() const noexcept {
+        return path_;
+    }
+
     std::shared_ptr<DiskResource> disk_;
     std::filesystem::path path_;
     std::size_t size_;
