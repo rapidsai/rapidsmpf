@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Spill and unspill packed partitions between device and host memory."""
 
@@ -12,6 +12,9 @@ from rapidsmpf.memory.buffer_resource cimport (AllowOverbooking,
                                                cpp_BufferResource)
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
+from rapidsmpf.memory.reservation_events cimport (ReservationContext,
+                                                  cpp_ReservationContext,
+                                                  unwrap_reservation_context)
 
 
 cdef vector[cpp_PackedData] _partitions_py_to_cpp(partitions):
@@ -28,6 +31,7 @@ cdef extern from "<rapidsmpf/memory/spill.hpp>" nogil:
         "rapidsmpf::spill_partitions"(
             vector[cpp_PackedData] partitions,
             cpp_BufferResource* br,
+            cpp_ReservationContext reservation_context,
         ) except +ex_handler
 
     cdef vector[cpp_PackedData] cpp_unspill_partitions \
@@ -35,12 +39,15 @@ cdef extern from "<rapidsmpf/memory/spill.hpp>" nogil:
             vector[cpp_PackedData] partitions,
             cpp_BufferResource* br,
             AllowOverbooking allow_overbooking,
+            cpp_ReservationContext reservation_context,
         ) except +ex_handler
 
 
-cpdef object spill_partitions(
+def spill_partitions(
     object partitions,
     BufferResource br,
+    *,
+    ReservationContext reservation_context=None,
 ):
     """
     Spill partitions from device memory to host memory.
@@ -61,6 +68,8 @@ cpdef object spill_partitions(
         The partitions to spill.
     br
         Buffer resource used to reserve host memory and perform the move.
+    reservation_context
+        Optional telemetry reservation context for the spill reservation.
 
     Returns
     -------
@@ -74,18 +83,24 @@ cpdef object spill_partitions(
     cdef cpp_BufferResource* _br = br.ptr()
     cdef vector[cpp_PackedData] _partitions = _partitions_py_to_cpp(partitions)
     cdef vector[cpp_PackedData] _ret
+    cdef cpp_ReservationContext c_reservation_context = (
+        unwrap_reservation_context(reservation_context)
+    )
     with nogil:
         _ret = cpp_spill_partitions(
             move(_partitions),
             _br,
+            c_reservation_context,
         )
     return packed_data_vector_to_list(move(_ret), br)
 
 
-cpdef object unspill_partitions(
+def unspill_partitions(
     object partitions,
     BufferResource br,
     object allow_overbooking,
+    *,
+    ReservationContext reservation_context=None,
 ):
     """
     Move spilled partitions back to device memory.
@@ -110,6 +125,8 @@ cpdef object unspill_partitions(
     allow_overbooking
         If False, ensures enough memory is freed to satisfy the reservation;
         otherwise, allows overbooking even if spilling was insufficient.
+    reservation_context
+        Optional telemetry reservation context for the unspill reservation.
 
     Returns
     -------
@@ -128,10 +145,14 @@ cpdef object unspill_partitions(
     cdef AllowOverbooking ab = (
         AllowOverbooking.YES if allow_overbooking else AllowOverbooking.NO
     )
+    cdef cpp_ReservationContext c_reservation_context = (
+        unwrap_reservation_context(reservation_context)
+    )
     with nogil:
         _ret = cpp_unspill_partitions(
             move(_partitions),
             _br,
             ab,
+            c_reservation_context,
         )
     return packed_data_vector_to_list(move(_ret), br)

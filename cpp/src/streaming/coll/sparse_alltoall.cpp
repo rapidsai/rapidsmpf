@@ -15,7 +15,8 @@ SparseAlltoall::SparseAlltoall(
     std::shared_ptr<Communicator> comm,
     OpID op_id,
     std::vector<Rank> srcs,
-    std::vector<Rank> dsts
+    std::vector<Rank> dsts,
+    ReservationContext reservation_context
 )
     : ctx_{std::move(ctx)},
       exchange_{coll::SparseAlltoall(
@@ -29,7 +30,8 @@ SparseAlltoall::SparseAlltoall(
               // This doesn't resume the frame immediately so we don't have to track
               // completion of this callback with a task_group.
               event_.set(ctx_->executor()->get());
-          }
+          },
+          reservation_context
       )} {}
 
 SparseAlltoall::~SparseAlltoall() noexcept {

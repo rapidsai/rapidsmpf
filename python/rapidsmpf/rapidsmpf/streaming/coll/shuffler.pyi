@@ -7,6 +7,7 @@ from typing import Self
 
 from rapidsmpf.communicator.communicator import Communicator
 from rapidsmpf.memory.packed_data import PackedData
+from rapidsmpf.memory.reservation_events import ReservationContext
 from rapidsmpf.shuffler import PartitionAssignment
 from rapidsmpf.streaming.chunks.partition import PartitionMapChunk, PartitionVectorChunk
 from rapidsmpf.streaming.coll.collective import Collective
@@ -22,6 +23,8 @@ def shuffler(
     op_id: int,
     total_num_partitions: int,
     partition_assignment: PartitionAssignment = ...,
+    *,
+    reservation_context: ReservationContext | None = None,
 ) -> CppActor: ...
 
 class ShufflerAsync(Collective):
@@ -32,6 +35,8 @@ class ShufflerAsync(Collective):
         op_id: int,
         total_num_partitions: int,
         partition_assignment: PartitionAssignment = ...,
+        *,
+        reservation_context: ReservationContext | None = None,
     ) -> None: ...
     @property
     def comm(self) -> Communicator: ...

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from enum import IntEnum
 
+from rapidsmpf.memory.reservation_events import ReservationContext
 from rapidsmpf.streaming.core.actor import CppActor
 from rapidsmpf.streaming.core.channel import Channel
 from rapidsmpf.streaming.core.context import Context
@@ -18,4 +19,6 @@ def fanout(
     ch_in: Channel,
     chs_out: list[Channel],
     policy: FanoutPolicy,
+    *,
+    reservation_context: ReservationContext | None = None,
 ) -> CppActor: ...

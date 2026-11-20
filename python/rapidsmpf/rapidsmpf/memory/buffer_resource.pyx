@@ -6,7 +6,7 @@ import pathlib
 
 from cython cimport no_gc_clear
 from cython.operator cimport dereference as deref
-from libc.stdint cimport int64_t
+from libc.stdint cimport int64_t, uint64_t
 from libcpp cimport bool as bool_t
 from libcpp.memory cimport make_shared, shared_ptr, unique_ptr
 from libcpp.optional cimport optional
@@ -28,6 +28,9 @@ from rmm.pylibrmm.cuda_stream_pool cimport CudaStreamPool
 from rmm.pylibrmm.memory_resource cimport DeviceMemoryResource
 
 from rapidsmpf.memory.buffer cimport Buffer, cpp_Buffer
+from rapidsmpf.memory.reservation_events cimport (ReservationContext,
+                                                  cpp_ReservationContext,
+                                                  unwrap_reservation_context)
 
 
 cdef extern from *:
@@ -49,6 +52,7 @@ cdef extern from *:
     optional[device_async_resource_ref] cpp_make_device_async_resource_ref_from_any(
         any_resource[device_accessible]&
     ) except +ex_handler
+
 
 from rapidsmpf._detail.exception_handling cimport ex_handler
 from rapidsmpf.memory.host_memory_resource cimport (HostMemoryResource,
@@ -82,11 +86,12 @@ cdef extern from * nogil:
         std::shared_ptr<rapidsmpf::BufferResource> br,
         rapidsmpf::MemoryType mem_type,
         size_t size,
-        bool allow_overbooking
+        bool allow_overbooking,
+        rapidsmpf::ReservationContext reservation_context
     ) {
         auto ab = allow_overbooking ? rapidsmpf::AllowOverbooking::YES
                                     :rapidsmpf::AllowOverbooking::NO;
-        auto [res, ob] = br->reserve(mem_type, size, ab);
+        auto [res, ob] = br->reserve(mem_type, size, ab, reservation_context);
         return {std::make_unique<rapidsmpf::MemoryReservation>(std::move(res)), ob};
     }
 
@@ -94,12 +99,13 @@ cdef extern from * nogil:
     cpp_br_reserve_device_memory_and_spill(
         std::shared_ptr<rapidsmpf::BufferResource> br,
         size_t size,
-        bool allow_overbooking
+        bool allow_overbooking,
+        rapidsmpf::ReservationContext reservation_context
     ) {
         auto ab = allow_overbooking ? rapidsmpf::AllowOverbooking::YES
                                     :rapidsmpf::AllowOverbooking::NO;
         return std::make_unique<rapidsmpf::MemoryReservation>(
-            br->reserve_device_memory_and_spill(size, ab)
+            br->reserve_device_memory_and_spill(size, ab, reservation_context)
         );
     }
 
@@ -107,12 +113,14 @@ cdef extern from * nogil:
     cpp_br_reserve_or_fail(
         std::shared_ptr<rapidsmpf::BufferResource> br,
         size_t size,
-        std::vector<rapidsmpf::MemoryType> mem_types
+        std::vector<rapidsmpf::MemoryType> mem_types,
+        rapidsmpf::ReservationContext reservation_context
     ) {
         return std::make_unique<rapidsmpf::MemoryReservation>(
-            br->reserve_or_fail(size, mem_types)
+            br->reserve_or_fail(size, mem_types, reservation_context)
         );
     }
+
     }  // namespace
     """
     optional[cpp_HostMemoryResource] cpp_br_host_mr(
@@ -123,17 +131,119 @@ cdef extern from * nogil:
         MemoryType,
         size_t,
         bool_t,
+        cpp_ReservationContext,
     ) except +ex_handler
     unique_ptr[cpp_MemoryReservation] cpp_br_reserve_device_memory_and_spill(
         shared_ptr[cpp_BufferResource],
         size_t,
         bool_t,
+        cpp_ReservationContext,
     ) except +ex_handler
     unique_ptr[cpp_MemoryReservation] cpp_br_reserve_or_fail(
         shared_ptr[cpp_BufferResource],
         size_t,
         vector[MemoryType],
+        cpp_ReservationContext,
     ) except +ex_handler
+
+
+cdef class ReservationEvent:
+    """
+    A change in reserved bytes recorded by a ``BufferResource``.
+
+    Parameters
+    ----------
+    timestamp_ns
+        Non-decreasing Unix timestamp in nanoseconds.
+    reservation_context
+        Opaque attribution token passed when the reservation was made.
+    memory_type
+        Memory type of the reservation.
+    byte_delta
+        Change in reserved bytes: positive on reserve, negative on release.
+    """
+
+    def __init__(
+        self,
+        *,
+        int64_t timestamp_ns,
+        ReservationContext reservation_context,
+        MemoryType memory_type,
+        int64_t byte_delta,
+    ):
+        self.timestamp_ns = timestamp_ns
+        self.reservation_context = reservation_context
+        self._memory_type = memory_type
+        self.byte_delta = byte_delta
+
+    @property
+    def memory_type(self):
+        """Memory type of the reservation."""
+        return self._memory_type
+
+    def __eq__(self, other):
+        if not isinstance(other, ReservationEvent):
+            return NotImplemented
+        cdef ReservationEvent o = other
+        return (
+            self.timestamp_ns == o.timestamp_ns
+            and self.reservation_context == o.reservation_context
+            and self._memory_type == o._memory_type
+            and self.byte_delta == o.byte_delta
+        )
+
+    def __repr__(self):
+        return (
+            f"ReservationEvent(timestamp_ns={self.timestamp_ns}, "
+            f"reservation_context={self.reservation_context}, "
+            f"memory_type={self.memory_type!r}, byte_delta={self.byte_delta})"
+        )
+
+
+cdef class ReservationEventBatch:
+    """
+    Reservation events returned by draining or stopping a recording session.
+
+    Parameters
+    ----------
+    events
+        Recorded events, in recording order.
+    dropped_event_count
+        Number of events that could not be recorded.
+    """
+
+    def __init__(self, *, list events, uint64_t dropped_event_count=0):
+        self.events = events
+        self.dropped_event_count = dropped_event_count
+
+    def __repr__(self):
+        return (
+            f"ReservationEventBatch(events=<{len(self.events)} events>, "
+            f"dropped_event_count={self.dropped_event_count})"
+        )
+
+
+cdef ReservationEventBatch _reservation_event_batch_from_cpp(
+    const cpp_ReservationEventBatch& batch
+):
+    cdef list events = []
+    cdef ReservationEvent event
+    cdef size_t index
+    for index in range(batch.events.size()):
+        event = ReservationEvent.__new__(ReservationEvent)
+        event.timestamp_ns = batch.events[index].timestamp_ns
+        event.reservation_context = ReservationContext.from_cpp(
+            batch.events[index].reservation_context
+        )
+        event._memory_type = batch.events[index].memory_type
+        event.byte_delta = batch.events[index].byte_delta
+        events.append(event)
+    cdef ReservationEventBatch result = ReservationEventBatch.__new__(
+        ReservationEventBatch
+    )
+    result.events = events
+    result.dropped_event_count = batch.dropped_event_count
+    return result
 
 
 @no_gc_clear
@@ -188,6 +298,11 @@ cdef class BufferResource:
     allow_overbooking_by_default
         Whether reservation requests that don't specify an overbooking policy may
         overbook memory. See the ``allow_overbooking_by_default`` configuration option.
+    max_reservation_events
+        Maximum number of reservation event records retained between drains while
+        recording. Further events are dropped and counted in
+        ``ReservationEventBatch.dropped_event_count``. See the
+        ``max_reservation_events`` configuration option.
 
     Notes
     -----
@@ -214,7 +329,10 @@ cdef class BufferResource:
         spill_directory = None,
         memory_reserve_timeout = 0.1,
         allow_overbooking_by_default = True,
+        max_reservation_events = 1_000_000,
     ):
+        if max_reservation_events < 0:
+            raise ValueError("max_reservation_events must not be negative")
         cdef unordered_map[MemoryType, int64_t] _mem_limits
         if memory_limits is not None:
             for mem_type, limit in memory_limits.items():
@@ -269,6 +387,7 @@ cdef class BufferResource:
         cdef AllowOverbooking cpp_allow_overbooking = (
             AllowOverbooking.YES if allow_overbooking_by_default else AllowOverbooking.NO
         )
+        cdef size_t cpp_max_reservation_events = <size_t>max_reservation_events
         cdef optional[cpp_path] cpp_spill_directory
         if spill_directory is not None:
             cpp_spill_directory = cpp_path(<string>os.fsencode(spill_directory))
@@ -285,6 +404,7 @@ cdef class BufferResource:
                 cpp_spill_directory,
                 cpp_memory_reserve_timeout,
                 cpp_allow_overbooking,
+                cpp_max_reservation_events,
             )
         self.spill_manager = SpillManager._create(self)
 
@@ -344,6 +464,7 @@ cdef class BufferResource:
             allow_overbooking_by_default=allow_overbooking_by_default_from_options(
                 options
             ),
+            max_reservation_events=max_reservation_events_from_options(options),
         )
 
     def __dealloc__(self):
@@ -492,6 +613,17 @@ cdef class BufferResource:
             == AllowOverbooking.YES
         )
 
+    @property
+    def max_reservation_events(self):
+        """
+        Maximum number of reservation event records retained between drains.
+
+        Returns
+        -------
+        The maximum number of retained events.
+        """
+        return deref(self._handle).max_reservation_events()
+
     def memory_available_for_reservation(self, MemoryType mem_type):
         """
         Get the memory available to a new reservation, in bytes.
@@ -544,6 +676,13 @@ cdef class BufferResource:
             ret = deref(self._handle).memory_available(mem_type)
         return ret
 
+    def memory_limit(self, MemoryType mem_type):
+        """Get the configured byte limit for the specified memory type."""
+        cdef int64_t ret
+        with nogil:
+            ret = deref(self._handle).memory_limit(mem_type)
+        return ret
+
     def set_memory_limit(self, MemoryType mem_type, int64_t limit):
         """
         Set the byte limit for the specified memory type.
@@ -567,7 +706,44 @@ cdef class BufferResource:
         with nogil:
             deref(self._handle).set_memory_limit(mem_type, limit)
 
-    def reserve(self, MemoryType mem_type, size_t size, *, bool_t allow_overbooking):
+    def start_reservation_event_recording(self):
+        """
+        Start a reservation event recording session.
+
+        Recording serializes event appends on this buffer resource. Events are retained
+        without a fixed size limit until recording is drained or stopped.
+        """
+        with nogil:
+            deref(self._handle).start_reservation_event_recording()
+
+    def drain_reservation_events(self):
+        """
+        Atomically return events recorded so far while keeping recording active.
+
+        Returns
+        -------
+        A ``ReservationEventBatch`` with the recorded events.
+        """
+        cdef cpp_ReservationEventBatch batch
+        with nogil:
+            batch = deref(self._handle).drain_reservation_events()
+        return _reservation_event_batch_from_cpp(batch)
+
+    def stop_reservation_event_recording(self):
+        """Disable recording and return the final ``ReservationEventBatch``."""
+        cdef cpp_ReservationEventBatch batch
+        with nogil:
+            batch = deref(self._handle).stop_reservation_event_recording()
+        return _reservation_event_batch_from_cpp(batch)
+
+    def reserve(
+        self,
+        MemoryType mem_type,
+        size_t size,
+        *,
+        bool_t allow_overbooking,
+        ReservationContext reservation_context=None,
+    ):
         """
         Reserve an amount of the specified memory type.
 
@@ -590,6 +766,8 @@ cdef class BufferResource:
             The number of bytes to reserve.
         allow_overbooking
             Whether overbooking is permitted.
+        reservation_context
+            Optional telemetry attribution token for the reservation.
 
         Returns
         -------
@@ -600,12 +778,25 @@ cdef class BufferResource:
         """
         check_reservation_size(size)
         cdef pair[unique_ptr[cpp_MemoryReservation], size_t] ret
+        cdef cpp_ReservationContext c_reservation_context = (
+            unwrap_reservation_context(reservation_context)
+        )
         with nogil:
-            ret = cpp_br_reserve(self._handle, mem_type, size, allow_overbooking)
+            ret = cpp_br_reserve(
+                self._handle,
+                mem_type,
+                size,
+                allow_overbooking,
+                c_reservation_context,
+            )
         return MemoryReservation.from_handle(move(ret.first), self), ret.second
 
     def reserve_device_memory_and_spill(
-        self, size_t size, *, bool_t allow_overbooking
+        self,
+        size_t size,
+        *,
+        bool_t allow_overbooking,
+        ReservationContext reservation_context=None,
     ):
         """
         Reserve device memory and spill if necessary.
@@ -623,6 +814,8 @@ cdef class BufferResource:
             Whether to allow overbooking. If false, ensures enough memory is freed
             to satisfy the reservation. If true, the reservation may succeed even
             if spilling was insufficient.
+        reservation_context
+            Optional telemetry attribution token for the reservation.
 
         Returns
         -------
@@ -636,13 +829,22 @@ cdef class BufferResource:
         """
         check_reservation_size(size)
         cdef unique_ptr[cpp_MemoryReservation] ret
+        cdef cpp_ReservationContext c_reservation_context = (
+            unwrap_reservation_context(reservation_context)
+        )
         with nogil:
             ret = cpp_br_reserve_device_memory_and_spill(
-                self._handle, size, allow_overbooking
+                self._handle, size, allow_overbooking, c_reservation_context
             )
         return MemoryReservation.from_handle(move(ret), self)
 
-    def reserve_or_fail(self, size_t size, list mem_types):
+    def reserve_or_fail(
+        self,
+        size_t size,
+        list mem_types,
+        *,
+        ReservationContext reservation_context=None,
+    ):
         """
         Make a memory reservation or fail based on the given order of memory types.
 
@@ -658,6 +860,8 @@ cdef class BufferResource:
         mem_types
             List of :class:`~.MemoryType` values specifying the order of preference
             in which memory types are tried.
+        reservation_context
+            Optional telemetry attribution token for the reservation.
 
         Returns
         -------
@@ -674,8 +878,13 @@ cdef class BufferResource:
         for mt in mem_types:
             cpp_mem_types.push_back(<MemoryType?>mt)
         cdef unique_ptr[cpp_MemoryReservation] ret
+        cdef cpp_ReservationContext c_reservation_context = (
+            unwrap_reservation_context(reservation_context)
+        )
         with nogil:
-            ret = cpp_br_reserve_or_fail(self._handle, size, cpp_mem_types)
+            ret = cpp_br_reserve_or_fail(
+                self._handle, size, cpp_mem_types, c_reservation_context
+            )
         return MemoryReservation.from_handle(move(ret), self)
 
     def release(self, MemoryReservation reservation not None, size_t size):
@@ -773,6 +982,11 @@ cdef extern from "<rapidsmpf/memory/buffer_resource.hpp>" nogil:
 
     cdef AllowOverbooking cpp_allow_overbooking_by_default_from_options \
         "rapidsmpf::allow_overbooking_by_default_from_options"(
+            cpp_Options options
+        ) except +ex_handler
+
+    cdef size_t cpp_max_reservation_events_from_options \
+        "rapidsmpf::max_reservation_events_from_options"(
             cpp_Options options
         ) except +ex_handler
 
@@ -896,6 +1110,30 @@ def allow_overbooking_by_default_from_options(Options options not None):
     with nogil:
         ret = cpp_allow_overbooking_by_default_from_options(options._handle)
     return ret == AllowOverbooking.YES
+
+
+def max_reservation_events_from_options(Options options not None):
+    """
+    Get the ``max_reservation_events`` parameter from configuration options.
+
+    Parameters
+    ----------
+    options
+        Configuration options.
+
+    Returns
+    -------
+    The maximum number of reservation event records retained between drains.
+
+    Raises
+    ------
+    ValueError
+        If the value is negative or cannot be parsed.
+    """
+    cdef size_t ret
+    with nogil:
+        ret = cpp_max_reservation_events_from_options(options._handle)
+    return ret
 
 
 def spill_dir_from_options(Options options not None):

@@ -1,6 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-
 from cpython.object cimport PyObject
 from cpython.ref cimport Py_INCREF
 from cython.operator cimport dereference as deref
@@ -17,6 +16,9 @@ from rapidsmpf.communicator.communicator cimport Communicator
 from rapidsmpf.memory.buffer_resource cimport BufferResource  # no-cython-lint
 from rapidsmpf.memory.packed_data cimport (PackedData, cpp_PackedData,
                                            packed_data_vector_to_list)
+from rapidsmpf.memory.reservation_events cimport (ReservationContext,
+                                                  cpp_ReservationContext,
+                                                  unwrap_reservation_context)
 from rapidsmpf.owning_wrapper cimport cpp_OwningWrapper
 from rapidsmpf.shuffler cimport (PartitionAssignment,
                                  cpp_insert_chunk_into_partition_map,
@@ -73,7 +75,9 @@ def shuffler(
     Channel ch_out not None,
     int32_t op_id,
     uint32_t total_num_partitions,
-    PartitionAssignment partition_assignment = PartitionAssignment.ROUND_ROBIN
+    PartitionAssignment partition_assignment = PartitionAssignment.ROUND_ROBIN,
+    *,
+    ReservationContext reservation_context=None,
 ):
     """
     Launch a shuffler actor for a single shuffle operation.
@@ -103,6 +107,8 @@ def shuffler(
         :attr:`~.PartitionAssignment.CONTIGUOUS` so each rank gets a contiguous range
         of partition IDs (e.g. for sort so concatenation order matches global order).
         A custom callable may be supported in the future.
+    reservation_context
+        Optional telemetry attribution token for internal memory reservations.
 
     Returns
     -------
@@ -110,6 +116,9 @@ def shuffler(
     been drained.
     """
 
+    cdef cpp_ReservationContext c_reservation_context = (
+        unwrap_reservation_context(reservation_context)
+    )
     with nogil:
         _ret = cpp_shuffler(
             ctx._handle,
@@ -121,6 +130,7 @@ def shuffler(
             cpp_Shuffler.round_robin
             if partition_assignment == PartitionAssignment.ROUND_ROBIN
             else cpp_Shuffler.contiguous,
+            c_reservation_context,
         )
     return CppActor.from_handle(make_unique[cpp_Actor](move(_ret)), owner=None)
 
@@ -149,6 +159,8 @@ cdef class ShufflerAsync(Collective):
         :attr:`~.PartitionAssignment.CONTIGUOUS` so each rank gets a contiguous range
         of partition IDs (e.g. for sort so concatenation order matches global order).
         A custom callable may be supported in the future.
+    reservation_context
+        Optional telemetry attribution token for internal memory reservations.
     """
     def __init__(
         self,
@@ -157,16 +169,22 @@ cdef class ShufflerAsync(Collective):
         int32_t op_id,
         uint32_t total_num_partitions,
         PartitionAssignment partition_assignment = PartitionAssignment.ROUND_ROBIN,
+        *,
+        ReservationContext reservation_context=None,
     ):
         self._ctx = ctx
         self._comm = comm
         self._br = ctx.br()
+        cdef cpp_ReservationContext c_reservation_context = (
+            unwrap_reservation_context(reservation_context)
+        )
         with nogil:
             self._handle = make_shared[cpp_ShufflerAsync](
                 ctx._handle, comm._handle, op_id, total_num_partitions,
                 cpp_Shuffler.round_robin
                 if partition_assignment == PartitionAssignment.ROUND_ROBIN
                 else cpp_Shuffler.contiguous,
+                c_reservation_context,
             )
 
     def __dealloc__(self):

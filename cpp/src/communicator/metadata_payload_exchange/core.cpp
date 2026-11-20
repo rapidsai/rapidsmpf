@@ -37,9 +37,12 @@ void MetadataPayloadExchange::Message::set_data(std::unique_ptr<Buffer> buffer) 
 }
 
 std::unique_ptr<Buffer> default_allocate_buffer(
-    BufferResource* br, std::size_t size, MetadataPayloadExchange::AllocationMode mode
+    BufferResource* br,
+    std::size_t size,
+    MetadataPayloadExchange::AllocationMode mode,
+    ReservationContext reservation_context
 ) {
-    auto res = br->try_reserve(size, ADDRESSABLE_MEMORY_TYPES);
+    auto res = br->try_reserve(size, ADDRESSABLE_MEMORY_TYPES, reservation_context);
     if (!res.has_value()) {
         if (mode == MetadataPayloadExchange::AllocationMode::MAY_FAIL) {
             return nullptr;
@@ -51,7 +54,10 @@ std::unique_ptr<Buffer> default_allocate_buffer(
             std::runtime_error
         );
         // Fall back to overbooking host memory as a last resort.
-        res = br->reserve(MemoryType::HOST, size, AllowOverbooking::YES).first;
+        res = br->reserve(
+                    MemoryType::HOST, size, AllowOverbooking::YES, reservation_context
+        )
+                  .first;
     }
     return br->make_buffer(br->stream_pool()->get_stream(), std::move(*res));
 }
