@@ -67,6 +67,18 @@ std::shared_ptr<rapidsmpf::Communicator> Environment::split_comm() {
     );
 }
 
+std::shared_ptr<rapidsmpf::Communicator> Environment::new_comm() {
+    // Never freed: the communicator may be aborted with unmatched messages, and Open MPI
+    // fails when the context of a freed communicator with unmatched messages is reused.
+    MPI_Comm comm = MPI_COMM_NULL;
+    RAPIDSMPF_MPI(MPI_Comm_dup(mpi_comm_, &comm));
+    return std::make_shared<rapidsmpf::MPI>(
+        comm,
+        std::make_shared<rapidsmpf::ProgressThread>(),
+        rapidsmpf::Logger::from_options(options_)
+    );
+}
+
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     GlobalEnvironment = new Environment(argc, argv);

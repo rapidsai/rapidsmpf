@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from cpython.ref cimport PyObject
@@ -133,6 +133,7 @@ cdef extern from *:
     #include <stdexcept>
 
     #include <Python.h>
+    #include <rapidsmpf/communicator/communicator.hpp>
     #include <rapidsmpf/error.hpp>
 
     namespace {
@@ -177,6 +178,8 @@ cdef extern from *:
         set_exception(exn, "rapidsmpf.error", "OutOfMemory");
       } catch (const rapidsmpf::bad_alloc& exn) {
         set_exception(exn, "rapidsmpf.error", "BadAlloc");
+      } catch (const rapidsmpf::communicator_aborted& exn) {
+        set_exception(exn, "rapidsmpf.error", "CommunicatorAborted");
       } catch (const std::bad_alloc& exn) {
         PyErr_SetString(PyExc_MemoryError, exn.what());
       } catch (const std::bad_cast& exn) {

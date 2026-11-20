@@ -87,9 +87,19 @@ class MPI final : public Communicator {
          *
          * @param req The MPI request handle for the operation.
          * @param data_buffer A unique pointer to the data buffer.
+         * @param direction Whether this is a send or a receive.
+         * @param graveyard The graveyard of the communicator, see `~Future()`.
          */
-        Future(MPI_Request req, std::unique_ptr<Buffer> data_buffer)
-            : req_{req}, data_buffer_{std::move(data_buffer)} {}
+        Future(
+            MPI_Request req,
+            std::unique_ptr<Buffer> data_buffer,
+            Direction direction,
+            std::shared_ptr<detail::FutureGraveyard> graveyard
+        )
+            : req_{req},
+              direction_{direction},
+              data_buffer_{std::move(data_buffer)},
+              graveyard_{std::move(graveyard)} {}
 
         /**
          * @brief Construct a Future from synchronized host data.
@@ -99,22 +109,41 @@ class MPI final : public Communicator {
          *
          * @param req The MPI request handle for the operation.
          * @param synced_host_data A unique pointer to a vector containing host memory.
+         * @param direction Whether this is a send or a receive.
+         * @param graveyard The graveyard of the communicator, see `~Future()`.
          */
         Future(
-            MPI_Request req, std::unique_ptr<std::vector<std::uint8_t>> synced_host_data
+            MPI_Request req,
+            std::unique_ptr<std::vector<std::uint8_t>> synced_host_data,
+            Direction direction,
+            std::shared_ptr<detail::FutureGraveyard> graveyard
         )
-            : req_{std::move(req)}, synced_host_data_{std::move(synced_host_data)} {}
+            : req_{std::move(req)},
+              direction_{direction},
+              synced_host_data_{std::move(synced_host_data)},
+              graveyard_{std::move(graveyard)} {}
 
-        /// @brief Destructor.
-        ~Future() noexcept override = default;
+        /**
+         * @brief Destructor.
+         *
+         * If the completion of the communication was not observed, e.g., by `test()`,
+         * the request and buffers are handed over to the graveyard of the
+         * communicator, which aborts it, see `detail::FutureGraveyard`.
+         */
+        ~Future() noexcept override;
+
+        Future(Future&&) = delete;  ///< Not movable, it may own a request.
+        Future& operator=(Future&&) = delete;  ///< Not move-assignable.
 
       private:
         MPI_Request req_;
+        Direction const direction_;  ///< Whether this is a send or a receive.
         // TODO: these buffers are mutually exclusive and looks similar to
         // Buffer::storage_.
         std::unique_ptr<Buffer> data_buffer_;
         // Dedicated storage for host data that is valid at the time of construction.
         std::unique_ptr<std::vector<std::uint8_t>> synced_host_data_;
+        std::shared_ptr<detail::FutureGraveyard> graveyard_;
     };
 
     /**
@@ -130,7 +159,7 @@ class MPI final : public Communicator {
         std::shared_ptr<ProgressThread> progress_thread,
         std::shared_ptr<Logger> logger);
 
-    ~MPI() noexcept override = default;
+    ~MPI() noexcept override;
 
     /**
      * @copydoc Communicator::rank
@@ -273,6 +302,8 @@ class MPI final : public Communicator {
     Rank nranks_;
     std::shared_ptr<Logger> logger_;
     std::shared_ptr<ProgressThread> progress_thread_;
+    /// @brief Keeps the in-flight communication of destroyed futures alive.
+    std::shared_ptr<detail::FutureGraveyard> graveyard_;
 };
 
 

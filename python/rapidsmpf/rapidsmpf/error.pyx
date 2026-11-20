@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 """RapidsMPF-specific exception classes."""
 
@@ -32,5 +32,17 @@ class BadAlloc(MemoryError):
 
     This is the rapidsmpf equivalent of std::bad_alloc, indicating a failed
     memory allocation operation.
+    """
+    pass
+
+
+class CommunicatorAborted(RuntimeError):
+    """
+    Exception raised by the communication of an aborted communicator.
+
+    A communicator is aborted on a rank when an operation is destroyed while its
+    communication is in flight, e.g., because the operation failed: that
+    communication may still match later messages, so the communicator must not be
+    used anymore. Create a new communicator to communicate again.
     """
     pass

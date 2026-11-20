@@ -68,6 +68,10 @@ class Environment : public ::testing::Environment {
 
     std::shared_ptr<rapidsmpf::Communicator> split_comm();
 
+    /// @brief Create a new communicator over all ranks, independent of `comm_`, e.g.,
+    /// to abort it. Collective. Returns null if not supported.
+    std::shared_ptr<rapidsmpf::Communicator> new_comm();
+
     std::shared_ptr<rapidsmpf::Communicator> comm_;
 
   private:
