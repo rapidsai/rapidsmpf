@@ -11,6 +11,8 @@
 #include <string>
 #include <utility>
 
+#include <unistd.h>
+
 #include <cuda/memory_resource>
 #include <cuda/stream>
 
@@ -94,7 +96,7 @@ std::shared_ptr<BufferResource> BufferResource::create(
 
     std::shared_ptr<DiskResource> disk_res;
     if (spill_directory.has_value()) {
-        disk_res.reset(new DiskResource{*spill_directory});
+        disk_res.reset(new DiskResource{*spill_directory / std::to_string(::getpid())});
     }
     std::shared_ptr<BufferResource> br{new BufferResource{
         std::move(device_mr),

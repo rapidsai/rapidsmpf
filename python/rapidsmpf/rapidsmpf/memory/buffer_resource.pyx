@@ -180,7 +180,7 @@ cdef class BufferResource:
     spill_directory
         Directory for disk spilling, as a ``str`` or ``os.PathLike``. When set,
         disk spilling is enabled and spill files are written to a uniquely named
-        subdirectory ``<spill_directory>/XXXXXXXX`` owned by this buffer
+        subdirectory ``<spill_directory>/<pid>-XXXXXX`` owned by this buffer
         resource (see :attr:`spill_directory`). If None, disk spilling is disabled.
     memory_reserve_timeout
         Progress timeout for memory reservation requests, in seconds. See the
@@ -455,7 +455,7 @@ cdef class BufferResource:
         """
         The directory owned by this buffer resource for disk spilling.
 
-        This is a uniquely named subdirectory ``<spill_directory>/XXXXXXXX``
+        This is a uniquely named subdirectory ``<spill_directory>/<pid>-XXXXXX``
         of the ``spill_directory`` given at construction.
 
         Returns

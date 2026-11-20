@@ -27,7 +27,8 @@
 
 namespace rapidsmpf {
 
-DiskResource::DiskResource(std::filesystem::path const& parent) {
+DiskResource::DiskResource(std::filesystem::path dir_prefix) {
+    auto const parent = dir_prefix.parent_path();
     if (!parent.empty()) {
         std::error_code ec;
         std::filesystem::create_directories(parent, ec);
@@ -38,7 +39,7 @@ DiskResource::DiskResource(std::filesystem::path const& parent) {
         );
     }
 
-    auto path_template = (parent / "XXXXXXXX").string();
+    auto path_template = dir_prefix.string() + "-XXXXXX";
     auto const* path = ::mkdtemp(path_template.data());
     auto const create_error = errno;
     RAPIDSMPF_EXPECTS(
