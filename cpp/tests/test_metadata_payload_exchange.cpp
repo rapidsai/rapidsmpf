@@ -691,14 +691,32 @@ TEST_F(MetadataPayloadExchangeTest, ThrowsOnTimeoutWithoutOverbooking) {
     EXPECT_TRUE(threw) << "progress() did not throw within the deadline";
     EXPECT_EQ(num_forced, 1);
 
-    // Receive the payload that the exchange gave up on, so it isn't left unmatched.
-    auto future =
+    // Receive the payload that the exchange gave up on, so it isn't left unmatched, and
+    // acknowledge it. Keep progressing `exchange_comm` until our own payload is
+    // acknowledged, so that our send is delivered also when the UCX worker is only
+    // progressed by its communicator (polling mode).
+    auto const progress_until_complete = [&](auto& future) {
+        while (!exchange_comm->test(future)) {
+            std::this_thread::yield();
+        }
+    };
+    Tag const ack_tag{op_id, 2};
+    auto acked = exchange_comm->recv_sync_host_data(
+        next_rank, ack_tag, std::make_unique<std::vector<std::uint8_t>>(1)
+    );
+    auto payload =
         exchange_comm->recv(prev_rank, Tag{op_id, 1}, allocate_receive_buffer(data_size));
-    std::ignore = exchange_comm->wait(std::move(future));
-    // Once every rank has received its payload, every send has delivered its data, so
-    // destroying the exchange and its send buffers is safe.
-    GlobalEnvironment->barrier();
+    progress_until_complete(payload);
+    std::ignore = exchange_comm->wait(std::move(payload));
+    auto ack = exchange_comm->send(
+        std::make_unique<std::vector<std::uint8_t>>(1), prev_rank, ack_tag
+    );
+    progress_until_complete(acked);
+    progress_until_complete(ack);
+    // Our send has delivered its data, so destroying the exchange and its send buffers is
+    // safe.
     comm_interface.reset();
+    GlobalEnvironment->barrier();
 }
 
 TEST_F(MetadataPayloadExchangeTest, MovesForcedReceiveToDisk) {
