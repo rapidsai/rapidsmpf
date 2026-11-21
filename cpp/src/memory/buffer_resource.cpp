@@ -503,6 +503,33 @@ std::shared_ptr<Statistics> BufferResource::statistics() const noexcept {
     return statistics_;
 }
 
+std::unique_ptr<Buffer> BufferResource::adopt_disk_file(
+    std::filesystem::path const& path, cuda::stream_ref stream
+) {
+    RAPIDSMPF_EXPECTS(
+        disk_resource_ != nullptr,
+        "cannot adopt a disk file without a disk resource",
+        std::invalid_argument
+    );
+    return std::unique_ptr<Buffer>(
+        new Buffer(std::make_unique<DiskBuffer>(disk_resource_, path, stream), stream)
+    );
+}
+
+std::filesystem::path BufferResource::release_disk_file(std::unique_ptr<Buffer> buffer) {
+    return buffer->release_disk_buffer()->release();
+}
+
+void BufferResource::set_rank_topology(std::shared_ptr<RankTopology const> topology) {
+    std::lock_guard const lock(mutex_);
+    rank_topology_ = std::move(topology);
+}
+
+std::shared_ptr<RankTopology const> BufferResource::rank_topology() const {
+    std::lock_guard const lock(mutex_);
+    return rank_topology_;
+}
+
 std::int64_t device_limit_from_options(config::Options options) {
     return options.get<std::int64_t>("spill_device_limit", [](auto const& s) {
         auto const [_, total_mem] = rmm::available_device_memory();

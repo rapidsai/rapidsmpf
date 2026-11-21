@@ -88,7 +88,9 @@ namespace rapidsmpf::communicator {
  *   delivered, so received messages may be disk-backed. The move blocks `progress()`
  *   while the payload is written. Without a disk resource, the payload is delivered in
  *   the forced buffer.
- * - Only payloads in `sendable_memory_types()` of their destination can be sent.
+ * - Only payloads in `sendable_memory_types()` of their destination can be sent. It
+ *   may include `DISK` when the destination can read this rank's spill files, in which
+ *   case the destination receives a disk-backed payload.
  */
 class MetadataPayloadExchange {
   public:
@@ -225,8 +227,8 @@ class MetadataPayloadExchange {
      * @brief Get the memory types of payloads that can be sent to a remote rank.
      *
      * Callers must only send payloads in one of these memory types. The result
-     * includes at least `ADDRESSABLE_MEMORY_TYPES`, is fixed at construction, and this
-     * method may be called from any thread.
+     * includes at least `ADDRESSABLE_MEMORY_TYPES`, and may include `DISK`. It is
+     * fixed at construction, and this method may be called from any thread.
      *
      * @param dst The destination rank.
      * @return The sendable memory types in decreasing order of preference.

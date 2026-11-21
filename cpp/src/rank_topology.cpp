@@ -189,6 +189,14 @@ std::shared_ptr<RankTopology> RankTopology::create(
     );
 }
 
+std::shared_ptr<RankTopology const> create_and_attach_rank_topology(
+    std::shared_ptr<Communicator> const& comm, std::shared_ptr<BufferResource> const& br
+) {
+    std::shared_ptr<RankTopology const> topology = RankTopology::create(comm, br);
+    br->set_rank_topology(topology);
+    return topology;
+}
+
 RankTopology::RankTopology(Rank rank, std::vector<RankInfo> ranks)
     : rank_{rank}, ranks_{std::move(ranks)} {
     auto const my_node = info(rank_).node_id;  // Throws if `rank` is out of range.

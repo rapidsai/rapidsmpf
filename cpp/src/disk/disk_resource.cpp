@@ -10,9 +10,12 @@
 #include <stdexcept>
 #include <string>
 #include <system_error>
+#include <tuple>
 #include <utility>
 
 #include <fcntl.h>
+#include <linux/fs.h>
+#include <sys/ioctl.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -26,6 +29,16 @@
 #include <rapidsmpf/utils/string.hpp>
 
 namespace rapidsmpf {
+
+namespace {
+
+/// Remove @p path if it exists, ignoring any error. Used to clean up after a failure.
+void remove_ignoring_errors(std::filesystem::path const& path) noexcept {
+    std::error_code ignored;
+    std::filesystem::remove(path, ignored);
+}
+
+}  // namespace
 
 DiskResource::DiskResource(std::filesystem::path dir_prefix) {
     auto const parent = dir_prefix.parent_path();
@@ -72,8 +85,7 @@ std::filesystem::path DiskResource::create_unique_path() const {
     );
     if (::close(fd) != 0) {
         auto const err = errno;
-        std::error_code remove_error;
-        std::filesystem::remove(path_template, remove_error);
+        remove_ignoring_errors(path_template);
         RAPIDSMPF_FAIL(
             "close after file reservation failed: " + std::string{std::strerror(err)},
             std::runtime_error
@@ -210,46 +222,102 @@ std::size_t DiskResource::copy(
 
 namespace {
 
+
+/// Removes a file when it goes out of scope, unless released. Cleans up after a failure.
+class FileGuard {
+  public:
+    /// @param path The file to remove unless released.
+    explicit FileGuard(std::filesystem::path path) noexcept : path_{std::move(path)} {}
+
+    ~FileGuard() noexcept {
+        if (!path_.empty()) {
+            remove_ignoring_errors(path_);
+        }
+    }
+
+    FileGuard(FileGuard const&) = delete;
+    FileGuard& operator=(FileGuard const&) = delete;
+
+    /// @return The guarded path.
+    [[nodiscard]] std::filesystem::path const& path() const noexcept {
+        return path_;
+    }
+
+    /// Keep the file. @return Its path.
+    [[nodiscard]] std::filesystem::path release() noexcept {
+        return std::exchange(path_, {});
+    }
+
+  private:
+    std::filesystem::path path_;
+};
+
 /**
- * @brief Replace @p dst_path with a copy of @p src_path, then remove @p src_path.
+ * @brief Replace @p dst with a copy of @p src.
  *
- * Fallback for moving a file across filesystems, where `rename(2)` is not possible. The
- * data is first copied to a temporary sibling of @p dst_path and renamed into place, so
- * @p dst_path never holds a partial file.
+ * Works across filesystems, unlike `rename(2)`, and unlike `copy_file_range(2)` on newer
+ * kernels. The data is copied to a temporary sibling of @p dst and renamed into place,
+ * so @p dst never holds a partial file. On failure the temporary file is removed.
  *
- * On failure the temporary file is removed and @p src_path is left in place. If only the
- * final removal of @p src_path fails, @p dst_path already holds the complete copy.
- *
- * @throws std::runtime_error if the copy, rename or removal fails.
+ * @throws std::runtime_error if the copy or rename fails.
  */
-void copy_then_replace(
-    std::filesystem::path const& src_path, std::filesystem::path const& dst_path
-) {
-    // Copy to a temporary sibling of the destination and rename it into place, so the
-    // destination never holds a partial file.
-    auto const tmp_path = std::filesystem::path{dst_path.string() + ".moving"};
+void copy_file_into(std::filesystem::path const& src, std::filesystem::path const& dst) {
+    FileGuard tmp{dst.string() + ".copying"};
     std::error_code ec;
     std::filesystem::copy_file(
-        src_path, tmp_path, std::filesystem::copy_options::overwrite_existing, ec
+        src, tmp.path(), std::filesystem::copy_options::overwrite_existing, ec
     );
     if (!ec) {
-        std::filesystem::rename(tmp_path, dst_path, ec);
+        std::filesystem::rename(tmp.path(), dst, ec);
     }
-    if (!ec) {
-        std::filesystem::remove(src_path, ec);
+    RAPIDSMPF_EXPECTS(
+        !ec,
+        "failed to copy " + src.string() + " to " + dst.string() + ": " + ec.message(),
+        std::runtime_error
+    );
+    std::ignore = tmp.release();  // Renamed into place.
+}
+
+/**
+ * @brief Try to make @p dst a copy-on-write reflink of @p src.
+ *
+ * @return False if the filesystem does not support reflinks between the two files.
+ * @throws std::runtime_error on any other failure.
+ */
+bool try_reflink(std::filesystem::path const& src, std::filesystem::path const& dst) {
+#ifdef FICLONE
+    ScopedFd src_fd{src, O_RDONLY};
+    ScopedFd dst_fd{dst, O_WRONLY | O_TRUNC};
+    if (::ioctl(dst_fd.get(), FICLONE, src_fd.get()) == 0) {
+        return true;
     }
-    if (ec) {
-        std::error_code ignored;
-        std::filesystem::remove(tmp_path, ignored);
-        RAPIDSMPF_FAIL(
-            "failed to copy " + src_path.string() + " to " + dst_path.string() + ": "
-                + ec.message(),
-            std::runtime_error
-        );
-    }
+    auto const err = errno;
+    RAPIDSMPF_EXPECTS(
+        err == EOPNOTSUPP || err == EXDEV || err == EINVAL || err == ENOTTY,
+        "FICLONE of " + src.string() + " failed: " + std::strerror(err),
+        std::runtime_error
+    );
+#endif
+    return false;
 }
 
 }  // namespace
+
+std::filesystem::path DiskResource::clone(
+    std::filesystem::path const& path, cuda::stream_ref stream
+) const {
+    RAPIDSMPF_EXPECTS(
+        std::filesystem::is_regular_file(path),
+        "cannot clone " + path.string() + ": not a regular file",
+        std::invalid_argument
+    );
+    stream.sync();
+    FileGuard new_path{create_unique_path()};
+    if (!try_reflink(path, new_path.path())) {
+        copy_file_into(path, new_path.path());
+    }
+    return new_path.release();
+}
 
 std::filesystem::path DiskResource::adopt(std::filesystem::path const& path) const {
     RAPIDSMPF_EXPECTS(
@@ -267,30 +335,21 @@ std::filesystem::path DiskResource::adopt(std::filesystem::path const& path) con
     {
         return path;
     }
-
-    // The reserved file is replaced by the rename (or copy) below.
-    auto new_path = create_unique_path();
-    auto cleanup = [&] {
-        std::error_code ignored;
-        std::filesystem::remove(new_path, ignored);
-    };
-    std::filesystem::rename(path, new_path, ec);
+    // The reserved file is replaced by the rename, or by a copy across filesystems. The
+    // source is removed only once the copy is in place, so a failure leaves it intact.
+    FileGuard new_path{create_unique_path()};
+    std::filesystem::rename(path, new_path.path(), ec);
     if (ec == std::errc::cross_device_link) {
-        try {
-            copy_then_replace(path, new_path);
-        } catch (...) {
-            cleanup();
-            throw;
-        }
-    } else if (ec) {
-        cleanup();
-        RAPIDSMPF_FAIL(
-            "failed to adopt " + path.string() + " into " + dir_.string() + ": "
-                + ec.message(),
-            std::runtime_error
-        );
+        copy_file_into(path, new_path.path());
+        std::filesystem::remove(path, ec);
     }
-    return new_path;
+    RAPIDSMPF_EXPECTS(
+        !ec,
+        "failed to adopt " + path.string() + " into " + dir_.string() + ": "
+            + ec.message(),
+        std::runtime_error
+    );
+    return new_path.release();
 }
 
 void DiskResource::flush(std::filesystem::path const& path) const {

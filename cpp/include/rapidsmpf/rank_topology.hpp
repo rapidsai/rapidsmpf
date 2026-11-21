@@ -251,4 +251,19 @@ class RankTopology {
     std::size_t local_rank_idx_{0};
 };
 
+/**
+ * @brief Build the rank topology collectively and attach it to a buffer resource.
+ *
+ * Collective over @p comm (see `RankTopology::create()`). Metadata-payload exchanges
+ * created afterwards with @p br send DISK payloads by file path to ranks that can read
+ * this rank's spill files (see `BufferResource::set_rank_topology()`).
+ *
+ * @param comm The communicator; every rank must call this.
+ * @param br The buffer resource whose spill files the topology describes.
+ * @return The attached topology.
+ */
+std::shared_ptr<RankTopology const> create_and_attach_rank_topology(
+    std::shared_ptr<Communicator> const& comm, std::shared_ptr<BufferResource> const& br
+);
+
 }  // namespace rapidsmpf

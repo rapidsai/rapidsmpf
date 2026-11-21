@@ -123,6 +123,26 @@ class DiskResource : public BackRefMixin<BufferResource> {
     ) const;
 
     /**
+     * @brief Create an independent copy of a file under `directory()`.
+     *
+     * Tries a copy-on-write reflink (`FICLONE`) first, which is O(1) on filesystems
+     * that support it (XFS, btrfs, bcachefs, ZFS 2.2+, and NFSv4.2 servers with
+     * CLONE). Otherwise falls back to a regular file copy, which is proportional to the
+     * file size.
+     * Either way, later writes to one file never affect the other.
+     *
+     * @param path Existing regular file to clone. May be outside `directory()`.
+     * @param stream CUDA stream to synchronize before cloning, as in `copy()`.
+     * @return Path of the new file under `directory()`.
+     * @throws std::invalid_argument if @p path is not an existing regular file.
+     * @throws std::runtime_error if the file can neither be reflinked nor copied.
+     *         Nothing is left behind in `directory()` in that case.
+     */
+    [[nodiscard]] std::filesystem::path clone(
+        std::filesystem::path const& path, cuda::stream_ref stream
+    ) const;
+
+    /**
      * @brief Take ownership of a file by placing it under `directory()`.
      *
      * If @p path is already directly under `directory()` (compared by device and inode,

@@ -193,3 +193,23 @@ TEST(RankTopology, CreateSingleRank) {
     EXPECT_TRUE(std::ranges::equal(topo->node_local_ranks(), std::array<Rank, 1>{0}));
     EXPECT_EQ(topo->local().rank, 0);
 }
+
+TEST(RankTopologyLocal, BufferResourceHoldsTopology) {
+    auto br = create_br();
+    EXPECT_EQ(br->rank_topology(), nullptr);
+    auto const topo =
+        std::make_shared<RankTopology const>(0, std::vector{make_info(0, 7)});
+    br->set_rank_topology(topo);
+    EXPECT_EQ(br->rank_topology(), topo);
+    br->set_rank_topology(nullptr);
+    EXPECT_EQ(br->rank_topology(), nullptr);
+}
+
+TEST(RankTopology, CreateAndAttach) {
+    auto const& comm = GlobalEnvironment->comm_;
+    auto br = create_br();
+    auto const topo = create_and_attach_rank_topology(comm, br);
+    ASSERT_NE(topo, nullptr);
+    EXPECT_EQ(br->rank_topology(), topo);
+    EXPECT_EQ(topo->ranks().size(), static_cast<std::size_t>(comm->nranks()));
+}
