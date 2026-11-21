@@ -176,6 +176,12 @@ std::shared_ptr<RankTopology> RankTopology::create(
     RankInfo const local =
         local_rank_info(comm->rank(), disk != nullptr ? &disk->directory() : nullptr);
 
+    // A single rank has nothing to gather. Skip setting up an AllGather, which would
+    // use the reserved OpID and reserve a zero-size buffer.
+    if (comm->nranks() == 1) {
+        return std::make_shared<RankTopology>(comm->rank(), std::vector<RankInfo>{local});
+    }
+
     // The constructor checks `ranks[r].rank == r`.
     return std::make_shared<RankTopology>(
         comm->rank(),

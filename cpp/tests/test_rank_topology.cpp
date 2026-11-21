@@ -16,6 +16,9 @@
 #include <unistd.h>
 
 #include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/communicator/single.hpp>
+#include <rapidsmpf/config.hpp>
+#include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/rank_topology.hpp>
 
 #include "environment.hpp"
@@ -177,4 +180,16 @@ TEST(RankTopology, CreateTwiceReusesOpID) {
     for (Rank r = 0; r < comm->nranks(); ++r) {
         EXPECT_EQ(first->info(r).node_id, second->info(r).node_id);
     }
+}
+
+TEST(RankTopology, CreateSingleRank) {
+    // A rank-local `Single` communicator, so this runs under every test binary.
+    auto comm = std::make_shared<Single>(
+        std::make_shared<ProgressThread>(), Logger::from_options(config::Options{})
+    );
+    auto br = create_br();
+    auto const topo = RankTopology::create(comm, br);
+    ASSERT_EQ(topo->ranks().size(), std::size_t{1});
+    EXPECT_TRUE(std::ranges::equal(topo->node_local_ranks(), std::array<Rank, 1>{0}));
+    EXPECT_EQ(topo->local().rank, 0);
 }

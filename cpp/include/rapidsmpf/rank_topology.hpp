@@ -130,7 +130,8 @@ class RankTopology {
      *
      * Collective: every rank of @p comm must call this. It runs one allgather with the
      * reserved OpID `detail::rank_topology_op_id`, so it must not run concurrently with
-     * another `create()` on the same communicator.
+     * another `create()` on the same communicator. A single-rank communicator skips the
+     * allgather and builds the topology from the local information only.
      *
      * @param comm The communicator.
      * @param br Buffer resource. Its `DiskResource`, if any, describes this rank's
