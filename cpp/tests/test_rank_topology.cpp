@@ -44,11 +44,12 @@ RankInfo make_info(
     return info;
 }
 
-/// Whether @p reader can read the spill files of @p owner, in a two-rank topology.
+/// Whether @p reader can read the spill files of @p owner (the local rank), in a two-rank
+/// topology.
 bool visible(RankInfo reader, RankInfo owner) {
     reader.rank = 0;
     owner.rank = 1;
-    return RankTopology{0, {reader, owner}}.can_read_spill_files(0, 1);
+    return RankTopology{1, {reader, owner}}.can_read_spill_files(0);
 }
 
 }  // namespace
@@ -99,8 +100,9 @@ TEST(RankTopologyLocal, GroupsRanksByNode) {
     EXPECT_EQ(topo.local_rank_idx(), std::size_t{1});
     EXPECT_TRUE(topo.same_node(1, 3));
     EXPECT_FALSE(topo.same_node(0, 1));
-    EXPECT_TRUE(topo.can_read_spill_files(0, 2));
-    EXPECT_FALSE(topo.can_read_spill_files(0, 1));
+    EXPECT_TRUE(topo.can_read_spill_files(0));
+    EXPECT_FALSE(topo.can_read_spill_files(1));
+    EXPECT_THROW(std::ignore = topo.can_read_spill_files(4), std::out_of_range);
     EXPECT_THROW(std::ignore = topo.info(4), std::out_of_range);
     EXPECT_THROW(std::ignore = topo.same_node(0, -1), std::out_of_range);
     EXPECT_NE(topo.str().find("node_local_ranks=[0, 2]"), std::string::npos);
@@ -133,8 +135,8 @@ TEST(RankTopology, CreateWithoutDisk) {
         EXPECT_FALSE(topo->info(r).has_disk());
         for (Rank o = 0; o < comm->nranks(); ++o) {
             EXPECT_EQ(topo->same_node(r, o), topo->same_node(o, r));
-            EXPECT_FALSE(topo->can_read_spill_files(r, o));
         }
+        EXPECT_FALSE(topo->can_read_spill_files(r));
     }
 
     // All test ranks run on this machine.
@@ -161,10 +163,8 @@ TEST(RankTopology, CreateWithDisk) {
 
     for (Rank r = 0; r < comm->nranks(); ++r) {
         EXPECT_TRUE(topo->info(r).has_disk());
-        for (Rank o = 0; o < comm->nranks(); ++o) {
-            // Same node and, in these tests, the same mount namespace.
-            EXPECT_TRUE(topo->can_read_spill_files(r, o));
-        }
+        // Same node and, in these tests, the same mount namespace.
+        EXPECT_TRUE(topo->can_read_spill_files(r));
     }
 }
 

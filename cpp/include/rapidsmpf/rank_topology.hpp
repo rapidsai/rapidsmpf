@@ -111,12 +111,11 @@ static_assert(std::is_standard_layout_v<RankInfo>);
  * @brief How the ranks of a communicator are placed relative to each other.
  *
  * Every rank holds the `RankInfo` of all ranks. From it, a rank can find which ranks
- * share its node, and whether a rank can read the spill files written by another
- * rank. The latter is the basis for handing disk buffers over by path instead of
- * sending their bytes.
+ * share its node, and whether another rank can read the spill files it writes. The latter
+ * is the basis for handing disk buffers over by path instead of sending their bytes.
  *
- * Spill-file visibility is decided by a rule, not by testing files: rank `reader` can
- * read the spill files of rank `owner` if `owner` has a `DiskResource` and either
+ * Spill-file visibility is decided by a rule, not by testing files: a rank `reader` can
+ * read the spill files of the calling rank if it has a `DiskResource` and either
  *  - both ranks are on the same node and in the same mount namespace, or
  *  - both spill directories are on the same network mount (same filesystem type,
  *    source and mount point).
@@ -217,21 +216,20 @@ class RankTopology {
     }
 
     /**
-     * @brief Whether a rank can read the spill files written by another rank.
+     * @brief Whether a rank can read the spill files written by the calling rank.
      *
      * @param reader The rank that would open the file.
-     * @param owner The rank whose `DiskResource` wrote the file.
-     * @return True if @p reader is expected to see the files of @p owner at the same
-     * absolute paths.
+     * @return True if @p reader is expected to see the files of the calling rank at the
+     * same absolute paths.
      *
-     * @throws std::out_of_range If either rank is not valid.
+     * @throws std::out_of_range If @p reader is not a valid rank.
      */
-    [[nodiscard]] constexpr bool can_read_spill_files(Rank reader, Rank owner) const {
-        auto const& r = info(reader);
-        auto const& o = info(owner);
+    [[nodiscard]] bool can_read_spill_files(Rank reader) const {
+        auto const& o = local();
         if (!o.has_disk()) {
             return false;
         }
+        auto const& r = info(reader);
         bool const same_fs_view = (r.node_id == o.node_id) && (r.mount_ns == o.mount_ns);
         bool const same_network_mount = r.spill_is_network_fs() && o.spill_is_network_fs()
                                         && r.spill_dir.mount_id == o.spill_dir.mount_id;
