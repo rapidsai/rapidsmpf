@@ -7,6 +7,7 @@
 #include <cerrno>
 #include <cstring>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -331,4 +332,65 @@ TEST(HostMemoryPerGpuTest, FallsBackToVisibleGpusWhenNoneAreLocal) {
 TEST(HostMemoryPerGpuTest, ReportsZeroWhenNoGpusAreVisible) {
     std::array<TestGpu, 0> gpus{};
     EXPECT_EQ(detail::gpu_count_for_host_memory(gpus, 0), 0u);
+}
+
+namespace {
+
+/// Parse @p table, given in the format of `/proc/self/mounts`.
+std::vector<NetworkMount> parse_mount_table(std::string const& table) {
+    std::istringstream stream{table};
+    return detail::parse_network_mounts(stream);
+}
+
+}  // namespace
+
+TEST(NetworkMountsTest, ParsesNetworkMountsAndSkipsTheRest) {
+    auto const mounts = parse_mount_table(
+        // Local filesystems and pseudo filesystems are skipped.
+        "/dev/root / ext4 rw,relatime 0 0\n"
+        "proc /proc proc rw,nosuid 0 0\n"
+        // Other FUSE mounts are not network filesystems.
+        "portal /run/portal fuse.portal rw 0 0\n"
+        // Network filesystems.
+        "srv:/export /scratch nfs4 rw,relatime,vers=4.2 0 0\n"
+        "mgs@tcp:/fs /data lustre rw 0 0\n"
+        "srv:/x /plain nfs rw 0 0\n"
+        // Octal escapes in the mount point and the source.
+        "user@host:/a\\134b /mnt/with\\040space fuse.sshfs rw 0 0\n"
+        "srv:/y /a\\040b\\040c nfs rw 0 0\n"
+        // A backslash that does not start an octal escape is kept.
+        "srv:/c\\9d /odd\\ nfs rw 0 0\n"
+        // Blank lines and malformed rows are skipped.
+        "\n"
+        "garbage\n"
+        "two fields\n"
+    );
+
+    ASSERT_EQ(mounts.size(), 6u);
+    EXPECT_EQ(mounts[0].mount_point, "/scratch");
+    EXPECT_EQ(mounts[0].fs_type, "nfs4");
+    EXPECT_EQ(mounts[0].source, "srv:/export");
+    EXPECT_EQ(mounts[1].mount_point, "/data");
+    EXPECT_EQ(mounts[1].fs_type, "lustre");
+    EXPECT_EQ(mounts[2].mount_point, "/plain");
+    EXPECT_EQ(mounts[2].fs_type, "nfs");
+    EXPECT_EQ(mounts[2].source, "srv:/x");
+    EXPECT_EQ(mounts[3].mount_point, "/mnt/with space");
+    EXPECT_EQ(mounts[3].fs_type, "fuse.sshfs");
+    EXPECT_EQ(mounts[3].source, "user@host:/a\\b");
+    EXPECT_EQ(mounts[4].mount_point, "/a b c");
+    EXPECT_EQ(mounts[5].mount_point, "/odd\\");
+    EXPECT_EQ(mounts[5].source, "srv:/c\\9d");
+}
+
+TEST(NetworkMountsTest, EmptyTableGivesNoMounts) {
+    EXPECT_TRUE(parse_mount_table("").empty());
+}
+
+TEST(NetworkMountsTest, MountsOfThisHostAreNetworkFilesystems) {
+    // Whatever the host mounts, every reported mount has a path and a type.
+    for (auto const& mount : get_network_mounts()) {
+        EXPECT_FALSE(mount.mount_point.empty());
+        EXPECT_FALSE(mount.fs_type.empty());
+    }
 }

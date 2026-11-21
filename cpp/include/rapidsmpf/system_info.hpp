@@ -134,11 +134,12 @@ struct NetworkMount {
 /**
  * @brief Get the network filesystem mounts of this host.
  *
- * The mounts come from the cached system topology. They are discovered once per process
- * and cached for its lifetime.
+ * The mounts are read from `/proc/self/mounts` once per process and cached for its
+ * lifetime. Only the kernel's mount table is read, so an unreachable server cannot block
+ * the call.
  *
  * @return The mounts of network filesystems (NFS, Lustre, GPFS, ...), or none if the
- * topology cannot be discovered. The view is valid for the lifetime of the process.
+ * mount table cannot be read. The view is valid for the lifetime of the process.
  */
 std::span<NetworkMount const> get_network_mounts();
 

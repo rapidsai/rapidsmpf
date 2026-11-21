@@ -9,14 +9,12 @@
 #
 # We build cuCascade as a static library to avoid packaging issues with wheels.
 function(find_and_configure_cucascade)
-  # TODO: Switch back to NVIDIA/cuCascade `main` once https://github.com/NVIDIA/cuCascade/pull/294
-  # (`discover_network_mounts()`) is merged.
   rapids_cpm_find(
     cuCascade 0.1.0
     GLOBAL_TARGETS cuCascade::cucascade_topology_discovery
     CPM_ARGS
-    GIT_REPOSITORY https://github.com/nirandaperera/cuCascade.git
-    GIT_TAG topology-all-gpus-network-mounts
+    GIT_REPOSITORY https://github.com/NVIDIA/cuCascade.git
+    GIT_TAG main
     OPTIONS "CUCASCADE_BUILD_TESTS OFF"
             "CUCASCADE_BUILD_BENCHMARKS OFF"
             "CUCASCADE_BUILD_SHARED_LIBS OFF"
