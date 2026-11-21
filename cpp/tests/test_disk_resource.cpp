@@ -8,7 +8,6 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -94,8 +93,9 @@ std::vector<std::filesystem::path> files_in(std::filesystem::path const& dir) {
 bool bytes_equal(
     std::vector<std::uint8_t> const& lhs, std::vector<std::byte> const& rhs
 ) {
-    return lhs.size() == rhs.size()
-           && std::memcmp(lhs.data(), rhs.data(), lhs.size()) == 0;
+    return std::ranges::equal(lhs, rhs, {}, {}, [](std::byte b) {
+        return std::to_integer<std::uint8_t>(b);
+    });
 }
 
 class DiskResourceTest : public ::testing::Test {

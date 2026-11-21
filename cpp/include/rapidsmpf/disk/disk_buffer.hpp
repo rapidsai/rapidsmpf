@@ -31,15 +31,6 @@ class Statistics;
  * `release()` hands the file over to the caller.
  */
 class DiskBuffer {
-    friend void buffer_copy(
-        std::shared_ptr<Statistics> statistics,
-        Buffer& dst,
-        Buffer const& src,
-        std::size_t size,
-        std::ptrdiff_t dst_offset,
-        std::ptrdiff_t src_offset
-    );
-
   public:
     /**
      * @brief Create a file-backed buffer.
@@ -192,13 +183,16 @@ class DiskBuffer {
     void relocate(std::shared_ptr<DiskResource> disk);
 
   private:
-    /**
-     * @brief Path to the backing file.
-     *
-     * Private so that nobody outside the buffer can modify or delete the file.
-     *
-     * @return Filesystem path to the backing file (empty if there is none).
-     */
+    friend void buffer_copy(
+        std::shared_ptr<Statistics> statistics,
+        Buffer& dst,
+        Buffer const& src,
+        std::size_t size,
+        std::ptrdiff_t dst_offset,
+        std::ptrdiff_t src_offset
+    );
+
+    /// @brief Path to the backing file (private so outside code cannot modify it).
     [[nodiscard]] std::filesystem::path const& path() const noexcept {
         return path_;
     }
