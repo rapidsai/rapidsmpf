@@ -5,8 +5,16 @@
 
 
 #include <algorithm>
+#include <array>
+#include <charconv>
+#include <fstream>
+#include <istream>
 #include <iterator>
+#include <span>
+#include <sstream>
 #include <stdexcept>
+#include <string>
+#include <string_view>
 #include <vector>
 
 #include <sched.h>
@@ -254,6 +262,90 @@ std::uint64_t get_host_memory_per_gpu() {
         RAPIDSMPF_EXPECTS(gpu_count > 0, "No GPUs found in topology", std::runtime_error);
         return get_numa_node_host_memory(current_numa_node)
                / safe_cast<std::uint64_t>(gpu_count);
+    }();
+    return ret;
+}
+
+namespace {
+
+/// Filesystem types of `/proc/self/mounts` that are network-backed. An explicit
+/// allow-list, so local and pseudo filesystems (including other FUSE mounts) are skipped.
+constexpr std::array<std::string_view, 14> network_fs_types{
+    "nfs",
+    "nfs4",
+    "cifs",
+    "smb3",
+    "smbfs",
+    "ceph",
+    "lustre",
+    "gpfs",
+    "beegfs",
+    "glusterfs",
+    "afs",
+    "fuse.glusterfs",
+    "fuse.sshfs",
+    "fuse.s3fs"
+};
+
+}  // namespace
+
+std::vector<NetworkMount> detail::parse_network_mounts(std::istream& mounts) {
+    // A row is "<source> <mount point> <fs type> <options> <dump> <pass>". Whitespace
+    // inside the source and the mount point is escaped as octal (`\040` for a space,
+    // `\134` for a backslash, ...), so splitting on whitespace is safe.
+    auto const unescape = [](std::string_view field) {
+        std::string decoded;
+        decoded.reserve(field.size());  // Decoding never makes the field longer.
+        while (!field.empty()) {
+            // Copy everything up to the next backslash in one go.
+            auto const pos = field.find('\\');
+            decoded.append(field.substr(0, pos));
+            if (pos == std::string_view::npos) {
+                break;
+            }
+            field.remove_prefix(pos);
+            // `field` starts with a backslash: decode it if three octal digits follow.
+            char const* const digits = field.data() + 1;
+            unsigned value = 0;
+            if (field.size() >= 4
+                && std::from_chars(digits, digits + 3, value, 8).ptr == digits + 3)
+            {
+                decoded.push_back(static_cast<char>(value));
+                field.remove_prefix(4);
+            } else {
+                decoded.push_back('\\');
+                field.remove_prefix(1);
+            }
+        }
+        return decoded;
+    };
+
+    std::vector<NetworkMount> ret;
+    std::string line;
+    while (std::getline(mounts, line)) {
+        std::istringstream row{line};
+        std::string source;
+        std::string mount_point;
+        std::string fs_type;
+        if (!(row >> source >> mount_point >> fs_type)
+            || std::ranges::find(network_fs_types, fs_type) == network_fs_types.end())
+        {
+            continue;
+        }
+        ret.push_back(
+            {.mount_point = unescape(mount_point),
+             .fs_type = std::move(fs_type),
+             .source = unescape(source)}
+        );
+    }
+    return ret;
+}
+
+std::span<NetworkMount const> get_network_mounts() {
+    static std::vector<NetworkMount> const ret = [] {
+        // An unreadable mount table (e.g. no /proc) gives no mounts.
+        std::ifstream mounts{"/proc/self/mounts"};
+        return detail::parse_network_mounts(mounts);
     }();
     return ret;
 }

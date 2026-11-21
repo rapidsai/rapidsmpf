@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <filesystem>
 #include <limits>
 #include <optional>
 #include <vector>
@@ -22,6 +23,7 @@
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
+#include <rapidsmpf/rank_topology.hpp>
 #include <rapidsmpf/statistics.hpp>
 
 #include "environment.hpp"
@@ -162,6 +164,52 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
             Statistics::disabled(),
             temp_dir.path()
         );
+    }
+
+    /// The receive buffer allocator used by `SetUp()`.
+    AllocateBufferFn default_allocate() {
+        return [this](BufferResource*, std::size_t size, AllocationMode) {
+            return allocate_receive_buffer(size);
+        };
+    }
+
+    /// Attach a rank topology to @p disk_br and use it for a new exchange. Collective.
+    void use_disk_handoff(BufferResource& disk_br) {
+        create_and_attach_rank_topology(
+            GlobalEnvironment->comm_, disk_br.shared_from_this()
+        );
+        reset_exchange(default_allocate(), std::chrono::hours{1}, OpID{42}, &disk_br);
+        GlobalEnvironment->barrier();
+    }
+
+    /// Create a message whose payload of @p data_size test bytes is on disk.
+    std::unique_ptr<MetadataPayloadExchange::Message> make_disk_message(
+        BufferResource& disk_br,
+        Rank peer_rank,
+        std::vector<std::uint8_t> metadata,
+        std::size_t data_size,
+        MetadataPayloadExchange::AfterSend after_send =
+            MetadataPayloadExchange::AfterSend::DISCARD
+    ) {
+        auto msg = create_test_message(peer_rank, std::move(metadata), data_size);
+        auto reservation = disk_br.reserve_or_fail(data_size, MemoryType::DISK);
+        auto on_disk = disk_br.move(msg->release_data(), reservation);
+        on_disk->stream().sync();
+        return std::make_unique<MetadataPayloadExchange::Message>(
+            peer_rank, msg->release_metadata(), std::move(on_disk), after_send
+        );
+    }
+
+    /// Check that @p buffer is on disk and holds the test bytes.
+    void verify_disk_content(
+        BufferResource& disk_br, std::unique_ptr<Buffer> buffer, std::size_t size
+    ) {
+        ASSERT_NE(buffer, nullptr);
+        ASSERT_EQ(buffer->mem_type(), MemoryType::DISK);
+        auto reservation = disk_br.reserve_or_fail(size, MemoryType::HOST);
+        auto in_memory = disk_br.move(std::move(buffer), reservation);
+        in_memory->stream().sync();
+        verify_data_content(in_memory.get(), size);
     }
 
     std::unique_ptr<Buffer> allocate_receive_buffer(std::size_t size) {
@@ -793,6 +841,177 @@ TEST_F(MetadataPayloadExchangeTest, SendableMemoryTypes) {
             )
         );
     }
+}
+
+TEST_F(MetadataPayloadExchangeTest, SendableMemoryTypesWithTopology) {
+    // All ranks of the test run on one node, so they can read each other's spill files.
+    TempDir temp_dir;
+    auto disk_br = make_disk_br(temp_dir);
+    use_disk_handoff(*disk_br);
+    for (Rank rank : all_remote_ranks(*comm)) {
+        EXPECT_TRUE(
+            std::ranges::equal(comm_interface->sendable_memory_types(rank), MEMORY_TYPES)
+        );
+    }
+    finish_and_wait();
+
+    // Without a disk resource, nobody can read this rank's spill files.
+    auto no_disk_br = BufferResource::create(*mr);
+    create_and_attach_rank_topology(GlobalEnvironment->comm_, no_disk_br);
+    reset_exchange(default_allocate(), std::chrono::hours{1}, OpID{42}, no_disk_br.get());
+    for (Rank rank : all_remote_ranks(*comm)) {
+        EXPECT_TRUE(
+            std::ranges::equal(
+                comm_interface->sendable_memory_types(rank), ADDRESSABLE_MEMORY_TYPES
+            )
+        );
+    }
+    finish_and_wait();
+}
+
+TEST_F(MetadataPayloadExchangeTest, SendsDiskPayloadByPath) {
+    if (comm->nranks() < 2) {
+        GTEST_SKIP() << "Test requires at least 2 ranks";
+    }
+    Rank const next_rank = (comm->rank() + 1) % comm->nranks();
+    constexpr std::size_t data_size = 4096;
+
+    TempDir temp_dir;
+    auto disk_br = make_disk_br(temp_dir);
+    use_disk_handoff(*disk_br);
+
+    auto msg = make_disk_message(*disk_br, next_rank, {0x07}, data_size);
+    auto const sent_path = msg->data()->get_storage<Buffer::DiskBufferT>()->path();
+    comm_interface->send(std::move(msg));
+
+    auto received = receive(1);
+    ASSERT_EQ(received.size(), 1);
+    EXPECT_EQ(received[0]->metadata(), std::vector<std::uint8_t>{0x07});
+    ASSERT_NE(received[0]->data(), nullptr);
+    EXPECT_EQ(received[0]->data()->mem_type(), MemoryType::DISK);
+    verify_disk_content(*disk_br, received[0]->release_data(), data_size);
+
+    // Once every rank has received, the sent file has been taken over by its receiver.
+    GlobalEnvironment->barrier();
+    EXPECT_FALSE(std::filesystem::exists(sent_path));
+    finish_and_wait();
+}
+
+TEST_F(MetadataPayloadExchangeTest, IsNotIdleUntilHandoffIsTakenOver) {
+    if (comm->nranks() < 2) {
+        GTEST_SKIP() << "Test requires at least 2 ranks";
+    }
+    Rank const next_rank = (comm->rank() + 1) % comm->nranks();
+    constexpr std::size_t data_size = 4096;
+
+    TempDir temp_dir;
+    auto disk_br = make_disk_br(temp_dir);
+    use_disk_handoff(*disk_br);
+
+    auto msg = make_disk_message(*disk_br, next_rank, {0x07}, data_size);
+    auto const sent_path = msg->data()->get_storage<Buffer::DiskBufferT>()->path();
+    comm_interface->send(std::move(msg));
+    comm_interface->finish();
+
+    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> received;
+    auto const deadline = Clock::now() + std::chrono::seconds{30};
+    while (!comm_interface->is_idle() && Clock::now() < deadline) {
+        comm_interface->progress();
+        std::ranges::move(comm_interface->recv(), std::back_inserter(received));
+        std::this_thread::yield();
+    }
+    ASSERT_TRUE(comm_interface->is_idle());
+
+    // Without any barrier: once this rank is idle, its receiver has taken over the file,
+    // so the sender's spill directory may be removed.
+    EXPECT_FALSE(std::filesystem::exists(sent_path));
+    ASSERT_EQ(received.size(), 1);
+    verify_disk_content(*disk_br, received[0]->release_data(), data_size);
+}
+
+TEST_F(MetadataPayloadExchangeTest, RetainsDiskPayload) {
+    if (comm->nranks() < 2) {
+        GTEST_SKIP() << "Test requires at least 2 ranks";
+    }
+    Rank const next_rank = (comm->rank() + 1) % comm->nranks();
+    constexpr std::size_t data_size = 4096;
+
+    TempDir temp_dir;
+    auto disk_br = make_disk_br(temp_dir);
+    use_disk_handoff(*disk_br);
+
+    auto msg = make_disk_message(
+        *disk_br, next_rank, {0x07}, data_size, MetadataPayloadExchange::AfterSend::RETAIN
+    );
+    auto const sent_path = msg->data()->get_storage<Buffer::DiskBufferT>()->path();
+    comm_interface->send(std::move(msg));
+
+    auto received = receive(1);
+    auto sent = release_sent(1);
+    ASSERT_EQ(received.size(), 1);
+    ASSERT_EQ(sent.size(), 1);
+
+    // The retained message keeps its own file, and the receiver got another one.
+    ASSERT_NE(sent[0]->data(), nullptr);
+    EXPECT_EQ(sent[0]->data()->get_storage<Buffer::DiskBufferT>()->path(), sent_path);
+    ASSERT_NE(received[0]->data(), nullptr);
+    EXPECT_NE(received[0]->data()->get_storage<Buffer::DiskBufferT>()->path(), sent_path);
+    verify_disk_content(*disk_br, received[0]->release_data(), data_size);
+    GlobalEnvironment->barrier();
+    EXPECT_TRUE(std::filesystem::exists(sent_path));
+    verify_disk_content(*disk_br, sent[0]->release_data(), data_size);
+    finish_and_wait();
+}
+
+TEST_F(MetadataPayloadExchangeTest, KeepsOrderWithDiskPayloads) {
+    if (comm->nranks() < 2) {
+        GTEST_SKIP() << "Test requires at least 2 ranks";
+    }
+    Rank const next_rank = (comm->rank() + 1) % comm->nranks();
+    constexpr std::size_t data_size = 1024;
+
+    TempDir temp_dir;
+    auto disk_br = make_disk_br(temp_dir);
+    use_disk_handoff(*disk_br);
+
+    // DISK, DEVICE, metadata only, DISK.
+    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> messages;
+    messages.push_back(make_disk_message(*disk_br, next_rank, {0}, data_size));
+    messages.push_back(create_test_message(next_rank, {1}, 2 * data_size));
+    messages.push_back(create_test_message(next_rank, {2}));
+    messages.push_back(make_disk_message(*disk_br, next_rank, {3}, 3 * data_size));
+    comm_interface->send(std::move(messages));
+
+    auto received = receive(4);
+    ASSERT_EQ(received.size(), 4);
+    for (std::uint8_t i = 0; i < 4; ++i) {
+        EXPECT_EQ(received[i]->metadata(), std::vector{i});
+    }
+    verify_disk_content(*disk_br, received[0]->release_data(), data_size);
+    EXPECT_EQ(received[1]->data()->mem_type(), MemoryType::DEVICE);
+    verify_data_content(received[1]->data(), 2 * data_size);
+    EXPECT_EQ(received[2]->data(), nullptr);
+    verify_disk_content(*disk_br, received[3]->release_data(), 3 * data_size);
+    finish_and_wait();
+}
+
+TEST_F(MetadataPayloadExchangeTest, RejectsForeignDiskPayload) {
+    if (comm->nranks() < 2) {
+        GTEST_SKIP() << "Test requires at least 2 ranks";
+    }
+    Rank const next_rank = (comm->rank() + 1) % comm->nranks();
+
+    TempDir temp_dir;
+    auto disk_br = make_disk_br(temp_dir);
+    auto other_br = make_disk_br(temp_dir);
+    use_disk_handoff(*disk_br);
+
+    EXPECT_THROW(
+        comm_interface->send(make_disk_message(*other_br, next_rank, {0x01}, 64)),
+        std::invalid_argument
+    );
+    EXPECT_TRUE(comm_interface->is_idle());
+    finish_and_wait();
 }
 
 TEST_F(MetadataPayloadExchangeTest, RejectsDiskBackedSend) {

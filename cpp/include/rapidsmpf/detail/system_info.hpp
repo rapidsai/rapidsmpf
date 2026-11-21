@@ -6,9 +6,23 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <istream>
 #include <ranges>
+#include <vector>
+
+#include <rapidsmpf/system_info.hpp>
 
 namespace rapidsmpf::detail {
+
+/**
+ * @brief Parse the network filesystem mounts out of a mount table.
+ *
+ * Rows of non-network filesystems, and rows that cannot be parsed, are skipped.
+ *
+ * @param mounts Stream with a mount table in the format of `/proc/self/mounts`.
+ * @return The network mounts, in table order.
+ */
+[[nodiscard]] std::vector<NetworkMount> parse_network_mounts(std::istream& mounts);
 
 /**
  * @brief Number of GPUs that share the host memory of a NUMA node.

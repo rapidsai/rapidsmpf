@@ -5,11 +5,16 @@
 
 #include <algorithm>
 #include <cstring>
+#include <filesystem>
+#include <limits>
+#include <string>
+#include <system_error>
 #include <utility>
 
 #include <cuda_runtime.h>
 
 #include <rapidsmpf/communicator/metadata_payload_exchange/tag.hpp>
+#include <rapidsmpf/disk/disk_buffer.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils/misc.hpp>
@@ -18,32 +23,130 @@ namespace rapidsmpf::communicator {
 
 namespace {
 
-/**
- * @brief Append the protocol trailer to the metadata of a message.
- *
- * Format: [metadata][message_id (8 bytes)][payload_size (8 bytes)]
- *
- * @param metadata The metadata of the message.
- * @param message_id The message ID.
- * @param payload_size The size of the payload in bytes.
- * @return The metadata with the trailer appended.
- */
-std::unique_ptr<std::vector<std::uint8_t>> make_combined_metadata(
-    std::vector<std::uint8_t> metadata, std::uint64_t message_id, std::size_t payload_size
-) {
-    auto ret = std::make_unique<std::vector<std::uint8_t>>(std::move(metadata));
-    std::size_t const original_size = ret->size();
-    ret->resize(original_size + sizeof(std::uint64_t) + sizeof(std::size_t));
-    std::memcpy(ret->data() + original_size, &message_id, sizeof(std::uint64_t));
-    std::memcpy(
-        ret->data() + original_size + sizeof(std::uint64_t),
-        &payload_size,
-        sizeof(std::size_t)
-    );
-    return ret;
-}
+/// Wire `payload_size` of a message whose DISK payload is handed over by file path.
+constexpr std::size_t disk_handoff_sentinel = std::numeric_limits<std::size_t>::max();
 
 }  // namespace
+
+void TagMetadataPayloadExchange::TagMessage::adopt_handoff(
+    BufferResource& br, Statistics& statistics
+) {
+    auto buffer = br.adopt_disk_file(handoff_path, br.stream_pool()->get_stream());
+    statistics.add_bytes_stat(
+        "metadata-payload-exchange-disk-handoff-received", buffer->size
+    );
+    message->set_data(std::move(buffer));
+    handoff_path.clear();
+}
+
+/**
+ * @brief A message's metadata and protocol trailer.
+ *
+ * Wire format: [metadata][message_id (8)][payload_size (8)], or for a DISK handoff
+ * [metadata][path][path_len (4)][message_id (8)][disk_handoff_sentinel (8)].
+ */
+struct TagMetadataPayloadExchange::CombinedMetadata {
+    std::vector<std::uint8_t> metadata;
+    std::uint64_t message_id;
+    std::size_t payload_size;  ///< 0 for a handoff.
+    std::filesystem::path handoff_path;  ///< Empty unless a handoff.
+
+    CombinedMetadata(
+        std::vector<std::uint8_t> metadata,
+        std::uint64_t message_id,
+        std::size_t payload_size,
+        std::filesystem::path handoff_path = {}
+    )
+        : metadata{std::move(metadata)},
+          message_id{message_id},
+          payload_size{payload_size},
+          handoff_path{std::move(handoff_path)} {}
+
+    [[nodiscard]] bool is_termination_sentinel() const noexcept {
+        return message_id == termination_sentinel_;
+    }
+
+    /// Serialized size in bytes.
+    [[nodiscard]] std::size_t size() const noexcept {
+        return metadata.size() + sizeof(message_id) + sizeof(payload_size)
+               + (handoff_path.empty()
+                      ? 0
+                      : handoff_path.native().size() + sizeof(std::uint32_t));
+    }
+
+    /// Append the trailer to the metadata.
+    [[nodiscard]] std::unique_ptr<std::vector<std::uint8_t>> serialize() && {
+        auto const& path = handoff_path.native();
+        auto const path_len = safe_cast<std::uint32_t>(path.size());
+        std::size_t const wire_payload_size =
+            path_len > 0 ? disk_handoff_sentinel : payload_size;
+
+        // Size and offset must be read before `metadata` is moved out.
+        std::size_t const total_size = size();
+        std::size_t offset = metadata.size();
+        auto ret = std::make_unique<std::vector<std::uint8_t>>(std::move(metadata));
+        ret->resize(total_size);
+        auto write = [&](void const* src, std::size_t size) {
+            std::memcpy(ret->data() + offset, src, size);
+            offset += size;
+        };
+        if (path_len > 0) {
+            write(path.data(), path.size());
+            write(&path_len, sizeof(path_len));
+        }
+        write(&message_id, sizeof(message_id));
+        write(&wire_payload_size, sizeof(wire_payload_size));
+        return ret;
+    }
+
+    /// Split a received buffer into metadata and trailer, reusing the buffer.
+    /// @throw std::logic_error if the buffer is truncated or malformed.
+    [[nodiscard]] static CombinedMetadata deserialize(std::vector<std::uint8_t>&& msg) {
+        // Read the trailer from the back. Bounds are checked before each `pop_back`.
+        std::size_t end = msg.size();
+        auto pop_back = [&](auto& value) {
+            end -= sizeof(value);
+            std::memcpy(&value, msg.data() + end, sizeof(value));
+        };
+
+        std::size_t payload_size;
+        std::uint64_t message_id;
+        RAPIDSMPF_EXPECTS(
+            end >= sizeof(payload_size) + sizeof(message_id), "Truncated metadata"
+        );
+        pop_back(payload_size);
+        pop_back(message_id);
+
+        std::filesystem::path handoff_path;
+        if (payload_size == disk_handoff_sentinel) {
+            std::uint32_t path_len;
+            RAPIDSMPF_EXPECTS(end >= sizeof(path_len), "Truncated metadata");
+            pop_back(path_len);
+            RAPIDSMPF_EXPECTS(
+                path_len > 0 && path_len <= end, "Malformed disk handoff metadata"
+            );
+            end -= path_len;
+            handoff_path =
+                std::string{reinterpret_cast<char const*>(msg.data() + end), path_len};
+            payload_size = 0;  // No data transfer, so no receive buffer.
+        }
+
+        msg.resize(end);
+        return {std::move(msg), message_id, payload_size, std::move(handoff_path)};
+    }
+};
+
+// Defined after `CombinedMetadata`, which must be complete here.
+TagMetadataPayloadExchange::TagMessage::TagMessage(
+    CombinedMetadata&& combined, Rank peer, std::uint64_t arrival_order
+)
+    : TagMessage{
+          std::make_unique<Message>(peer, std::move(combined.metadata), nullptr),
+          combined.message_id,
+          combined.payload_size,
+          arrival_order,
+          std::move(combined.handoff_path)
+      } {}
 
 TagMetadataPayloadExchange::TagMetadataPayloadExchange(
     std::shared_ptr<Communicator> comm,
@@ -64,6 +167,14 @@ TagMetadataPayloadExchange::TagMetadataPayloadExchange(
       br_(br),
       forced_receive_(forced_receive) {
     RAPIDSMPF_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be NULL");
+    topology_ = br_->rank_topology();
+    RAPIDSMPF_EXPECTS(
+        topology_ == nullptr
+            || (std::cmp_equal(topology_->ranks().size(), nranks_)
+                && topology_->local().rank == rank_),
+        "the rank topology of the buffer resource does not match the communicator",
+        std::invalid_argument
+    );
     for (Rank peer : peers) {
         RAPIDSMPF_EXPECTS(
             peer >= 0 && peer < nranks_, "peer is not a valid rank", std::out_of_range
@@ -81,6 +192,15 @@ TagMetadataPayloadExchange::TagMetadataPayloadExchange(
 }
 
 TagMetadataPayloadExchange::~TagMetadataPayloadExchange() noexcept {
+    // Files handed over to this rank but never adopted are owned by nobody else.
+    for (auto& [_, state] : peers_) {
+        for (auto const& tag_msg : state.incoming) {
+            if (!tag_msg.handoff_path.empty()) {
+                std::error_code ignored;
+                std::filesystem::remove(tag_msg.handoff_path, ignored);
+            }
+        }
+    }
     if (finished_ && TagMetadataPayloadExchange::is_idle()) {
         return;
     }
@@ -101,6 +221,14 @@ TagMetadataPayloadExchange::~TagMetadataPayloadExchange() noexcept {
     } catch (...) {
         // Ignore logging failures.
     }
+}
+
+std::span<MemoryType const> TagMetadataPayloadExchange::sendable_memory_types(
+    Rank dst
+) const {
+    return topology_ != nullptr && topology_->can_read_spill_files(dst)
+               ? std::span<MemoryType const>{MEMORY_TYPES}
+               : ADDRESSABLE_MEMORY_TYPES;
 }
 
 void TagMetadataPayloadExchange::send(
@@ -124,20 +252,28 @@ void TagMetadataPayloadExchange::send(
         RAPIDSMPF_EXPECTS(
             peers_.contains(dst), "the destination is not a peer", std::invalid_argument
         );
-        RAPIDSMPF_EXPECTS(
-            message->data() == nullptr
-                || contains(
-                    sendable_memory_types(message->peer_rank()),
-                    message->data()->mem_type()
-                ),
-            "the payload's memory type is not sendable to its destination",
-            std::invalid_argument
-        );
+        auto msg_data = message->data();
+        if (msg_data != nullptr) {
+            RAPIDSMPF_EXPECTS(
+                contains(sendable_memory_types(dst), msg_data->mem_type()),
+                "the payload's memory type is not sendable to its destination",
+                std::invalid_argument
+            );
+            // The topology describes the files of `br_`'s disk resource only.
+            RAPIDSMPF_EXPECTS(
+                msg_data->mem_type() != MemoryType::DISK
+                    || msg_data->get_storage<Buffer::DiskBufferT>()->disk_resource()
+                           == br_->disk_resource(),
+                "a DISK payload must belong to the disk resource of the exchange",
+                std::invalid_argument
+            );
+        }
     }
 
     // Send metadata followed immediately by data for each message
     for (auto&& message : messages) {
         auto dst = message->peer_rank();
+        auto msg_data = message->data();
         auto& state = peers_.at(dst);
         state.messages_sent++;
 
@@ -148,18 +284,24 @@ void TagMetadataPayloadExchange::send(
 
         log.trace("send metadata to ", dst, " (message_id=", message_id, ")");
 
-        std::size_t payload_size =
-            (message->data() != nullptr) ? message->data()->size : 0;
+        std::size_t payload_size = (msg_data != nullptr) ? msg_data->size : 0;
+
+        // A DISK payload is handed over by path, without sending its bytes.
+        if (payload_size > 0 && msg_data->mem_type() == MemoryType::DISK) {
+            send_disk_handoff(std::move(message), message_id, state);
+            continue;
+        }
 
         // A retained message keeps its metadata, so it is copied. Otherwise, it is
         // released to avoid the copy.
         fire_and_forget_.push_back(comm_->send(
-            make_combined_metadata(
+            CombinedMetadata{
                 message->after_send() == AfterSend::RETAIN ? message->metadata()
                                                            : message->release_metadata(),
                 message_id,
                 payload_size
-            ),
+            }
+                .serialize(),
             dst,
             metadata_tag_
         ));
@@ -183,12 +325,66 @@ void TagMetadataPayloadExchange::send(
     );
 }
 
+void TagMetadataPayloadExchange::send_disk_handoff(
+    std::unique_ptr<MetadataPayloadExchange::Message> message,
+    std::uint64_t message_id,
+    PeerState& state
+) {
+    auto const dst = message->peer_rank();
+    auto const* data = message->data();
+    std::size_t const payload_size = data->size;
+    auto const& disk = *data->get_storage<Buffer::DiskBufferT>();
+
+    auto do_fire_and_forget = [&](std::filesystem::path path,
+                                  std::vector<std::uint8_t> metadata) {
+        RAPIDSMPF_EXPECTS(
+            !path.empty(), "the DISK payload has no backing file", std::logic_error
+        );
+        comm_->logger()->trace(
+            "hand over ", path, " to ", dst, " (message_id=", message_id, ")"
+        );
+        fire_and_forget_.push_back(comm_->send(
+            CombinedMetadata{std::move(metadata), message_id, 0, std::move(path)}
+                .serialize(),
+            dst,
+            metadata_tag_
+        ));
+        statistics_->add_bytes_stat(
+            "metadata-payload-exchange-disk-handoff-sent", payload_size
+        );
+        // The exchange stays busy until `dst` confirms it took over the file.
+        state.handoffs_sent++;
+    };
+
+
+    // The receiver takes ownership of the handed-over file: a retained message keeps its
+    // own file and hands over a clone, otherwise the file itself is handed over.
+    switch (message->after_send()) {
+    case AfterSend::RETAIN:
+        {
+            do_fire_and_forget(
+                disk.disk_resource()->clone(disk.path(), data->stream()),
+                message->metadata()
+            );
+            state.retained_messages.push_back({std::move(message), nullptr});
+            break;
+        }
+    case AfterSend::DISCARD:
+        do_fire_and_forget(
+            BufferResource::release_disk_file(message->release_data()),
+            message->release_metadata()
+        );
+        break;
+    }
+}
+
 void TagMetadataPayloadExchange::progress() {
     auto const t0 = Clock::now();
 
     // Process all phases of the communication protocol
     receive_metadata();
     auto completed_metadata_only = setup_data_receives();
+    send_handoffs_acks();
     auto completed_data = complete_data_transfers();
 
     // Store all completed messages
@@ -227,7 +423,7 @@ void TagMetadataPayloadExchange::finish() {
     // payload size.
     for (auto const& [peer, state] : peers_) {
         fire_and_forget_.push_back(comm_->send(
-            make_combined_metadata({}, termination_sentinel_, state.messages_sent),
+            CombinedMetadata{{}, termination_sentinel_, state.messages_sent}.serialize(),
             peer,
             metadata_tag_
         ));
@@ -246,10 +442,30 @@ bool TagMetadataPayloadExchange::is_idle() const {
         return false;
     }
     // After finish(), also require all peers to have sent their termination
-    // markers and all expected application messages to have been received.
+    // markers and all expected application messages to have been received, and every
+    // file handed over in either direction to have been confirmed as taken over.
     return std::ranges::all_of(peers_, [&](auto const& peer) {
-        return peer.second.io_idle() && (!finished_ || peer.second.received_all());
+        auto const& state = peer.second;
+        return state.io_idle()
+               && (!finished_
+                   || (state.received_all() && !state.awaiting_handoffs_ack()
+                       && !state.owes_handoffs_ack()));
     });
+}
+
+void TagMetadataPayloadExchange::send_handoffs_acks() {
+    for (auto& [peer, state] : peers_) {
+        // Every handed-over file is adopted before its message leaves `incoming`.
+        if (state.owes_handoffs_ack() && state.received_all() && state.incoming.empty()) {
+            comm_->logger()->trace("send handoffs ack to ", peer);
+            fire_and_forget_.push_back(comm_->send(
+                CombinedMetadata{{}, handoffs_ack_sentinel_, 0}.serialize(),
+                peer,
+                metadata_tag_
+            ));
+            state.handoffs_ack_sent = true;
+        }
+    }
 }
 
 void TagMetadataPayloadExchange::receive_metadata() {
@@ -260,7 +476,7 @@ void TagMetadataPayloadExchange::receive_metadata() {
     // collective on the same tag (see rapidsai/rapidsmpf#927).
     for (auto& [peer, state] : peers_) {
         // Skip peers that are fully done.
-        if (state.received_all()) {
+        if (state.received_all() && !state.awaiting_handoffs_ack()) {
             continue;
         }
 
@@ -270,30 +486,11 @@ void TagMetadataPayloadExchange::receive_metadata() {
                 break;
             }
 
-            RAPIDSMPF_EXPECTS(
-                msg->size() >= sizeof(std::uint64_t) + sizeof(std::size_t),
-                "Truncated metadata"
-            );
-
-            // Extract message_id and payload_size from the protocol trailer.
-            std::size_t const protocol_overhead =
-                sizeof(std::uint64_t) + sizeof(std::size_t);
-            std::size_t const original_metadata_size = msg->size() - protocol_overhead;
-
-            std::uint64_t message_id;
-            std::memcpy(
-                &message_id, msg->data() + original_metadata_size, sizeof(std::uint64_t)
-            );
-
-            std::size_t payload_size;
-            std::memcpy(
-                &payload_size,
-                msg->data() + original_metadata_size + sizeof(std::uint64_t),
-                sizeof(std::size_t)
-            );
+            auto combined = CombinedMetadata::deserialize(std::move(*msg));
+            auto const& payload_size = combined.payload_size;
 
             // Check for termination marker.
-            if (message_id == termination_sentinel_) {
+            if (combined.is_termination_sentinel()) {
                 state.messages_expected = payload_size;  // payload_size carries the count
                 state.terminated = true;
                 log->trace(
@@ -306,22 +503,22 @@ void TagMetadataPayloadExchange::receive_metadata() {
                 break;
             }
 
+            // The peer took over every file this rank handed over to it.
+            if (combined.message_id == handoffs_ack_sentinel_) {
+                state.handoffs_acked = true;
+                log->trace("recv handoffs ack from ", peer);
+                continue;
+            }
+
             // Normal application message.
             state.messages_received++;
+            if (!combined.handoff_path.empty()) {
+                state.handoffs_received++;
+            }
 
-            std::vector<std::uint8_t> original_metadata(
-                msg->begin(),
-                msg->begin() + safe_cast<std::ptrdiff_t>(original_metadata_size)
-            );
-
-            auto message = std::make_unique<MetadataPayloadExchange::Message>(
-                peer, std::move(original_metadata), nullptr
-            );
-
-            log->trace("recv_from ", peer, " (message_id=", message_id, ")");
-            auto& tag_msg = state.incoming.emplace_back(
-                std::move(message), message_id, payload_size, next_arrival_++
-            );
+            log->trace("recv_from ", peer, " (message_id=", combined.message_id, ")");
+            auto& tag_msg =
+                state.incoming.emplace_back(std::move(combined), peer, next_arrival_++);
             if (payload_size > 0) {
                 // Buffers are allocated in message order per peer, so only try to
                 // allocate when no earlier message from this peer is still waiting.
@@ -407,6 +604,9 @@ TagMetadataPayloadExchange::setup_data_receives() {
                 // Control/metadata-only message
                 // Only return if there are no earlier in-transit messages from this rank
                 if (state.in_transit.empty()) {
+                    if (!tag_msg.handoff_path.empty()) {
+                        tag_msg.adopt_handoff(*br_, *statistics_);
+                    }
                     completed_messages.push_back(std::move(tag_msg.message));
                     msg_it = messages.erase(msg_it);
                 } else {

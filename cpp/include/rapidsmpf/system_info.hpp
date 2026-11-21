@@ -5,6 +5,8 @@
 #pragma once
 
 #include <cstdint>
+#include <span>
+#include <string>
 #include <vector>
 
 namespace rapidsmpf {
@@ -119,5 +121,26 @@ std::uint64_t get_numa_node_host_memory(int numa_id = get_current_numa_node()) n
  * @return Amount of host memory per GPU in bytes.
  */
 std::uint64_t get_host_memory_per_gpu();
+
+/**
+ * @brief A network filesystem mount, as reported by the mount table.
+ */
+struct NetworkMount {
+    std::string mount_point;  ///< Where the filesystem is mounted, e.g. "/scratch".
+    std::string fs_type;  ///< Filesystem type, e.g. "nfs4".
+    std::string source;  ///< Remote source, e.g. "server:/export".
+};
+
+/**
+ * @brief Get the network filesystem mounts of this host.
+ *
+ * The mounts are read from `/proc/self/mounts` once per process and cached for its
+ * lifetime. Only the kernel's mount table is read, so an unreachable server cannot block
+ * the call.
+ *
+ * @return The mounts of network filesystems (NFS, Lustre, GPFS, ...), or none if the
+ * mount table cannot be read. The view is valid for the lifetime of the process.
+ */
+std::span<NetworkMount const> get_network_mounts();
 
 }  // namespace rapidsmpf

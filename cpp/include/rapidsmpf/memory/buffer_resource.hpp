@@ -38,6 +38,8 @@
 
 namespace rapidsmpf {
 
+class RankTopology;
+
 /**
  * @brief Policy controlling whether a memory reservation is allowed to overbook.
  *
@@ -632,6 +634,40 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     );
 
     /**
+     * @brief Take ownership of an existing file as a disk-backed Buffer.
+     *
+     * The file is placed under the disk resource's directory with
+     * `DiskResource::adopt()`, which is a rename on the same filesystem and a copy
+     * otherwise. No memory is reserved, since the bytes are already on disk.
+     *
+     * @param path Existing regular file to take ownership of.
+     * @param stream CUDA stream associated with the new Buffer.
+     * @return The disk-backed Buffer, whose size is the file's size.
+     *
+     * @throws std::invalid_argument If there is no disk resource or @p path is not an
+     * existing regular file.
+     * @throws std::runtime_error If the file cannot be placed under the disk resource's
+     * directory.
+     */
+    [[nodiscard]] std::unique_ptr<Buffer> adopt_disk_file(
+        std::filesystem::path const& path, cuda::stream_ref stream
+    );
+
+    /**
+     * @brief Give up ownership of a disk-backed Buffer's file without deleting it.
+     *
+     * The counterpart of `adopt_disk_file()`. The caller owns the returned file.
+     *
+     * @param buffer The disk-backed Buffer, which is consumed. Must not be null.
+     * @return Path of the file, empty if the buffer had no backing file.
+     *
+     * @throws std::logic_error If @p buffer is not disk-backed or is locked.
+     */
+    [[nodiscard]] static std::filesystem::path release_disk_file(
+        std::unique_ptr<Buffer> buffer
+    );
+
+    /**
      * @brief Move a buffer into one of @p accepted, unless it is already in one of them.
      *
      * The memory types are tried in reverse order of @p accepted without overbooking.
@@ -724,6 +760,26 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     }
 
     /**
+     * @brief Attach the rank topology describing who can read this resource's spill
+     * files.
+     *
+     * Metadata-payload exchanges created afterwards with this buffer resource send
+     * DISK payloads by file path to ranks that can read them. Exchanges read the
+     * topology once, at construction, so set it before creating them. See
+     * `create_and_attach_rank_topology()`.
+     *
+     * @param topology The topology, or `nullptr` to detach it.
+     */
+    void set_rank_topology(std::shared_ptr<RankTopology const> topology);
+
+    /**
+     * @brief The attached rank topology.
+     *
+     * @return The topology, or `nullptr` if none is attached.
+     */
+    [[nodiscard]] std::shared_ptr<RankTopology const> rank_topology() const;
+
+    /**
      * @brief Progress timeout for memory reservation requests.
      *
      * The longest time a component waiting for memory may go without any of its
@@ -767,6 +823,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     std::optional<PinnedMemoryResource> pinned_mr_;
     HostMemoryResource host_mr_;
     std::shared_ptr<DiskResource> disk_resource_;
+    std::shared_ptr<RankTopology const> rank_topology_;  // Guarded by `mutex_`.
     std::array<std::atomic<std::int64_t>, MEMORY_TYPES.size()> memory_limits_;
     // Zero initialized reserved counters.
     PerMemoryType<std::size_t> memory_reserved_{};

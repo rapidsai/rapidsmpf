@@ -10,6 +10,8 @@
 #include <filesystem>
 #include <future>
 #include <memory>
+#include <optional>
+#include <sstream>
 #include <thread>
 #include <tuple>
 
@@ -24,6 +26,7 @@
 #include <rapidsmpf/memory/packed_data.hpp>
 #include <rapidsmpf/memory/spill.hpp>
 #include <rapidsmpf/progress_thread.hpp>
+#include <rapidsmpf/rank_topology.hpp>
 #include <rapidsmpf/shuffler/finish_counter.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/statistics.hpp>
@@ -315,36 +318,21 @@ TEST(MetadataMessage, round_trip) {
 
 namespace {
 
-using MemoryLimitsMap = std::unordered_map<rapidsmpf::MemoryType, std::int64_t>;
-
 /**
- * @brief Build a `memory_limits` map for a `BufferResource` that prioritizes one memory
+ * @brief Build `memory_limits` for a `BufferResource` that only has room in one memory
  * type.
  *
- * All memory types are initialised to unlimited. If @p priorities is not
- * `MemoryType::DEVICE`, the device-memory limit is then set to zero, forcing
- * the `BufferResource` to allocate exclusively in host memory. Host memory is
- * never zeroed because it backs metadata and control-message allocations that
- * must always succeed.
- *
- * @param priorities The memory type to keep unlimited (all others are zeroed).
- * @return A map from each `MemoryType` to its byte limit (`std::int64_t`).
+ * @param mem_type The memory type to leave unlimited. All others are set to zero.
+ * @return A map from each `MemoryType` to its byte limit.
  */
-MemoryLimitsMap get_memory_limits_map(rapidsmpf::MemoryType priorities) {
-    using namespace rapidsmpf;
-
-    // We set all memory types to be unlimited.
-    MemoryLimitsMap ret = {
-        {MemoryType::DEVICE, std::numeric_limits<std::int64_t>::max()},
-        {MemoryType::HOST, std::numeric_limits<std::int64_t>::max()}
-    };
-
-    // And then set device memory to zero if it isn't prioritized.
-    if (priorities != MemoryType::DEVICE) {
-        ret.at(MemoryType::DEVICE) = 0;
+std::unordered_map<rapidsmpf::MemoryType, std::int64_t> only_memory_type(
+    rapidsmpf::MemoryType mem_type
+) {
+    std::unordered_map<rapidsmpf::MemoryType, std::int64_t> ret;
+    for (auto t : rapidsmpf::MEMORY_TYPES) {
+        ret[t] = 0;
     }
-    // Note, we never set host memory to zero because it is used to allocate
-    // stuff like metadata and control messages.
+    ret[mem_type] = std::numeric_limits<std::int64_t>::max();
     return ret;
 }
 
@@ -374,6 +362,7 @@ MemoryLimitsMap get_memory_limits_map(rapidsmpf::MemoryType priorities) {
  * @param stream               CUDA stream used for device allocations.
  * @param br                   Buffer resource used to allocate packed data.
  * @param base                 Offset added to every generated value (default 0).
+ * @param mem_type             Memory type of the generated data (default DEVICE).
  * @return Map from destination `PartID` to the corresponding `PackedData` chunk;
  *         empty sub-regions are omitted.
  */
@@ -384,7 +373,8 @@ make_partition_data(
     rapidsmpf::shuffler::PartID local_pidx,
     cuda::stream_ref stream,
     rapidsmpf::BufferResource& br,
-    std::int64_t base = 0
+    std::int64_t base = 0,
+    rapidsmpf::MemoryType mem_type = rapidsmpf::MemoryType::DEVICE
 ) {
     auto const P = static_cast<std::size_t>(total_num_partitions);
     auto const pieces = rapidsmpf::chunk_indices(total_num_rows, P * P);
@@ -398,7 +388,11 @@ make_partition_data(
             chunks.emplace(
                 split_idx,
                 generate_packed_data(
-                    end - start, base + static_cast<std::int64_t>(start), stream, br
+                    end - start,
+                    base + static_cast<std::int64_t>(start),
+                    stream,
+                    br,
+                    mem_type
                 )
             );
         }
@@ -476,6 +470,8 @@ void validate_partition_data(
  * @param total_num_rows       Total row count `N` distributed across all sub-regions.
  * @param stream               CUDA stream used for device allocations.
  * @param br                   Buffer resource used to allocate and validate data.
+ * @param base                 Offset added to every generated value (default 0).
+ * @param mem_type             Memory type of the inserted data (default DEVICE).
  */
 void test_shuffler(
     rapidsmpf::shuffler::Shuffler& shuffler,
@@ -483,14 +479,15 @@ void test_shuffler(
     std::size_t total_num_rows,
     cuda::stream_ref stream,
     rapidsmpf::BufferResource* br,
-    std::int64_t base = 0
+    std::int64_t base = 0,
+    rapidsmpf::MemoryType mem_type = rapidsmpf::MemoryType::DEVICE
 ) {
     // To expose unexpected deadlocks, we use a 30s timeout. In a normal run, the
     // shuffle shouldn't get near 30s.
 
     for (rapidsmpf::shuffler::PartID local_pidx : shuffler.local_partitions()) {
         shuffler.insert(make_partition_data(
-            total_num_partitions, total_num_rows, local_pidx, stream, *br, base
+            total_num_partitions, total_num_rows, local_pidx, stream, *br, base, mem_type
         ));
     }
     shuffler.insert_finished();
@@ -513,16 +510,30 @@ void test_shuffler(
 
 class MemoryLimits_NumPartition
     : public ::testing::TestWithParam<
-          std::tuple<MemoryLimitsMap, rapidsmpf::shuffler::PartID, std::size_t>> {
+          std::tuple<rapidsmpf::MemoryType, rapidsmpf::shuffler::PartID, std::size_t>> {
   public:
     void SetUp() override {
         stream = cuda::stream_ref{cudaStreamLegacy};
-        std::tie(memory_limits, total_num_partitions, total_num_rows) = GetParam();
+        std::tie(mem_type, total_num_partitions, total_num_rows) = GetParam();
+        // DISK data needs a disk resource, and a rank topology so that it is handed
+        // over to other ranks by path instead of being read back into memory.
+        std::optional<std::filesystem::path> spill_dir;
+        if (mem_type == rapidsmpf::MemoryType::DISK) {
+            temp_dir.emplace();
+            spill_dir = temp_dir->path();
+        }
         br = rapidsmpf::BufferResource::create(
             rmm::mr::get_current_device_resource_ref(),
             rapidsmpf::PinnedMemoryDisabled,
-            memory_limits
+            only_memory_type(mem_type),
+            std::chrono::milliseconds{1},
+            std::make_shared<rapidsmpf::StreamPool>(16),
+            rapidsmpf::Statistics::disabled(),
+            spill_dir
         );
+        if (mem_type == rapidsmpf::MemoryType::DISK) {
+            rapidsmpf::create_and_attach_rank_topology(GlobalEnvironment->comm_, br);
+        }
 
         shuffler = std::make_unique<rapidsmpf::shuffler::Shuffler>(
             GlobalEnvironment->comm_,
@@ -537,37 +548,42 @@ class MemoryLimits_NumPartition
     }
 
   protected:
-    MemoryLimitsMap memory_limits;
+    rapidsmpf::MemoryType mem_type;
     rapidsmpf::shuffler::PartID total_num_partitions;
     std::size_t total_num_rows;
     cuda::stream_ref stream{cudaStreamLegacy};
+    // Declared before `br`, so the spill directory outlives the buffer resource.
+    std::optional<TempDir> temp_dir;
     std::shared_ptr<rapidsmpf::BufferResource> br;
     std::unique_ptr<rapidsmpf::shuffler::Shuffler> shuffler;
 };
 
-// test different `memory_available` and `total_num_partitions`.
+// Test different memory types, `total_num_partitions` and `total_num_rows`. The data is
+// created in, and the buffer resource only has room in, the given memory type.
 INSTANTIATE_TEST_SUITE_P(
     Shuffler,
     MemoryLimits_NumPartition,
     testing::Combine(
-        testing::ValuesIn(
-            {get_memory_limits_map(rapidsmpf::MemoryType::HOST),
-             get_memory_limits_map(rapidsmpf::MemoryType::DEVICE)}
+        testing::Values(
+            rapidsmpf::MemoryType::DEVICE,
+            rapidsmpf::MemoryType::HOST,
+            rapidsmpf::MemoryType::DISK
         ),
         testing::Values(1, 2, 5, 10),  // total_num_partitions
         testing::Values(1, 9, 100, 100'000)  // total_num_rows
     ),
     [](const testing::TestParamInfo<MemoryLimits_NumPartition::ParamType>& info) {
-        return std::to_string(info.index) + "__nparts_"
-               + std::to_string(std::get<1>(info.param)) + "__nrows_"
-               + std::to_string(std::get<2>(info.param));
+        std::ostringstream ss;
+        ss << std::get<0>(info.param) << "__nparts_" << std::get<1>(info.param)
+           << "__nrows_" << std::get<2>(info.param);
+        return ss.str();
     }
 );
 
 TEST_P(MemoryLimits_NumPartition, round_trip) {
-    EXPECT_NO_FATAL_FAILURE(
-        test_shuffler(*shuffler, total_num_partitions, total_num_rows, stream, br.get())
-    );
+    EXPECT_NO_FATAL_FAILURE(test_shuffler(
+        *shuffler, total_num_partitions, total_num_rows, stream, br.get(), 0, mem_type
+    ));
 }
 
 TEST(Shuffler, payload_statistics) {

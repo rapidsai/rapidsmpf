@@ -286,6 +286,60 @@ TEST_F(DiskResourceTest, AdoptAcrossFilesystems) {
     ASSERT_TRUE(std::filesystem::remove(adopted));
 }
 
+TEST_F(DiskResourceTest, CloneIsIndependentCopy) {
+    auto const src_path = disk_->create_unique_path();
+    auto const src = make_pattern(64 * 1024);
+    EXPECT_EQ(disk_->write(src_path, src.data(), src.size(), stream_), src.size());
+
+    auto const cloned = disk_->clone(src_path, stream_);
+    EXPECT_NE(cloned, src_path);
+    EXPECT_EQ(cloned.parent_path(), disk_->directory());
+    EXPECT_EQ(std::filesystem::file_size(cloned), src.size());
+    check_file_contents(cloned, 0, src);
+
+    // Writing to either file leaves the other unchanged.
+    auto const patch = make_pattern(1024);
+    EXPECT_EQ(disk_->write(cloned, patch.data(), patch.size(), stream_), patch.size());
+    check_file_contents(src_path, 0, src);
+    EXPECT_EQ(
+        disk_->write(src_path, patch.data(), patch.size(), stream_, 4096), patch.size()
+    );
+    std::vector<std::byte> const unchanged(src.begin() + 4096, src.begin() + 5120);
+    check_file_contents(cloned, 4096, unchanged);
+
+    // Deleting the original keeps the clone.
+    ASSERT_TRUE(std::filesystem::remove(src_path));
+    check_file_contents(cloned, 0, patch);
+    ASSERT_TRUE(std::filesystem::remove(cloned));
+}
+
+TEST_F(DiskResourceTest, CloneFromOtherFilesystem) {
+    // A source on tmpfs can't be reflinked into the spill directory, so this runs the
+    // copy fallback (or, if the spill directory is also on /dev/shm, a plain clone).
+    if (::access("/dev/shm", W_OK) != 0) {
+        GTEST_SKIP() << "/dev/shm is not writable";
+    }
+    TempDir src_dir{"/dev/shm"};
+    auto const src_path = src_dir.path() / "src";
+    auto const src = make_pattern(8 * 1024);
+    EXPECT_EQ(disk_->write(src_path, src.data(), src.size(), stream_), src.size());
+
+    auto const cloned = disk_->clone(src_path, stream_);
+    EXPECT_TRUE(std::filesystem::exists(src_path));
+    EXPECT_EQ(cloned.parent_path(), disk_->directory());
+    check_file_contents(cloned, 0, src);
+    ASSERT_TRUE(std::filesystem::remove(cloned));
+}
+
+TEST_F(DiskResourceTest, CloneRejectsMissingSource) {
+    EXPECT_THROW(
+        std::ignore = disk_->clone(disk_->directory() / "missing", stream_),
+        std::invalid_argument
+    );
+    // Nothing is left behind.
+    EXPECT_TRUE(std::filesystem::is_empty(disk_->directory()));
+}
+
 TEST_F(DiskResourceTest, FlushDoesNotThrow) {
     auto const path = test_path("flush");
     auto const pattern = make_pattern(4096);
