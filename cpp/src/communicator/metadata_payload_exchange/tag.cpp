@@ -352,6 +352,8 @@ void TagMetadataPayloadExchange::send_disk_handoff(
         statistics_->add_bytes_stat(
             "metadata-payload-exchange-disk-handoff-sent", payload_size
         );
+        // The exchange stays busy until `dst` confirms it took over the file.
+        state.handoffs_sent++;
     };
 
 
@@ -382,6 +384,7 @@ void TagMetadataPayloadExchange::progress() {
     // Process all phases of the communication protocol
     receive_metadata();
     auto completed_metadata_only = setup_data_receives();
+    send_handoffs_acks();
     auto completed_data = complete_data_transfers();
 
     // Store all completed messages
@@ -439,10 +442,30 @@ bool TagMetadataPayloadExchange::is_idle() const {
         return false;
     }
     // After finish(), also require all peers to have sent their termination
-    // markers and all expected application messages to have been received.
+    // markers and all expected application messages to have been received, and every
+    // file handed over in either direction to have been confirmed as taken over.
     return std::ranges::all_of(peers_, [&](auto const& peer) {
-        return peer.second.io_idle() && (!finished_ || peer.second.received_all());
+        auto const& state = peer.second;
+        return state.io_idle()
+               && (!finished_
+                   || (state.received_all() && !state.awaiting_handoffs_ack()
+                       && !state.owes_handoffs_ack()));
     });
+}
+
+void TagMetadataPayloadExchange::send_handoffs_acks() {
+    for (auto& [peer, state] : peers_) {
+        // Every handed-over file is adopted before its message leaves `incoming`.
+        if (state.owes_handoffs_ack() && state.received_all() && state.incoming.empty()) {
+            comm_->logger()->trace("send handoffs ack to ", peer);
+            fire_and_forget_.push_back(comm_->send(
+                CombinedMetadata{{}, handoffs_ack_sentinel_, 0}.serialize(),
+                peer,
+                metadata_tag_
+            ));
+            state.handoffs_ack_sent = true;
+        }
+    }
 }
 
 void TagMetadataPayloadExchange::receive_metadata() {
@@ -453,7 +476,7 @@ void TagMetadataPayloadExchange::receive_metadata() {
     // collective on the same tag (see rapidsai/rapidsmpf#927).
     for (auto& [peer, state] : peers_) {
         // Skip peers that are fully done.
-        if (state.received_all()) {
+        if (state.received_all() && !state.awaiting_handoffs_ack()) {
             continue;
         }
 
@@ -480,8 +503,18 @@ void TagMetadataPayloadExchange::receive_metadata() {
                 break;
             }
 
+            // The peer took over every file this rank handed over to it.
+            if (combined.message_id == handoffs_ack_sentinel_) {
+                state.handoffs_acked = true;
+                log->trace("recv handoffs ack from ", peer);
+                continue;
+            }
+
             // Normal application message.
             state.messages_received++;
+            if (!combined.handoff_path.empty()) {
+                state.handoffs_received++;
+            }
 
             log->trace("recv_from ", peer, " (message_id=", combined.message_id, ")");
             auto& tag_msg =

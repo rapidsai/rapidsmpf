@@ -897,6 +897,38 @@ TEST_F(MetadataPayloadExchangeTest, SendsDiskPayloadByPath) {
     finish_and_wait();
 }
 
+TEST_F(MetadataPayloadExchangeTest, IsNotIdleUntilHandoffIsTakenOver) {
+    if (comm->nranks() < 2) {
+        GTEST_SKIP() << "Test requires at least 2 ranks";
+    }
+    Rank const next_rank = (comm->rank() + 1) % comm->nranks();
+    constexpr std::size_t data_size = 4096;
+
+    TempDir temp_dir;
+    auto disk_br = make_disk_br(temp_dir);
+    use_disk_handoff(*disk_br);
+
+    auto msg = make_disk_message(*disk_br, next_rank, {0x07}, data_size);
+    auto const sent_path = msg->data()->get_storage<Buffer::DiskBufferT>()->path();
+    comm_interface->send(std::move(msg));
+    comm_interface->finish();
+
+    std::vector<std::unique_ptr<MetadataPayloadExchange::Message>> received;
+    auto const deadline = Clock::now() + std::chrono::seconds{30};
+    while (!comm_interface->is_idle() && Clock::now() < deadline) {
+        comm_interface->progress();
+        std::ranges::move(comm_interface->recv(), std::back_inserter(received));
+        std::this_thread::yield();
+    }
+    ASSERT_TRUE(comm_interface->is_idle());
+
+    // Without any barrier: once this rank is idle, its receiver has taken over the file,
+    // so the sender's spill directory may be removed.
+    EXPECT_FALSE(std::filesystem::exists(sent_path));
+    ASSERT_EQ(received.size(), 1);
+    verify_disk_content(*disk_br, received[0]->release_data(), data_size);
+}
+
 TEST_F(MetadataPayloadExchangeTest, RetainsDiskPayload) {
     if (comm->nranks() < 2) {
         GTEST_SKIP() << "Test requires at least 2 ranks";

@@ -164,6 +164,10 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
 
     /**
      * @copydoc MetadataPayloadExchange::is_idle
+     *
+     * After finish(), this also waits until every peer that was handed DISK payloads by
+     * path has confirmed that it took over the files. Once idle, the files this rank
+     * handed over no longer depend on its spill directory, which may then be removed.
      */
     bool is_idle() const override;
 
@@ -261,6 +265,14 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
         std::size_t messages_expected{0};
         // Whether the termination marker of the peer has been received.
         bool terminated{false};
+        // DISK payloads handed over by path to the peer.
+        std::size_t handoffs_sent{0};
+        // DISK payloads handed over by path from the peer.
+        std::size_t handoffs_received{0};
+        // Whether the peer confirmed that it took over every handed-over file.
+        bool handoffs_acked{false};
+        // Whether this rank confirmed to the peer that it took over every file.
+        bool handoffs_ack_sent{false};
 
         /**
          * @brief Whether all messages from the peer have been received.
@@ -270,6 +282,26 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
          */
         [[nodiscard]] bool received_all() const noexcept {
             return terminated && messages_received >= messages_expected;
+        }
+
+        /**
+         * @brief Whether the peer still has to confirm it took over the handed-over
+         * files.
+         *
+         * @return True if files were handed over to the peer and it has not confirmed.
+         */
+        [[nodiscard]] bool awaiting_handoffs_ack() const noexcept {
+            return handoffs_sent > 0 && !handoffs_acked;
+        }
+
+        /**
+         * @brief Whether this rank still has to confirm to the peer that it took over
+         * the handed-over files.
+         *
+         * @return True if the peer handed over files and no confirmation was sent.
+         */
+        [[nodiscard]] bool owes_handoffs_ack() const noexcept {
+            return handoffs_received > 0 && !handoffs_ack_sent;
         }
 
         /**
@@ -317,6 +349,10 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
     static constexpr std::uint64_t termination_sentinel_ =
         std::numeric_limits<std::uint64_t>::max();
 
+    /// Sentinel message_id value of the confirmation that a peer took over every file
+    /// handed over to it. Sent once per peer, after all its messages were received.
+    static constexpr std::uint64_t handoffs_ack_sentinel_ = termination_sentinel_ - 1;
+
     // Ongoing "fire-and-forget" operations (non-blocking sends).
     std::vector<std::unique_ptr<Communicator::Future>> fire_and_forget_;
     // Futures corresponding to in-transit messages.
@@ -358,6 +394,14 @@ class TagMetadataPayloadExchange : public MetadataPayloadExchange {
      * @brief Receive metadata for incoming messages.
      */
     void receive_metadata();
+
+    /**
+     * @brief Confirm to each peer that every file it handed over has been taken over.
+     *
+     * Sent once per peer that handed over files, after all its messages were received
+     * and taken out of `incoming`, at which point every handed-over file was adopted.
+     */
+    void send_handoffs_acks();
 
     /**
      * @brief Setup data receives for incoming messages.
