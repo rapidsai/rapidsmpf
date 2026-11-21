@@ -307,3 +307,11 @@ TEST(MiscTest, SafeCastMixedSignednessAndSize) {
     );
     EXPECT_THROW(safe_cast<std::int32_t>(UINT64_MAX), std::overflow_error);
 }
+
+TEST(MiscTest, Fnv1aIsDeterministicAndSeparatesParts) {
+    static_assert(fnv1a({"abc"}) == fnv1a({"abc"}));
+    EXPECT_NE(fnv1a({"ab", "c"}), fnv1a({"a", "bc"}));
+    EXPECT_NE(fnv1a({"host", "boot"}), fnv1a({"host", "boot2"}));
+    // A single empty part hashes the lone 0x00 separator byte.
+    EXPECT_EQ(fnv1a({""}), 0xaf63bd4c8601b7dfULL);
+}
