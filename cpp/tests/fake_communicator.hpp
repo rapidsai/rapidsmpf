@@ -29,6 +29,12 @@
  */
 class FakeCommunicator final : public rapidsmpf::Communicator {
   public:
+    /// @brief The direction of a communication operation.
+    enum class Direction : std::uint8_t {
+        Send,  ///< A send, never cancelled.
+        Receive,  ///< A receive, cancelled when the communicator is destroyed.
+    };
+
     /// @brief The state shared by the communicator and its communication.
     struct State {
         std::atomic<bool> completed{false};  ///< Whether all communication completed.
@@ -73,7 +79,7 @@ class FakeCommunicator final : public rapidsmpf::Communicator {
     };
 
     /// @brief The communication of a destroyed future, see `FutureGraveyard`.
-    class Grave final : public rapidsmpf::detail::FutureGraveyard::Grave {
+    class Grave final : public rapidsmpf::FutureGraveyard::Grave {
       public:
         explicit Grave(std::unique_ptr<Communication> communication)
             : communication_{std::move(communication)} {}
@@ -95,7 +101,7 @@ class FakeCommunicator final : public rapidsmpf::Communicator {
       public:
         PendingFuture(
             std::unique_ptr<Communication> communication,
-            std::shared_ptr<rapidsmpf::detail::FutureGraveyard> graveyard
+            std::shared_ptr<rapidsmpf::FutureGraveyard> graveyard
         )
             : communication_{std::move(communication)},
               graveyard_{std::move(graveyard)} {}
@@ -111,17 +117,14 @@ class FakeCommunicator final : public rapidsmpf::Communicator {
 
       private:
         std::unique_ptr<Communication> communication_;
-        std::shared_ptr<rapidsmpf::detail::FutureGraveyard> graveyard_;
+        std::shared_ptr<rapidsmpf::FutureGraveyard> graveyard_;
     };
 
     explicit FakeCommunicator(std::shared_ptr<rapidsmpf::Communicator> comm)
-        : comm_{std::move(comm)},
-          graveyard_{
-              std::make_shared<rapidsmpf::detail::FutureGraveyard>(0, abort_state())
-          } {}
+        : comm_{std::move(comm)} {}
 
     ~FakeCommunicator() noexcept override {
-        graveyard_->release();
+        graveyard()->release();
     }
 
     /// @brief Make the communication of this communicator complete.
@@ -237,13 +240,12 @@ class FakeCommunicator final : public rapidsmpf::Communicator {
     std::unique_ptr<Future> post(Direction direction) {
         throw_if_aborted();
         return std::make_unique<PendingFuture>(
-            std::make_unique<Communication>(state_, direction), graveyard_
+            std::make_unique<Communication>(state_, direction), graveyard()
         );
     }
 
     std::shared_ptr<rapidsmpf::Communicator> comm_;
     std::shared_ptr<State> state_{std::make_shared<State>()};
-    std::shared_ptr<rapidsmpf::detail::FutureGraveyard> graveyard_;
 };
 
 /**

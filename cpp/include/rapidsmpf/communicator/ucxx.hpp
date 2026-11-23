@@ -131,7 +131,7 @@ class UCXX final : public Communicator {
         Future(
             std::shared_ptr<::ucxx::Request> req,
             std::unique_ptr<Buffer> data_buffer,
-            std::shared_ptr<rapidsmpf::detail::FutureGraveyard> graveyard
+            std::shared_ptr<FutureGraveyard> graveyard
         )
             : req_{std::move(req)},
               data_buffer_{std::move(data_buffer)},
@@ -150,7 +150,7 @@ class UCXX final : public Communicator {
         Future(
             std::shared_ptr<::ucxx::Request> req,
             std::unique_ptr<std::vector<std::uint8_t>> synced_host_data,
-            std::shared_ptr<rapidsmpf::detail::FutureGraveyard> graveyard
+            std::shared_ptr<FutureGraveyard> graveyard
         )
             : req_{std::move(req)},
               synced_host_data_{std::move(synced_host_data)},
@@ -161,7 +161,7 @@ class UCXX final : public Communicator {
          *
          * If the completion of the communication was not observed, e.g., by `test()`,
          * the request and buffers are handed over to the graveyard of the
-         * communicator, which aborts it, see `rapidsmpf::detail::FutureGraveyard`.
+         * communicator, which aborts it, see `FutureGraveyard`.
          */
         ~Future() noexcept override;
 
@@ -173,7 +173,7 @@ class UCXX final : public Communicator {
         std::unique_ptr<Buffer> data_buffer_;
         // Dedicated storage for host data that is valid at the time of construction.
         std::unique_ptr<std::vector<std::uint8_t>> synced_host_data_;
-        std::shared_ptr<rapidsmpf::detail::FutureGraveyard> graveyard_;
+        std::shared_ptr<FutureGraveyard> graveyard_;
         bool completed_{false};  ///< Whether the completion was observed.
     };
 
@@ -363,8 +363,6 @@ class UCXX final : public Communicator {
   private:
     std::shared_ptr<SharedResources> shared_resources_;
     std::shared_ptr<ProgressThread> progress_thread_;
-    /// @brief Keeps the in-flight communication of destroyed futures alive.
-    std::shared_ptr<rapidsmpf::detail::FutureGraveyard> graveyard_;
 
     std::shared_ptr<::ucxx::Endpoint> get_endpoint(Rank rank);
     void progress_worker();

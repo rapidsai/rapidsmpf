@@ -182,7 +182,6 @@ MPI::MPI(
     RAPIDSMPF_EXPECTS(logger_ != nullptr, "logger cannot be null", std::invalid_argument);
     logger_->set_name(std::to_string(rank_));
     check_mpi_thread_support();
-    graveyard_ = std::make_shared<detail::FutureGraveyard>(rank_, abort_state());
 }
 
 namespace {
@@ -196,11 +195,11 @@ bool mpi_usable() noexcept {
 /**
  * @brief The in-flight communication of a destroyed MPI future.
  */
-class MpiGrave final : public detail::FutureGraveyard::Grave {
+class MpiGrave final : public FutureGraveyard::Grave {
   public:
     MpiGrave(
         MPI_Request req,
-        Communicator::Direction direction,
+        MPI::Direction direction,
         std::unique_ptr<Buffer> data_buffer,
         std::unique_ptr<std::vector<std::uint8_t>> synced_host_data
     )
@@ -222,7 +221,7 @@ class MpiGrave final : public detail::FutureGraveyard::Grave {
         // A cancelled receive completes locally, unless it matched a message before
         // being cancelled, in which case it completes with the message. Sends are not
         // cancelled, `MPI_Cancel()` on sends is deprecated.
-        if (direction_ == Communicator::Direction::Receive && mpi_usable()
+        if (direction_ == MPI::Direction::Receive && mpi_usable()
             && req_ != MPI_REQUEST_NULL)
         {
             MPI_Cancel(&req_);
@@ -231,7 +230,7 @@ class MpiGrave final : public detail::FutureGraveyard::Grave {
 
   private:
     MPI_Request req_;
-    Communicator::Direction direction_;
+    MPI::Direction direction_;
     std::unique_ptr<Buffer> data_buffer_;
     std::unique_ptr<std::vector<std::uint8_t>> synced_host_data_;
 };
@@ -243,7 +242,7 @@ MPI::Future::~Future() noexcept {
     if (req_ == MPI_REQUEST_NULL || graveyard_ == nullptr) {
         return;
     }
-    std::unique_ptr<detail::FutureGraveyard::Grave> grave;
+    std::unique_ptr<FutureGraveyard::Grave> grave;
     try {
         grave = std::make_unique<MpiGrave>(
             req_, direction_, std::move(data_buffer_), std::move(synced_host_data_)
@@ -260,7 +259,7 @@ MPI::~MPI() noexcept {
     // Once MPI is finalized, e.g., at interpreter exit, nothing can complete anymore:
     // the graves are leaked.
     if (mpi_usable()) {
-        graveyard_->release();
+        graveyard()->release();
     }
 }
 
@@ -274,7 +273,7 @@ std::unique_ptr<Communicator::Future> MPI::send(
     RAPIDSMPF_MPI(
         MPI_Isend(msg->data(), msg_type.count(), msg_type.type(), rank, tag, comm_, &req)
     );
-    return std::make_unique<Future>(req, std::move(msg), Direction::Send, graveyard_);
+    return std::make_unique<Future>(req, std::move(msg), Direction::Send, graveyard());
 }
 
 std::unique_ptr<Communicator::Future> MPI::send(
@@ -288,7 +287,7 @@ std::unique_ptr<Communicator::Future> MPI::send(
     RAPIDSMPF_MPI(
         MPI_Isend(msg->data(), msg_type.count(), msg_type.type(), rank, tag, comm_, &req)
     );
-    return std::make_unique<Future>(req, std::move(msg), Direction::Send, graveyard_);
+    return std::make_unique<Future>(req, std::move(msg), Direction::Send, graveyard());
 }
 
 namespace {
@@ -319,7 +318,7 @@ std::unique_ptr<Communicator::Future> MPI::recv(
         rank, tag, recv_buffer->exclusive_data_access(), recv_buffer->size, comm_, &req
     );
     return std::make_unique<Future>(
-        req, std::move(recv_buffer), Direction::Receive, graveyard_
+        req, std::move(recv_buffer), Direction::Receive, graveyard()
     );
 }
 
@@ -335,7 +334,7 @@ std::unique_ptr<Communicator::Future> MPI::recv_sync_host_data(
     MPI_Request req;
     mpi_recv_impl(rank, tag, synced_buffer->data(), synced_buffer->size(), comm_, &req);
     return std::make_unique<Future>(
-        req, std::move(synced_buffer), Direction::Receive, graveyard_
+        req, std::move(synced_buffer), Direction::Receive, graveyard()
     );
 }
 
@@ -534,6 +533,13 @@ std::unique_ptr<Buffer> MPI::wait(std::unique_ptr<Communicator::Future> future) 
 std::unique_ptr<Buffer> MPI::release_data(std::unique_ptr<Communicator::Future> future) {
     auto mpi_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
+    // Its buffer may still be accessed until the completion was observed, e.g., by
+    // `test()`, which sets the request to MPI_REQUEST_NULL.
+    RAPIDSMPF_EXPECTS(
+        mpi_future->req_ == MPI_REQUEST_NULL,
+        "the communication of the future has not completed",
+        std::logic_error
+    );
     RAPIDSMPF_EXPECTS(
         mpi_future->data_buffer_ != nullptr, "future has no data", std::invalid_argument
     );
@@ -546,6 +552,11 @@ std::unique_ptr<std::vector<std::uint8_t>> MPI::release_sync_host_data(
 ) {
     auto mpi_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
+    RAPIDSMPF_EXPECTS(
+        mpi_future->req_ == MPI_REQUEST_NULL,
+        "the communication of the future has not completed",
+        std::logic_error
+    );
     RAPIDSMPF_EXPECTS(
         mpi_future->synced_host_data_ != nullptr,
         "future has no synced host data",

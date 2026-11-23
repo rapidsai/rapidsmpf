@@ -4,11 +4,13 @@
  */
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <ranges>
 #include <sstream>
 #include <stdexcept>
@@ -76,41 +78,65 @@ std::string const& communicator_aborted::reason() const noexcept {
 
 namespace detail {
 
-bool AbortState::set(Rank origin, std::string reason) noexcept {
-    bool expected = false;
-    if (!claimed_.compare_exchange_strong(
-            expected, true, std::memory_order_acq_rel, std::memory_order_relaxed
-        ))
-    {
-        return false;
+/**
+ * @brief The abort state of a communicator.
+ *
+ * Set by the first abort only, and never cleared. All methods are thread-safe.
+ */
+class AbortState {
+  public:
+    /**
+     * @brief Record an abort, unless one has already been recorded.
+     *
+     * @param origin The rank that aborted the communicator, or empty for this rank.
+     * @param reason The reason given by `origin`.
+     * @return True if this abort was recorded, false if one was already recorded.
+     */
+    bool set(std::optional<Rank> origin, std::string reason) noexcept {
+        bool expected = false;
+        if (!claimed_.compare_exchange_strong(
+                expected, true, std::memory_order_acq_rel, std::memory_order_relaxed
+            ))
+        {
+            return false;
+        }
+        origin_ = origin;
+        reason_ = std::move(reason);
+        is_set_.store(true, std::memory_order_release);
+        return true;
     }
-    origin_ = origin;
-    reason_ = std::move(reason);
-    is_set_.store(true, std::memory_order_release);
-    return true;
-}
 
-bool AbortState::is_set() const noexcept {
-    return is_set_.load(std::memory_order_acquire);
-}
-
-void AbortState::throw_if_set() const {
-    if (is_set()) {
-        throw communicator_aborted(origin_, reason_);
+    /// @return Whether an abort has been recorded.
+    [[nodiscard]] bool is_set() const noexcept {
+        return is_set_.load(std::memory_order_acquire);
     }
-}
+
+    /// @return The rank that aborted, or empty for this rank. Valid once `is_set()`.
+    [[nodiscard]] std::optional<Rank> origin() const noexcept {
+        return origin_;
+    }
+
+    /// @return The reason given by the rank that aborted. Valid once `is_set()`.
+    [[nodiscard]] std::string const& reason() const noexcept {
+        return reason_;
+    }
+
+  private:
+    std::atomic<bool> claimed_{false};  ///< Whether a writer claimed the state.
+    std::atomic<bool> is_set_{false};  ///< Whether the state has been published.
+    std::optional<Rank> origin_;
+    std::string reason_;
+};
+
+}  // namespace detail
 
 namespace {
 /// @brief How long `FutureGraveyard::release()` waits for the graves, in total.
 constexpr auto graveyard_release_timeout = std::chrono::seconds{1};
 }  // namespace
 
-FutureGraveyard::FutureGraveyard(Rank rank, std::shared_ptr<AbortState> abort_state)
-    : rank_{rank}, abort_state_{std::move(abort_state)} {
-    RAPIDSMPF_EXPECTS(
-        abort_state_ != nullptr, "abort state cannot be null", std::invalid_argument
-    );
-}
+FutureGraveyard::FutureGraveyard(std::shared_ptr<detail::AbortState> abort_state)
+    : abort_state_{std::move(abort_state)} {}
 
 FutureGraveyard::~FutureGraveyard() noexcept {
     // Not released, so whether they completed is unknown: never free a buffer that may
@@ -123,12 +149,12 @@ FutureGraveyard::~FutureGraveyard() noexcept {
 void FutureGraveyard::bury(std::unique_ptr<Grave> grave) noexcept {
     try {
         abort_state_->set(
-            rank_,
+            std::nullopt,
             "a future was destroyed while its communication was in flight, e.g., "
             "because its operation failed"
         );
     } catch (...) {
-        abort_state_->set(rank_, std::string{});
+        abort_state_->set(std::nullopt, std::string{});
     }
     std::lock_guard lock(mutex_);
     if (grave == nullptr) {
@@ -151,7 +177,9 @@ bool FutureGraveyard::empty() const noexcept {
     return graves_.empty();
 }
 
-void FutureGraveyard::release(std::function<void()> const& progress) noexcept {
+void FutureGraveyard::release(
+    std::function<void()> const& cancel, std::function<void()> const& progress
+) noexcept {
     // Take the graves out, so that the communication library is never called while
     // holding the lock, which a future destroyed in one of its callbacks may need.
     std::vector<std::unique_ptr<Grave>> graves;
@@ -162,6 +190,13 @@ void FutureGraveyard::release(std::function<void()> const& progress) noexcept {
     }
     if (graves.empty()) {
         return;
+    }
+    if (cancel) {
+        try {
+            cancel();
+        } catch (...) {
+            // Best effort, what does not complete is leaked.
+        }
     }
     for (auto& grave : graves) {
         grave->cancel();
@@ -188,25 +223,25 @@ void FutureGraveyard::release(std::function<void()> const& progress) noexcept {
     }
 }
 
-}  // namespace detail
-
-Communicator::Communicator(std::shared_ptr<detail::AbortState> abort_state)
-    : abort_state_{std::move(abort_state)} {
-    RAPIDSMPF_EXPECTS(
-        abort_state_ != nullptr, "abort state cannot be null", std::invalid_argument
-    );
-}
+Communicator::Communicator()
+    : abort_state_{std::make_shared<detail::AbortState>()},
+      // The constructor of the graveyard is private.
+      graveyard_{std::shared_ptr<FutureGraveyard>(new FutureGraveyard(abort_state_))} {}
 
 bool Communicator::is_aborted() const noexcept {
     return abort_state_->is_set();
 }
 
-void Communicator::throw_if_aborted() {
-    abort_state_->throw_if_set();
+std::shared_ptr<FutureGraveyard> const& Communicator::graveyard() const noexcept {
+    return graveyard_;
 }
 
-std::shared_ptr<detail::AbortState> const& Communicator::abort_state() const noexcept {
-    return abort_state_;
+void Communicator::throw_if_aborted() const {
+    if (abort_state_->is_set()) {
+        throw communicator_aborted(
+            abort_state_->origin().value_or(rank()), abort_state_->reason()
+        );
+    }
 }
 
 std::vector<Rank> all_remote_ranks(Communicator const& comm) {

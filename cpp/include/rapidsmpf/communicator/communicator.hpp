@@ -4,7 +4,6 @@
  */
 #pragma once
 
-#include <atomic>
 #include <cstdint>
 #include <cstdlib>
 #include <functional>
@@ -208,43 +207,11 @@ class communicator_aborted : public std::runtime_error {
 };
 
 namespace detail {
+/// @brief The abort state of a communicator, opaque, see `Communicator::is_aborted()`.
+class AbortState;
+}  // namespace detail
 
-/**
- * @brief The abort state of a communicator.
- *
- * Set by the first abort only, and never cleared. All methods are thread-safe.
- */
-class AbortState {
-  public:
-    /**
-     * @brief Record an abort, unless one has already been recorded.
-     *
-     * @param origin The rank that aborted the communicator.
-     * @param reason The reason given by `origin`.
-     * @return True if this abort was recorded, false if one was already recorded.
-     */
-    bool set(Rank origin, std::string reason) noexcept;
-
-    /**
-     * @brief Check whether an abort has been recorded.
-     *
-     * @return True if an abort has been recorded.
-     */
-    [[nodiscard]] bool is_set() const noexcept;
-
-    /**
-     * @brief Throw `communicator_aborted` if an abort has been recorded.
-     *
-     * @throws communicator_aborted If an abort has been recorded.
-     */
-    void throw_if_set() const;
-
-  private:
-    std::atomic<bool> claimed_{false};  ///< Whether a writer claimed the state.
-    std::atomic<bool> is_set_{false};  ///< Whether the state has been published.
-    Rank origin_{-1};
-    std::string reason_;
-};
+class Communicator;
 
 /**
  * @brief Keeps the in-flight communication of destroyed futures alive.
@@ -252,15 +219,16 @@ class AbortState {
  * Destroying a future does not cancel nor wait for its communication, so the
  * communication library may still access its buffers. A backend future destroyed before
  * its completion was observed, e.g., because the operation it belongs to failed, hands
- * its request and buffers over to the graveyard of its communicator instead, which keeps
- * them alive. This aborts the communicator on this rank (see
- * `Communicator::is_aborted()`): the abandoned communication may still match later
+ * its request and buffers over to the graveyard of its communicator instead (see
+ * `Communicator::graveyard()`), which keeps them alive. This aborts the communicator
+ * (see `Communicator::is_aborted()`): the abandoned communication may still match later
  * messages with the same tag, so the communicator must not be used anymore.
  *
- * When the communicator is destroyed, it requests the cancellation of the buried
- * communication where possible, and waits for it to complete against a single deadline
- * (see `release()`). The graveyard is shared with the futures, so it may outlive the
- * communicator: what is buried after `release()` is leaked.
+ * When the communicator is destroyed, its backend releases the graveyard (see
+ * `release()`): the cancellation of the buried communication is requested where
+ * possible, and what completes before a single deadline is freed. The graveyard is
+ * shared with the futures, so it may outlive the communicator: what is buried after
+ * `release()` is leaked.
  *
  * Burying never calls into the communication library, it only takes a lock: a future
  * may be destroyed anywhere, e.g., in a callback of the communication library or after
@@ -299,14 +267,6 @@ class FutureGraveyard {
     };
 
     /**
-     * @brief Construct the graveyard of a communicator.
-     *
-     * @param rank The rank of the communicator.
-     * @param abort_state The abort state of the communicator.
-     */
-    FutureGraveyard(Rank rank, std::shared_ptr<AbortState> abort_state);
-
-    /**
      * @brief Destructor, leaks the graves that were not released.
      */
     ~FutureGraveyard() noexcept;
@@ -335,27 +295,39 @@ class FutureGraveyard {
     /**
      * @brief Release the graves, when the communicator is destroyed.
      *
-     * Requests the cancellation of all the buried communication, then waits for it to
-     * complete against a single deadline of about one second, however much there is,
-     * and frees the buffers of what completed. What still did not complete, e.g., a send
-     * to a dead peer, is leaked rather than freed while it may still be accessed. Must
-     * be called while the communication library is usable. Graves buried afterwards are
-     * leaked.
+     * If anything was buried, requests the cancellation of all the buried
+     * communication, then waits for it to complete against a single deadline of about
+     * one second, however much there is, and frees the buffers of what completed. What
+     * still did not complete, e.g., a send to a dead peer, is leaked rather than freed
+     * while it may still be accessed. Must be called while the communication library is
+     * usable. Graves buried afterwards are leaked.
      *
+     * @param cancel Called once if anything was buried, before `Grave::cancel()` of
+     * every grave, e.g., to cancel all in-flight communication of the communication
+     * library at once. May be empty.
      * @param progress Called repeatedly while waiting, e.g., to progress the
      * communication library. May be empty.
      */
-    void release(std::function<void()> const& progress = nullptr) noexcept;
+    void release(
+        std::function<void()> const& cancel = nullptr,
+        std::function<void()> const& progress = nullptr
+    ) noexcept;
 
   private:
-    Rank const rank_;
-    std::shared_ptr<AbortState> const abort_state_;
+    friend class Communicator;
+
+    /**
+     * @brief Construct the graveyard of a communicator.
+     *
+     * @param abort_state The abort state of the communicator.
+     */
+    explicit FutureGraveyard(std::shared_ptr<detail::AbortState> abort_state);
+
+    std::shared_ptr<detail::AbortState> const abort_state_;
     mutable std::mutex mutex_;  ///< Protects `graves_` and `released_`.
     std::vector<std::unique_ptr<Grave>> graves_;
     bool released_{false};
 };
-
-}  // namespace detail
 
 /**
  * @brief Abstract base class for a communication mechanism between nodes.
@@ -374,21 +346,18 @@ class FutureGraveyard {
  * _must_ provide that there is no message overtaking.
  *
  * Destroying a future while its communication is in flight, e.g., because the operation
- * it belongs to failed, aborts the communicator on this rank: the communication is kept
- * alive (see `detail::FutureGraveyard`), but it may still match later messages with the
- * same tag, so later communication throws `communicator_aborted`. Create a new
- * communicator to communicate again.
+ * it belongs to failed, aborts the communicator: the communication is kept alive (see
+ * `FutureGraveyard`), but it may still match later messages with the same tag, so later
+ * communication throws `communicator_aborted`. Create a new communicator to communicate
+ * again.
+ *
+ * Implementing a backend: to get this, backend futures hand their in-flight
+ * communication over to `graveyard()` when destroyed, the backend calls
+ * `throw_if_aborted()` before posting new communication, and releases the graveyard
+ * from its destructor, see `FutureGraveyard::release()`.
  */
 class Communicator {
   public:
-    /**
-     * @brief The direction of a communication operation.
-     */
-    enum class Direction : std::uint8_t {
-        Send,  ///< A send, which its peer may still expect, so it is not cancelled.
-        Receive,  ///< A receive, cancelled once abandoned, see `detail::FutureGraveyard`.
-    };
-
     /**
      * @brief Abstract base class for asynchronous operation within the communicator.
      *
@@ -413,14 +382,9 @@ class Communicator {
 
   protected:
     /**
-     * @brief Construct a communicator.
-     *
-     * @param abort_state The abort state of the communicator.
+     * @brief Construct a communicator, with its abort state and graveyard.
      */
-    explicit Communicator(
-        std::shared_ptr<detail::AbortState> abort_state =
-            std::make_shared<detail::AbortState>()
-    );
+    Communicator();
 
   public:
     virtual ~Communicator() noexcept = default;
@@ -645,12 +609,23 @@ class Communicator {
      * @brief Check whether the communicator has been aborted on this rank.
      *
      * A communicator is aborted when a future is destroyed while its communication is
-     * in flight, see `detail::FutureGraveyard`. Communication through an aborted
-     * communicator throws `communicator_aborted`.
+     * in flight, see `FutureGraveyard`. Communication through an aborted communicator
+     * throws `communicator_aborted`.
      *
      * @return True if the communicator has been aborted.
      */
     [[nodiscard]] bool is_aborted() const noexcept;
+
+  protected:
+    /**
+     * @brief Get the graveyard of the communicator.
+     *
+     * Backend futures hand their in-flight communication over to it when destroyed,
+     * see `FutureGraveyard`.
+     *
+     * @return The graveyard, shared with the futures.
+     */
+    [[nodiscard]] std::shared_ptr<FutureGraveyard> const& graveyard() const noexcept;
 
     /**
      * @brief Throw `communicator_aborted` if the communicator has been aborted.
@@ -660,18 +635,11 @@ class Communicator {
      *
      * @throws communicator_aborted If the communicator has been aborted.
      */
-    void throw_if_aborted();
-
-  protected:
-    /**
-     * @brief Get the abort state of the communicator.
-     *
-     * @return The abort state, e.g., to share with a `detail::FutureGraveyard`.
-     */
-    [[nodiscard]] std::shared_ptr<detail::AbortState> const& abort_state() const noexcept;
+    void throw_if_aborted() const;
 
   private:
     std::shared_ptr<detail::AbortState> abort_state_;
+    std::shared_ptr<FutureGraveyard> graveyard_;
 };
 
 /// @brief Whether RapidsMPF was built with the UCXX Communicator.

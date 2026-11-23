@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include <cstdint>
 #include <cstdlib>
 #include <memory>
 #include <vector>
@@ -73,6 +74,15 @@ void check_mpi_error(int error_code, char const* file, int line);
 class MPI final : public Communicator {
   public:
     /**
+     * @brief The direction of a communication operation.
+     */
+    enum class Direction : std::uint8_t {
+        Send,  ///< A send, which its peer may still expect, so it is never cancelled.
+        Receive,  ///< A receive, cancelled when the communicator is destroyed while it
+                  ///< is in flight, see `FutureGraveyard::release()`.
+    };
+
+    /**
      * @brief Represents the future result of an MPI operation.
      *
      * This class is used to handle the result of an MPI communication operation
@@ -94,7 +104,7 @@ class MPI final : public Communicator {
             MPI_Request req,
             std::unique_ptr<Buffer> data_buffer,
             Direction direction,
-            std::shared_ptr<detail::FutureGraveyard> graveyard
+            std::shared_ptr<FutureGraveyard> graveyard
         )
             : req_{req},
               direction_{direction},
@@ -116,7 +126,7 @@ class MPI final : public Communicator {
             MPI_Request req,
             std::unique_ptr<std::vector<std::uint8_t>> synced_host_data,
             Direction direction,
-            std::shared_ptr<detail::FutureGraveyard> graveyard
+            std::shared_ptr<FutureGraveyard> graveyard
         )
             : req_{std::move(req)},
               direction_{direction},
@@ -128,7 +138,7 @@ class MPI final : public Communicator {
          *
          * If the completion of the communication was not observed, e.g., by `test()`,
          * the request and buffers are handed over to the graveyard of the
-         * communicator, which aborts it, see `detail::FutureGraveyard`.
+         * communicator, which aborts it, see `FutureGraveyard`.
          */
         ~Future() noexcept override;
 
@@ -143,7 +153,7 @@ class MPI final : public Communicator {
         std::unique_ptr<Buffer> data_buffer_;
         // Dedicated storage for host data that is valid at the time of construction.
         std::unique_ptr<std::vector<std::uint8_t>> synced_host_data_;
-        std::shared_ptr<detail::FutureGraveyard> graveyard_;
+        std::shared_ptr<FutureGraveyard> graveyard_;
     };
 
     /**
@@ -302,8 +312,6 @@ class MPI final : public Communicator {
     Rank nranks_;
     std::shared_ptr<Logger> logger_;
     std::shared_ptr<ProgressThread> progress_thread_;
-    /// @brief Keeps the in-flight communication of destroyed futures alive.
-    std::shared_ptr<detail::FutureGraveyard> graveyard_;
 };
 
 

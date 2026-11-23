@@ -1237,9 +1237,6 @@ UCXX::UCXX(
     RAPIDSMPF_EXPECTS(logger != nullptr, "logger cannot be null", std::invalid_argument);
     shared_resources_->logger = std::move(logger);
     shared_resources_->logger->set_name(std::to_string(shared_resources_->rank()));
-    graveyard_ = std::make_shared<rapidsmpf::detail::FutureGraveyard>(
-        shared_resources_->rank(), abort_state()
-    );
 }
 
 std::shared_ptr<Logger> const& UCXX::logger() {
@@ -1334,7 +1331,7 @@ std::unique_ptr<Communicator::Future> UCXX::send(
                        tag_with_rank(shared_resources_->rank(), static_cast<int>(tag))
                    )
                    .build();
-    return std::make_unique<Future>(req, std::move(msg), graveyard_);
+    return std::make_unique<Future>(req, std::move(msg), graveyard());
 }
 
 std::unique_ptr<Communicator::Future> UCXX::send(
@@ -1349,7 +1346,7 @@ std::unique_ptr<Communicator::Future> UCXX::send(
                 msg->data(), msg->size, tag_with_rank(shared_resources_->rank(), tag)
             )
             .build();
-    return std::make_unique<Future>(req, std::move(msg), graveyard_);
+    return std::make_unique<Future>(req, std::move(msg), graveyard());
 }
 
 std::unique_ptr<Communicator::Future> UCXX::recv(
@@ -1370,7 +1367,7 @@ std::unique_ptr<Communicator::Future> UCXX::recv(
                        ::ucxx::TagMaskFull
                    )
                    .build();
-    return std::make_unique<Future>(req, std::move(recv_buffer), graveyard_);
+    return std::make_unique<Future>(req, std::move(recv_buffer), graveyard());
 }
 
 std::unique_ptr<Communicator::Future> UCXX::recv_sync_host_data(
@@ -1388,7 +1385,7 @@ std::unique_ptr<Communicator::Future> UCXX::recv_sync_host_data(
                        ::ucxx::TagMaskFull
                    )
                    .build();
-    return std::make_unique<Future>(req, std::move(synced_buffer), graveyard_);
+    return std::make_unique<Future>(req, std::move(synced_buffer), graveyard());
 }
 
 std::pair<std::unique_ptr<std::vector<std::uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
@@ -1566,6 +1563,13 @@ std::unique_ptr<Buffer> UCXX::wait(std::unique_ptr<Communicator::Future> future)
 std::unique_ptr<Buffer> UCXX::release_data(std::unique_ptr<Communicator::Future> future) {
     auto ucxx_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
+    // Its buffer may still be accessed until the completion was observed, e.g., by
+    // `test()`.
+    RAPIDSMPF_EXPECTS(
+        ucxx_future->completed_,
+        "the communication of the future has not completed",
+        std::logic_error
+    );
     RAPIDSMPF_EXPECTS(ucxx_future->data_buffer_ != nullptr, "future has no data");
     ucxx_future->data_buffer_->unlock();
     return std::move(ucxx_future->data_buffer_);
@@ -1576,6 +1580,11 @@ std::unique_ptr<std::vector<std::uint8_t>> UCXX::release_sync_host_data(
 ) {
     auto ucxx_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
+    RAPIDSMPF_EXPECTS(
+        ucxx_future->completed_,
+        "the communication of the future has not completed",
+        std::logic_error
+    );
     RAPIDSMPF_EXPECTS(ucxx_future->synced_host_data_ != nullptr, "future has no data");
     return std::move(ucxx_future->synced_host_data_);
 }
@@ -1601,7 +1610,7 @@ constexpr auto cancel_inflight_period = std::chrono::milliseconds{100};
  * Holds the request, which keeps the worker alive. Cancelled by `~UCXX()`, through the
  * endpoints, on the UCX progress thread.
  */
-class UcxxGrave final : public rapidsmpf::detail::FutureGraveyard::Grave {
+class UcxxGrave final : public FutureGraveyard::Grave {
   public:
     UcxxGrave(
         std::shared_ptr<::ucxx::Request> req,
@@ -1633,7 +1642,7 @@ UCXX::Future::~Future() noexcept {
     }
     // Never query the request here, which takes its lock: a future may be destroyed in
     // a UCX callback.
-    std::unique_ptr<rapidsmpf::detail::FutureGraveyard::Grave> grave;
+    std::unique_ptr<FutureGraveyard::Grave> grave;
     try {
         grave = std::make_unique<UcxxGrave>(
             std::move(req_), std::move(data_buffer_), std::move(synced_host_data_)
@@ -1650,14 +1659,10 @@ UCXX::~UCXX() noexcept {
     auto& log = logger();
     log->trace("UCXX destructor");
     // Before stopping the progress thread, which cancels and progresses the requests.
-    if (!graveyard_->empty()) {
-        try {
-            shared_resources_->cancel_inflight_requests(cancel_inflight_period);
-        } catch (...) {
-            // Best effort, what does not complete is leaked.
-        }
-    }
-    graveyard_->release([this] { shared_resources_->progress_worker(); });
+    graveyard()->release(
+        [this] { shared_resources_->cancel_inflight_requests(cancel_inflight_period); },
+        [this] { shared_resources_->progress_worker(); }
+    );
     shared_resources_->get_worker()->stopProgressThread();
 }
 
