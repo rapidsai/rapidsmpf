@@ -70,6 +70,8 @@ def test_host_view_pinned_host(pinned_br: BufferResource) -> None:
         MemoryType.PINNED_HOST, size, allow_overbooking=False
     )
     buf = pinned_br.make_buffer(size, stream, reservation)
+    # A pinned allocation is stream-ordered: wait for it before host access.
+    stream.synchronize()
 
     data = np.arange(size, dtype=np.uint8)
     with buf.host_view() as mv:

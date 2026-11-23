@@ -319,10 +319,13 @@ class Buffer {
      * Adopts @p host_buffer as the Buffer's storage and associates the Buffer with
      * @p stream for subsequent stream-ordered operations.
      *
-     * @note The constructor does **not** perform any synchronization. The caller must
-     * ensure that @p host_buffer is already synchronized (no pending GPU or stream work)
-     * at the time of construction. A newly constructed Buffer is therefore considered
-     * ready (i.e., `is_latest_write_done() == true`).
+     * @note The constructor does **not** perform any synchronization. For pageable
+     * `HOST` memory, the caller must ensure that @p host_buffer is already synchronized
+     * (no pending GPU or stream work), and the new Buffer is considered ready (i.e.,
+     * `is_latest_write_done() == true`). For `PINNED_HOST` memory, which is allocated
+     * from a stream-ordered pool, the constructor records an initial "latest write" on
+     * @p stream, so `is_latest_write_done()` becomes `true` once all work enqueued on
+     * @p stream up to this point has completed.
      *
      * @param host_buffer Unique pointer to a vector containing host memory.
      * @param stream CUDA stream to associate with the Buffer for future operations.

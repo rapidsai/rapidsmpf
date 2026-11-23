@@ -38,6 +38,18 @@ Buffer::Buffer(
         "memory type is not suitable for a host buffer",
         std::logic_error
     );
+    // Pinned host memory comes from a stream-ordered pool (`cuda::pinned_memory_pool`):
+    // a block may be handed out while the stream-ordered work of its previous owner
+    // (e.g. the H2D copy of an unspill) is still pending, or, when the buffer wraps
+    // the output of an asynchronous `cudf::pack`, while that pack is still writing
+    // it. Record the latest-write event on `stream` so that `is_latest_write_done()`
+    // and `buffer_copy()` respect this pending work, like the device constructor does.
+    // Without it, the buffer reports "ready" at once and non-stream-ordered consumers
+    // (UCX receives gated by `is_latest_write_done()`) race with that work.
+    // Pageable `HOST` memory is allocated synchronously and needs no event.
+    if (mem_type_ == MemoryType::PINNED_HOST) {
+        latest_write_event_.record(stream_);
+    }
 }
 
 Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, MemoryType mem_type)

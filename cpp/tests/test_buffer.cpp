@@ -3,9 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <atomic>
+#include <chrono>
 #include <cstring>
 #include <memory>
 #include <random>
+#include <thread>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -227,6 +231,8 @@ TEST_P(BufferRebindStreamTest, ThrowsWhenLocked) {
     auto [reserve, overbooking] = br->reserve(mem_type, test_size, AllowOverbooking::YES);
     auto buffer = br->make_buffer(test_size, stream1, reserve);
     EXPECT_EQ(buffer->mem_type(), mem_type);
+    // A pinned allocation is stream-ordered: wait for it before host access.
+    stream1.sync();
 
     auto* ptr = buffer->exclusive_data_access();
     EXPECT_NE(ptr, nullptr);
@@ -252,4 +258,48 @@ TEST(BufferRebindStream, ThrowsOnInvalidStream) {
         std::invalid_argument
     );
     EXPECT_EQ(buffer->stream().get(), stream.get());
+}
+
+namespace {
+
+// Host callback that blocks the stream until the flag is set.
+void CUDART_CB block_until_released(void* flag) {
+    auto* released = static_cast<std::atomic<bool>*>(flag);
+    while (!released->load(std::memory_order_acquire)) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+}
+
+}  // namespace
+
+// A pinned host buffer comes from a stream-ordered pool, so it must not report its
+// latest write as done before its stream has reached the allocation. Before the fix,
+// the host `Buffer` constructor recorded no event and this reported "done" at once.
+TEST(BufferPinnedWriteEvent, NotReadyUntilStreamReachesAllocation) {
+    if (!is_pinned_memory_resources_supported()) {
+        GTEST_SKIP() << "Pinned memory resources are not supported on this system";
+    }
+    auto stream_pool = std::make_shared<StreamPool>(1);
+    auto br = BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        PinnedPoolProperties{},
+        std::unordered_map<MemoryType, std::int64_t>{},
+        std::nullopt,
+        stream_pool
+    );
+    cuda::stream_ref stream = stream_pool->get_stream();
+
+    std::atomic<bool> released{false};
+    RAPIDSMPF_CUDA_TRY(cudaLaunchHostFunc(stream.get(), block_until_released, &released));
+
+    auto [reserve, overbooking] =
+        br->reserve(MemoryType::PINNED_HOST, 1_MiB, AllowOverbooking::YES);
+    auto buffer = br->make_buffer(1_MiB, stream, reserve);
+    EXPECT_EQ(buffer->mem_type(), MemoryType::PINNED_HOST);
+    EXPECT_FALSE(buffer->is_latest_write_done());
+    EXPECT_THROW(std::ignore = buffer->exclusive_data_access(), std::logic_error);
+
+    released.store(true, std::memory_order_release);
+    stream.sync();
+    EXPECT_TRUE(buffer->is_latest_write_done());
 }
