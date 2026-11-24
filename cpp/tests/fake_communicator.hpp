@@ -79,7 +79,7 @@ class FakeCommunicator final : public rapidsmpf::Communicator {
     };
 
     /// @brief The communication of a destroyed future, see `FutureGraveyard`.
-    class Grave final : public rapidsmpf::FutureGraveyard::Grave {
+    class Grave final : public FutureGraveyard::Grave {
       public:
         explicit Grave(std::unique_ptr<Communication> communication)
             : communication_{std::move(communication)} {}
@@ -101,7 +101,7 @@ class FakeCommunicator final : public rapidsmpf::Communicator {
       public:
         PendingFuture(
             std::unique_ptr<Communication> communication,
-            std::shared_ptr<rapidsmpf::FutureGraveyard> graveyard
+            std::shared_ptr<FutureGraveyard> graveyard
         )
             : communication_{std::move(communication)},
               graveyard_{std::move(graveyard)} {}
@@ -117,7 +117,7 @@ class FakeCommunicator final : public rapidsmpf::Communicator {
 
       private:
         std::unique_ptr<Communication> communication_;
-        std::shared_ptr<rapidsmpf::FutureGraveyard> graveyard_;
+        std::shared_ptr<FutureGraveyard> graveyard_;
     };
 
     explicit FakeCommunicator(std::shared_ptr<rapidsmpf::Communicator> comm)

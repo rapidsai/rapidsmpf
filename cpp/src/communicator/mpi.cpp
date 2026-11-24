@@ -195,7 +195,7 @@ bool mpi_usable() noexcept {
 /**
  * @brief The in-flight communication of a destroyed MPI future.
  */
-class MpiGrave final : public FutureGraveyard::Grave {
+class MpiGrave final : public Communicator::FutureGraveyard::Grave {
   public:
     MpiGrave(
         MPI_Request req,

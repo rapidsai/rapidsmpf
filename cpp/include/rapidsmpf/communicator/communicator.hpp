@@ -206,129 +206,6 @@ class communicator_aborted : public std::runtime_error {
     std::string reason_;
 };
 
-namespace detail {
-/// @brief The abort state of a communicator, opaque, see `Communicator::is_aborted()`.
-class AbortState;
-}  // namespace detail
-
-class Communicator;
-
-/**
- * @brief Keeps the in-flight communication of destroyed futures alive.
- *
- * Destroying a future does not cancel nor wait for its communication, so the
- * communication library may still access its buffers. A backend future destroyed before
- * its completion was observed, e.g., because the operation it belongs to failed, hands
- * its request and buffers over to the graveyard of its communicator instead (see
- * `Communicator::graveyard()`), which keeps them alive. This aborts the communicator
- * (see `Communicator::is_aborted()`): the abandoned communication may still match later
- * messages with the same tag, so the communicator must not be used anymore.
- *
- * When the communicator is destroyed, its backend releases the graveyard (see
- * `release()`): the cancellation of the buried communication is requested where
- * possible, and what completes before a single deadline is freed. The graveyard is
- * shared with the futures, so it may outlive the communicator: what is buried after
- * `release()` is leaked.
- *
- * Burying never calls into the communication library, it only takes a lock: a future
- * may be destroyed anywhere, e.g., in a callback of the communication library or after
- * MPI is finalized.
- */
-class FutureGraveyard {
-  public:
-    /**
-     * @brief The in-flight communication of a destroyed future: its request and buffers.
-     */
-    class Grave {
-      public:
-        Grave() = default;
-        /// @brief Destructor, frees the buffers.
-        virtual ~Grave() noexcept = default;
-        Grave(Grave const&) = delete;  ///< Not copyable.
-        Grave& operator=(Grave const&) = delete;  ///< Not copy-assignable.
-
-        /**
-         * @brief Check whether the communication has completed.
-         *
-         * Must not wait for the communication to complete. It may make a progress call
-         * that returns once the pending events are processed, e.g., `MPI_Test()`.
-         *
-         * @return True if the communication completed and its buffers may be freed.
-         */
-        [[nodiscard]] virtual bool completed() noexcept = 0;
-
-        /**
-         * @brief Request the cancellation of the communication, where possible.
-         *
-         * Called by `release()`. Must not block: whether the cancellation completed is
-         * observed through `completed()`. The default does nothing.
-         */
-        virtual void cancel() noexcept {}
-    };
-
-    /**
-     * @brief Destructor, leaks the graves that were not released.
-     */
-    ~FutureGraveyard() noexcept;
-
-    FutureGraveyard(FutureGraveyard const&) = delete;  ///< Not copyable.
-    FutureGraveyard& operator=(FutureGraveyard const&) = delete;  ///< Not assignable.
-
-    /**
-     * @brief Keep the in-flight communication of a destroyed future alive.
-     *
-     * Aborts the communicator. Only takes a lock, never calls into the communication
-     * library. Leaks `grave` if it cannot be kept, or once `release()` was called.
-     *
-     * @param grave The communication, or null if it was leaked already, which still
-     * aborts the communicator.
-     */
-    void bury(std::unique_ptr<Grave> grave) noexcept;
-
-    /**
-     * @brief Check whether anything was buried and not released yet.
-     *
-     * @return True if no grave is held.
-     */
-    [[nodiscard]] bool empty() const noexcept;
-
-    /**
-     * @brief Release the graves, when the communicator is destroyed.
-     *
-     * If anything was buried, requests the cancellation of all the buried
-     * communication, then waits for it to complete against a single deadline of about
-     * one second, however much there is, and frees the buffers of what completed. What
-     * still did not complete, e.g., a send to a dead peer, is leaked rather than freed
-     * while it may still be accessed. Must be called while the communication library is
-     * usable. Graves buried afterwards are leaked.
-     *
-     * @param cancel Called once if anything was buried, before `Grave::cancel()` of
-     * every grave, e.g., to cancel all in-flight communication of the communication
-     * library at once. May be empty.
-     * @param progress Called repeatedly while waiting, e.g., to progress the
-     * communication library. May be empty.
-     */
-    void release(
-        std::function<void()> const& cancel = nullptr,
-        std::function<void()> const& progress = nullptr
-    ) noexcept;
-
-  private:
-    friend class Communicator;
-
-    /**
-     * @brief Construct the graveyard of a communicator.
-     *
-     * @param abort_state The abort state of the communicator.
-     */
-    explicit FutureGraveyard(std::shared_ptr<detail::AbortState> abort_state);
-
-    std::shared_ptr<detail::AbortState> const abort_state_;
-    mutable std::mutex mutex_;  ///< Protects `graves_` and `released_`.
-    std::vector<std::unique_ptr<Grave>> graves_;
-    bool released_{false};
-};
-
 /**
  * @brief Abstract base class for a communication mechanism between nodes.
  *
@@ -357,6 +234,10 @@ class FutureGraveyard {
  * from its destructor, see `FutureGraveyard::release()`.
  */
 class Communicator {
+  private:
+    /// @brief The abort state of a communicator, opaque, see `is_aborted()`.
+    class AbortState;
+
   public:
     /**
      * @brief Abstract base class for asynchronous operation within the communicator.
@@ -378,6 +259,124 @@ class Communicator {
         Future& operator=(Future&&) = default;
         Future(Future const&) = delete;  ///< Not copyable.
         Future& operator=(Future const&) = delete;  ///< Not copy-assignable
+    };
+
+    /**
+     * @brief Keeps the in-flight communication of destroyed futures alive.
+     *
+     * Destroying a future does not cancel nor wait for its communication, so the
+     * communication library may still access its buffers. A backend future destroyed
+     * before its completion was observed, e.g., because the operation it belongs to
+     * failed, hands its request and buffers over to the graveyard of its communicator
+     * instead (see `graveyard()`), which keeps them alive. This aborts the communicator
+     * (see `Communicator::is_aborted()`): the abandoned communication may still match
+     * later messages with the same tag, so the communicator must not be used anymore.
+     *
+     * When the communicator is destroyed, its backend releases the graveyard (see
+     * `release()`): the cancellation of the buried communication is requested where
+     * possible, and what completes before a single deadline is freed. The graveyard is
+     * shared with the futures, so it may outlive the communicator: what is buried after
+     * `release()` is leaked.
+     *
+     * Burying never calls into the communication library, it only takes a lock: a future
+     * may be destroyed anywhere, e.g., in a callback of the communication library or
+     * after MPI is finalized.
+     */
+    class FutureGraveyard {
+      public:
+        /**
+         * @brief The in-flight communication of a destroyed future: its request and
+         * buffers.
+         */
+        class Grave {
+          public:
+            Grave() = default;
+            /// @brief Destructor, frees the buffers.
+            virtual ~Grave() noexcept = default;
+            Grave(Grave const&) = delete;  ///< Not copyable.
+            Grave& operator=(Grave const&) = delete;  ///< Not copy-assignable.
+
+            /**
+             * @brief Check whether the communication has completed.
+             *
+             * Must not wait for the communication to complete. It may make a progress
+             * call that returns once the pending events are processed, e.g.,
+             * `MPI_Test()`.
+             *
+             * @return True if the communication completed and its buffers may be freed.
+             */
+            [[nodiscard]] virtual bool completed() noexcept = 0;
+
+            /**
+             * @brief Request the cancellation of the communication, where possible.
+             *
+             * Called by `release()`. Must not block: whether the cancellation completed
+             * is observed through `completed()`. The default does nothing.
+             */
+            virtual void cancel() noexcept {}
+        };
+
+        /**
+         * @brief Destructor, leaks the graves that were not released.
+         */
+        ~FutureGraveyard() noexcept;
+
+        FutureGraveyard(FutureGraveyard const&) = delete;  ///< Not copyable.
+        FutureGraveyard& operator=(FutureGraveyard const&) = delete;  ///< Not assignable.
+
+        /**
+         * @brief Keep the in-flight communication of a destroyed future alive.
+         *
+         * Aborts the communicator. Only takes a lock, never calls into the communication
+         * library. Leaks `grave` if it cannot be kept, or once `release()` was called.
+         *
+         * @param grave The communication, or null if it was leaked already, which still
+         * aborts the communicator.
+         */
+        void bury(std::unique_ptr<Grave> grave) noexcept;
+
+        /**
+         * @brief Check whether anything was buried and not released yet.
+         *
+         * @return True if no grave is held.
+         */
+        [[nodiscard]] bool empty() const noexcept;
+
+        /**
+         * @brief Release the graves, when the communicator is destroyed.
+         *
+         * If anything was buried, requests the cancellation of all the buried
+         * communication, then waits for it to complete against a single deadline of about
+         * one second, however much there is, and frees the buffers of what completed.
+         * What still did not complete, e.g., a send to a dead peer, is leaked rather than
+         * freed while it may still be accessed. Must be called while the communication
+         * library is usable. Graves buried afterwards are leaked.
+         *
+         * @param cancel Called once if anything was buried, before `Grave::cancel()` of
+         * every grave, e.g., to cancel all in-flight communication of the communication
+         * library at once. May be empty.
+         * @param progress Called repeatedly while waiting, e.g., to progress the
+         * communication library. May be empty.
+         */
+        void release(
+            std::function<void()> const& cancel = nullptr,
+            std::function<void()> const& progress = nullptr
+        ) noexcept;
+
+      private:
+        friend class Communicator;
+
+        /**
+         * @brief Construct the graveyard of a communicator.
+         *
+         * @param abort_state The abort state of the communicator.
+         */
+        explicit FutureGraveyard(std::shared_ptr<AbortState> abort_state);
+
+        std::shared_ptr<AbortState> const abort_state_;
+        mutable std::mutex mutex_;  ///< Protects `graves_` and `released_`.
+        std::vector<std::unique_ptr<Grave>> graves_;
+        bool released_{false};
     };
 
   protected:
@@ -638,7 +637,7 @@ class Communicator {
     void throw_if_aborted() const;
 
   private:
-    std::shared_ptr<detail::AbortState> abort_state_;
+    std::shared_ptr<AbortState> abort_state_;
     std::shared_ptr<FutureGraveyard> graveyard_;
 };
 

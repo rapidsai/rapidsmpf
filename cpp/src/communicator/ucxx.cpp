@@ -1610,7 +1610,7 @@ constexpr auto cancel_inflight_period = std::chrono::milliseconds{100};
  * Holds the request, which keeps the worker alive. Cancelled by `~UCXX()`, through the
  * endpoints, on the UCX progress thread.
  */
-class UcxxGrave final : public FutureGraveyard::Grave {
+class UcxxGrave final : public Communicator::FutureGraveyard::Grave {
   public:
     UcxxGrave(
         std::shared_ptr<::ucxx::Request> req,

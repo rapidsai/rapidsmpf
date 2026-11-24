@@ -76,14 +76,12 @@ std::string const& communicator_aborted::reason() const noexcept {
     return reason_;
 }
 
-namespace detail {
-
 /**
  * @brief The abort state of a communicator.
  *
  * Set by the first abort only, and never cleared. All methods are thread-safe.
  */
-class AbortState {
+class Communicator::AbortState {
   public:
     /**
      * @brief Record an abort, unless one has already been recorded.
@@ -128,17 +126,15 @@ class AbortState {
     std::string reason_;
 };
 
-}  // namespace detail
-
 namespace {
 /// @brief How long `FutureGraveyard::release()` waits for the graves, in total.
 constexpr auto graveyard_release_timeout = std::chrono::seconds{1};
 }  // namespace
 
-FutureGraveyard::FutureGraveyard(std::shared_ptr<detail::AbortState> abort_state)
+Communicator::FutureGraveyard::FutureGraveyard(std::shared_ptr<AbortState> abort_state)
     : abort_state_{std::move(abort_state)} {}
 
-FutureGraveyard::~FutureGraveyard() noexcept {
+Communicator::FutureGraveyard::~FutureGraveyard() noexcept {
     // Not released, so whether they completed is unknown: never free a buffer that may
     // still be accessed.
     for (auto& grave : graves_) {
@@ -146,7 +142,7 @@ FutureGraveyard::~FutureGraveyard() noexcept {
     }
 }
 
-void FutureGraveyard::bury(std::unique_ptr<Grave> grave) noexcept {
+void Communicator::FutureGraveyard::bury(std::unique_ptr<Grave> grave) noexcept {
     try {
         abort_state_->set(
             std::nullopt,
@@ -172,12 +168,12 @@ void FutureGraveyard::bury(std::unique_ptr<Grave> grave) noexcept {
     }
 }
 
-bool FutureGraveyard::empty() const noexcept {
+bool Communicator::FutureGraveyard::empty() const noexcept {
     std::lock_guard lock(mutex_);
     return graves_.empty();
 }
 
-void FutureGraveyard::release(
+void Communicator::FutureGraveyard::release(
     std::function<void()> const& cancel, std::function<void()> const& progress
 ) noexcept {
     // Take the graves out, so that the communication library is never called while
@@ -224,7 +220,7 @@ void FutureGraveyard::release(
 }
 
 Communicator::Communicator()
-    : abort_state_{std::make_shared<detail::AbortState>()},
+    : abort_state_{std::make_shared<AbortState>()},
       // The constructor of the graveyard is private.
       graveyard_{std::shared_ptr<FutureGraveyard>(new FutureGraveyard(abort_state_))} {}
 
@@ -232,7 +228,8 @@ bool Communicator::is_aborted() const noexcept {
     return abort_state_->is_set();
 }
 
-std::shared_ptr<FutureGraveyard> const& Communicator::graveyard() const noexcept {
+std::shared_ptr<Communicator::FutureGraveyard> const&
+Communicator::graveyard() const noexcept {
     return graveyard_;
 }
 
