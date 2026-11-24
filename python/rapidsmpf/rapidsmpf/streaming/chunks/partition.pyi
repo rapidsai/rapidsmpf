@@ -10,10 +10,10 @@ from rapidsmpf.memory.packed_data import PackedData
 from rapidsmpf.streaming.core.message import Message
 
 class PartitionMapChunk:
-    @classmethod
+    @staticmethod
     def from_packed_data_map(
-        cls: type[Self], data: Mapping[int, PackedData], br: BufferResource
-    ) -> Self: ...
+        data: Mapping[int, PackedData], br: BufferResource
+    ) -> PartitionMapChunk: ...
     @classmethod
     def from_message(
         cls: type[Self], message: Message[Self], br: BufferResource
@@ -22,10 +22,10 @@ class PartitionMapChunk:
     def into_message(self, sequence_number: int, message: Message[Self]) -> None: ...
 
 class PartitionVectorChunk:
-    @classmethod
+    @staticmethod
     def from_packed_data_list(
-        cls: type[Self], data: Sequence[PackedData], br: BufferResource
-    ) -> Self: ...
+        data: Sequence[PackedData], br: BufferResource
+    ) -> PartitionVectorChunk: ...
     @classmethod
     def from_message(
         cls: type[Self], message: Message[Self], br: BufferResource

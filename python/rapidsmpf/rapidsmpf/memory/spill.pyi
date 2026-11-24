@@ -10,13 +10,11 @@ from rapidsmpf.memory.reservation_events import ReservationContext
 
 def spill_partitions(
     partitions: Iterable[PackedData],
-    *,
     br: BufferResource,
     reservation_context: ReservationContext | None = None,
 ) -> list[PackedData]: ...
 def unspill_partitions(
     partitions: Iterable[PackedData],
-    *,
     br: BufferResource,
     allow_overbooking: bool,
     reservation_context: ReservationContext | None = None,

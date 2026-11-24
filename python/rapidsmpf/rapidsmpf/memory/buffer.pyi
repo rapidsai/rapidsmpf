@@ -3,6 +3,7 @@
 
 from contextlib import AbstractContextManager
 from enum import IntEnum
+from types import TracebackType
 
 class MemoryType(IntEnum):
     DEVICE = ...
@@ -12,7 +13,12 @@ class MemoryType(IntEnum):
 
 class BufferHostView(AbstractContextManager[memoryview]):
     def __enter__(self) -> memoryview: ...
-    def __exit__(self, *args: object) -> None: ...
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None: ...
 
 class Buffer:
     @property

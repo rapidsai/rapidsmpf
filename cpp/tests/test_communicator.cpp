@@ -25,6 +25,7 @@
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
 
 #include "environment.hpp"
+#include "fake_communicator.hpp"
 #include "utils.hpp"
 
 class BaseCommunicatorTest : public ::testing::Test {
@@ -235,4 +236,89 @@ TEST_F(BaseCommunicatorTest, LargeHostMessageRecvFrom) {
             << "Large-message data mismatch at byte "
             << offset + (mismatch.first - pattern.begin());
     }
+}
+
+TEST(DroppedFutures, InFlightCommunicationAbortsTheCommunicator) {
+    auto comm = std::make_shared<FakeCommunicator>(GlobalEnvironment->comm_);
+    auto const state = comm->state();
+    rapidsmpf::Tag const tag{0, 0};
+    auto send = comm->send(std::make_unique<std::vector<std::uint8_t>>(1), 1, tag);
+    auto recv =
+        comm->recv_sync_host_data(1, tag, std::make_unique<std::vector<std::uint8_t>>(1));
+    EXPECT_FALSE(comm->is_aborted());
+    // Destroying the futures doesn't free their in-flight communication, but aborts the
+    // communicator, since it may still match later messages.
+    send.reset();
+    recv.reset();
+    EXPECT_EQ(state->live.load(), 2);
+    EXPECT_TRUE(comm->is_aborted());
+    EXPECT_THROW(
+        std::ignore =
+            comm->send(std::make_unique<std::vector<std::uint8_t>>(1), 1, {1, 0}),
+        rapidsmpf::communicator_aborted
+    );
+    // Destroying the communicator cancels the receive and frees it. The send never
+    // completes, so it is leaked.
+    comm.reset();
+    EXPECT_EQ(state->live.load(), 1);
+    EXPECT_EQ(state->freed_in_flight.load(), 0);
+}
+
+TEST(DroppedFutures, CompletedCommunicationDoesNotAbort) {
+    auto comm = std::make_shared<FakeCommunicator>(GlobalEnvironment->comm_);
+    auto const state = comm->state();
+    auto send = comm->send(std::make_unique<std::vector<std::uint8_t>>(1), 1, {0, 0});
+    comm->complete_futures();
+    send.reset();
+    EXPECT_EQ(state->live.load(), 0);
+    EXPECT_FALSE(comm->is_aborted());
+}
+
+TEST(DroppedFutures, StuckSendsShareOneDeadline) {
+    auto comm = std::make_shared<FakeCommunicator>(GlobalEnvironment->comm_);
+    auto const state = comm->state();
+    // Waited on one at a time, destroying the communicator would take `num_sends` times
+    // the deadline of about one second.
+    constexpr int num_sends = 10;
+    std::vector<std::unique_ptr<rapidsmpf::Communicator::Future>> sends;
+    for (int i = 0; i < num_sends; ++i) {
+        sends.push_back(
+            comm->send(std::make_unique<std::vector<std::uint8_t>>(1), 1, {0, 0})
+        );
+    }
+    sends.clear();
+    auto const start = std::chrono::steady_clock::now();
+    comm.reset();
+    EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds{3});
+    // The sends never completed, so they were leaked rather than freed.
+    EXPECT_EQ(state->live.load(), num_sends);
+    EXPECT_EQ(state->freed_in_flight.load(), 0);
+}
+
+TEST(DroppedFutures, InFlightReceiveAbortsTheCommunicator) {
+    // A communicator of its own, since it gets aborted.
+    auto comm = GlobalEnvironment->new_comm();
+    if (comm == nullptr) {
+        GTEST_SKIP() << "Requires a communicator with futures";
+    }
+    rapidsmpf::Tag const tag{0, 0};
+    auto const src = (comm->rank() + 1) % comm->nranks();
+    // Never matched, nothing is sent.
+    auto future = comm->recv_sync_host_data(
+        src, tag, std::make_unique<std::vector<std::uint8_t>>(1)
+    );
+    EXPECT_FALSE(comm->is_aborted());
+    future.reset();
+    EXPECT_TRUE(comm->is_aborted());
+    EXPECT_THROW(
+        std::ignore = comm->recv_sync_host_data(
+            src, tag, std::make_unique<std::vector<std::uint8_t>>(1)
+        ),
+        rapidsmpf::communicator_aborted
+    );
+    // Destroying the communicator cancels the receive, so it doesn't wait for the
+    // deadline of about one second.
+    auto const start = std::chrono::steady_clock::now();
+    comm.reset();
+    EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::milliseconds{900});
 }

@@ -4,12 +4,15 @@
  */
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <iterator>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <tuple>
 #include <utility>
+#include <vector>
 
 #include <ucxx/request.h>
 
@@ -368,6 +371,29 @@ class SharedResources {
     [[nodiscard]] std::shared_ptr<::ucxx::Endpoint> get_endpoint(Rank const rank) {
         std::lock_guard<std::mutex> lock(endpoints_mutex_);
         return rank_to_endpoint_.at(rank);
+    }
+
+    /**
+     * @brief Cancel the in-flight requests of all endpoints.
+     *
+     * The cancellation runs on the UCX progress thread if it is running, waiting at
+     * most `period` for each endpoint, otherwise on the calling thread.
+     *
+     * @param period The maximum time to wait for each endpoint.
+     */
+    void cancel_inflight_requests(std::chrono::nanoseconds period) {
+        std::vector<std::shared_ptr<::ucxx::Endpoint>> endpoints;
+        {
+            std::lock_guard<std::mutex> lock(endpoints_mutex_);
+            for (auto const& [rank, endpoint] : rank_to_endpoint_) {
+                endpoints.push_back(endpoint);
+            }
+        }
+        for (auto& endpoint : endpoints) {
+            std::ignore = endpoint->cancelInflightRequestsBlocking(
+                safe_cast<std::uint64_t>(period.count())
+            );
+        }
     }
 
     /**
@@ -1296,6 +1322,7 @@ std::shared_ptr<::ucxx::Endpoint> UCXX::get_endpoint(Rank rank) {
 std::unique_ptr<Communicator::Future> UCXX::send(
     std::unique_ptr<std::vector<std::uint8_t>> msg, Rank rank, Tag tag
 ) {
+    throw_if_aborted();
     RAPIDSMPF_EXPECTS(msg != nullptr, "msg cannot be null", std::invalid_argument);
     auto req = get_endpoint(rank)
                    ->tagSendBuilder(
@@ -1304,12 +1331,13 @@ std::unique_ptr<Communicator::Future> UCXX::send(
                        tag_with_rank(shared_resources_->rank(), static_cast<int>(tag))
                    )
                    .build();
-    return std::make_unique<Future>(req, std::move(msg));
+    return std::make_unique<Future>(req, std::move(msg), graveyard());
 }
 
 std::unique_ptr<Communicator::Future> UCXX::send(
     std::unique_ptr<Buffer> msg, Rank rank, Tag tag
 ) {
+    throw_if_aborted();
     RAPIDSMPF_EXPECTS(msg != nullptr, "msg buffer cannot be null", std::invalid_argument);
     RAPIDSMPF_EXPECTS(msg->is_latest_write_done(), "msg must be ready", std::logic_error);
     auto req =
@@ -1318,12 +1346,13 @@ std::unique_ptr<Communicator::Future> UCXX::send(
                 msg->data(), msg->size, tag_with_rank(shared_resources_->rank(), tag)
             )
             .build();
-    return std::make_unique<Future>(req, std::move(msg));
+    return std::make_unique<Future>(req, std::move(msg), graveyard());
 }
 
 std::unique_ptr<Communicator::Future> UCXX::recv(
     Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
 ) {
+    throw_if_aborted();
     RAPIDSMPF_EXPECTS(
         recv_buffer != nullptr, "recv buffer cannot be null", std::invalid_argument
     );
@@ -1338,12 +1367,13 @@ std::unique_ptr<Communicator::Future> UCXX::recv(
                        ::ucxx::TagMaskFull
                    )
                    .build();
-    return std::make_unique<Future>(req, std::move(recv_buffer));
+    return std::make_unique<Future>(req, std::move(recv_buffer), graveyard());
 }
 
 std::unique_ptr<Communicator::Future> UCXX::recv_sync_host_data(
     Rank rank, Tag tag, std::unique_ptr<std::vector<std::uint8_t>> synced_buffer
 ) {
+    throw_if_aborted();
     RAPIDSMPF_EXPECTS(
         synced_buffer != nullptr, "recv host buffer cannot be null", std::invalid_argument
     );
@@ -1355,10 +1385,11 @@ std::unique_ptr<Communicator::Future> UCXX::recv_sync_host_data(
                        ::ucxx::TagMaskFull
                    )
                    .build();
-    return std::make_unique<Future>(req, std::move(synced_buffer));
+    return std::make_unique<Future>(req, std::move(synced_buffer), graveyard());
 }
 
 std::pair<std::unique_ptr<std::vector<std::uint8_t>>, Rank> UCXX::recv_any(Tag tag) {
+    throw_if_aborted();
     progress_worker();
     auto probe = shared_resources_->get_worker()->tagProbe(
         ::ucxx::Tag(static_cast<int>(tag)), UserTagMask, true
@@ -1386,6 +1417,7 @@ std::pair<std::unique_ptr<std::vector<std::uint8_t>>, Rank> UCXX::recv_any(Tag t
 }
 
 std::unique_ptr<std::vector<std::uint8_t>> UCXX::recv_from(Rank src, Tag tag) {
+    throw_if_aborted();
     progress_worker();
     auto probe = shared_resources_->get_worker()->tagProbe(
         tag_with_rank(src, static_cast<int>(tag)), ::ucxx::TagMaskFull, true
@@ -1420,9 +1452,10 @@ UCXX::test_some(std::vector<std::unique_ptr<Communicator::Future>>& future_vecto
     std::vector<std::size_t> indices;
     indices.reserve(future_vector.size());
     for (std::size_t i = 0; i < future_vector.size(); i++) {
-        auto ucxx_future = dynamic_cast<Future const*>(future_vector[i].get());
+        auto ucxx_future = dynamic_cast<Future*>(future_vector[i].get());
         RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
         if (ucxx_future->req_->isCompleted()) {
+            ucxx_future->completed_ = true;
             ucxx_future->req_->checkError();
             indices.push_back(i);
         } else {
@@ -1458,9 +1491,10 @@ std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> UCXX::tes
     progress_worker();
     std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> completed;
     for (auto it = future_map.begin(); it != future_map.end();) {
-        auto ucxx_future = dynamic_cast<Future const*>(it->second.get());
+        auto ucxx_future = dynamic_cast<Future*>(it->second.get());
         RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
         if (ucxx_future->req_->isCompleted()) {
+            ucxx_future->completed_ = true;
             ucxx_future->req_->checkError();
             completed.insert(future_map.extract(it++));
         } else {
@@ -1475,6 +1509,7 @@ bool UCXX::test(std::unique_ptr<Communicator::Future>& future) {
     RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
     progress_worker();
     auto flag = ucxx_future->req_->isCompleted();
+    ucxx_future->completed_ = flag;
     ucxx_future->req_->checkError();
     return flag;
 }
@@ -1482,23 +1517,24 @@ bool UCXX::test(std::unique_ptr<Communicator::Future>& future) {
 std::vector<std::unique_ptr<Buffer>> UCXX::wait_all(
     std::vector<std::unique_ptr<Communicator::Future>>&& futures
 ) {
-    std::vector<std::shared_ptr<::ucxx::Request>> reqs;
-    reqs.reserve(futures.size());
+    std::vector<Future*> ucxx_futures;
+    ucxx_futures.reserve(futures.size());
     for (auto const& future : futures) {
-        auto ucxx_future = dynamic_cast<Future const*>(future.get());
+        auto ucxx_future = dynamic_cast<Future*>(future.get());
         RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
-        reqs.push_back(ucxx_future->req_);
+        ucxx_futures.push_back(ucxx_future);
     }
-    while (!std::ranges::all_of(reqs, [](auto&& req) {
-        auto flag = req->isCompleted();
-        req->checkError();
+    while (!std::ranges::all_of(ucxx_futures, [](Future* future) {
+        auto flag = future->req_->isCompleted();
+        future->completed_ = flag;
+        future->req_->checkError();
         return flag;
     }))
     {
         progress_worker();
     }
     std::vector<std::unique_ptr<Buffer>> result;
-    result.reserve(reqs.size());
+    result.reserve(futures.size());
     for (auto&& future : futures) {
         result.push_back(release_data(std::move(future)));
     }
@@ -1518,6 +1554,7 @@ std::unique_ptr<Buffer> UCXX::wait(std::unique_ptr<Communicator::Future> future)
     while (!ucxx_future->req_->isCompleted()) {
         progress_worker();
     }
+    ucxx_future->completed_ = true;
     ucxx_future->req_->checkError();
     ucxx_future->data_buffer_->unlock();
     return std::move(ucxx_future->data_buffer_);
@@ -1526,6 +1563,13 @@ std::unique_ptr<Buffer> UCXX::wait(std::unique_ptr<Communicator::Future> future)
 std::unique_ptr<Buffer> UCXX::release_data(std::unique_ptr<Communicator::Future> future) {
     auto ucxx_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
+    // Its buffer may still be accessed until the completion was observed, e.g., by
+    // `test()`.
+    RAPIDSMPF_EXPECTS(
+        ucxx_future->completed_,
+        "the communication of the future has not completed",
+        std::logic_error
+    );
     RAPIDSMPF_EXPECTS(ucxx_future->data_buffer_ != nullptr, "future has no data");
     ucxx_future->data_buffer_->unlock();
     return std::move(ucxx_future->data_buffer_);
@@ -1536,6 +1580,11 @@ std::unique_ptr<std::vector<std::uint8_t>> UCXX::release_sync_host_data(
 ) {
     auto ucxx_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
+    RAPIDSMPF_EXPECTS(
+        ucxx_future->completed_,
+        "the communication of the future has not completed",
+        std::logic_error
+    );
     RAPIDSMPF_EXPECTS(ucxx_future->synced_host_data_ != nullptr, "future has no data");
     return std::move(ucxx_future->synced_host_data_);
 }
@@ -1551,9 +1600,69 @@ std::string UCXX::str() const {
     return ss.str();
 }
 
+namespace {
+/// @brief How long `~UCXX()` waits for the cancellation of each endpoint's requests.
+constexpr auto cancel_inflight_period = std::chrono::milliseconds{100};
+
+/**
+ * @brief The in-flight communication of a destroyed UCXX future.
+ *
+ * Holds the request, which keeps the worker alive. Cancelled by `~UCXX()`, through the
+ * endpoints, on the UCX progress thread.
+ */
+class UcxxGrave final : public Communicator::FutureGraveyard::Grave {
+  public:
+    UcxxGrave(
+        std::shared_ptr<::ucxx::Request> req,
+        std::unique_ptr<Buffer> data_buffer,
+        std::unique_ptr<std::vector<std::uint8_t>> synced_host_data
+    )
+        : req_{std::move(req)},
+          data_buffer_{std::move(data_buffer)},
+          synced_host_data_{std::move(synced_host_data)} {}
+
+    [[nodiscard]] bool completed() noexcept override {
+        try {
+            return req_->isCompleted();
+        } catch (...) {
+            return false;
+        }
+    }
+
+  private:
+    std::shared_ptr<::ucxx::Request> req_;
+    std::unique_ptr<Buffer> data_buffer_;
+    std::unique_ptr<std::vector<std::uint8_t>> synced_host_data_;
+};
+}  // namespace
+
+UCXX::Future::~Future() noexcept {
+    if (completed_ || req_ == nullptr || graveyard_ == nullptr) {
+        return;
+    }
+    // Never query the request here, which takes its lock: a future may be destroyed in
+    // a UCX callback.
+    std::unique_ptr<FutureGraveyard::Grave> grave;
+    try {
+        grave = std::make_unique<UcxxGrave>(
+            std::move(req_), std::move(data_buffer_), std::move(synced_host_data_)
+        );
+    } catch (...) {
+        // Never free a buffer that may still be accessed, leak instead.
+        std::ignore = data_buffer_.release();
+        std::ignore = synced_host_data_.release();
+    }
+    graveyard_->bury(std::move(grave));
+}
+
 UCXX::~UCXX() noexcept {
     auto& log = logger();
     log->trace("UCXX destructor");
+    // Before stopping the progress thread, which cancels and progresses the requests.
+    graveyard()->release(
+        [this] { shared_resources_->cancel_inflight_requests(cancel_inflight_period); },
+        [this] { shared_resources_->progress_worker(); }
+    );
     shared_resources_->get_worker()->stopProgressThread();
 }
 

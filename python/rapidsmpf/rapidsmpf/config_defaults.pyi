@@ -7,4 +7,4 @@ from typing import Final
 
 DEFAULTS: Final[Mapping[str, str]]
 
-__all__: list[str]
+__all__ = ["DEFAULTS"]
