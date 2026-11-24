@@ -127,7 +127,10 @@ std::unique_ptr<std::vector<std::uint8_t>> Chunk::serialize() const {
 }
 
 std::unique_ptr<Chunk> Chunk::deserialize(
-    std::vector<std::uint8_t>&& metadata, std::unique_ptr<Buffer> data, BufferResource* br
+    std::vector<std::uint8_t>&& metadata,
+    std::unique_ptr<Buffer> data,
+    BufferResource* br,
+    ReservationContext reservation_context
 ) {
     ChunkID id;
     std::memcpy(&id, metadata.data(), sizeof(ChunkID));
@@ -149,7 +152,7 @@ std::unique_ptr<Chunk> Chunk::deserialize(
         );
         data = br->make_buffer(
             br->stream_pool()->get_stream(),
-            br->reserve_or_fail(data_size, ADDRESSABLE_MEMORY_TYPES)
+            br->reserve_or_fail(data_size, ADDRESSABLE_MEMORY_TYPES, reservation_context)
         );
     }
     RAPIDSMPF_EXPECTS(
@@ -219,7 +222,8 @@ std::size_t PostBox::spill(
     BufferResource* br,
     std::size_t amount,
     MemoryType mem_type,
-    std::span<MemoryType const> spill_target_types
+    std::span<MemoryType const> spill_target_types,
+    ReservationContext reservation_context
 ) {
     if (spill_target_types.empty() || amount == 0) {
         return 0;
@@ -235,7 +239,8 @@ std::size_t PostBox::spill(
         }
     }
     auto spill_chunk = [&](Chunk* chunk) -> std::size_t {
-        auto reservation = br->try_reserve(chunk->data_size(), spill_target_types);
+        auto reservation =
+            br->try_reserve(chunk->data_size(), spill_target_types, reservation_context);
         if (!reservation) {
             return 0;  // No target has room, leave the chunk where it is.
         }

@@ -29,7 +29,9 @@ void AllGather::insert(std::uint64_t sequence_number, PackedData&& packed_data) 
     // With more than one rank, the data is sent, so it must be in a sendable memory type.
     if (comm_->nranks() > 1) {
         packed_data.data = br_->ensure_memory_type(
-            std::move(packed_data.data), exchange_->sendable_memory_types(next_rank())
+            std::move(packed_data.data),
+            exchange_->sendable_memory_types(next_rank()),
+            reservation_context_
         );
     }
     nlocal_insertions_.fetch_add(1, std::memory_order_relaxed);
@@ -118,14 +120,15 @@ std::size_t AllGather::spill(std::size_t amount, MemoryType mem_type) {
     // NB: the inserted postbox holds chunks waiting to be sent, so it must only
     // spill to sendable (addressable) memory types.
     std::size_t spilled = for_extraction_.spill(
-        br_, amount, mem_type, preference_lt(mem_type, MEMORY_TYPES)
+        br_, amount, mem_type, preference_lt(mem_type, MEMORY_TYPES), reservation_context_
     );
     if (spilled < amount) {
         spilled += inserted_.spill(
             br_,
             amount - spilled,
             mem_type,
-            preference_lt(mem_type, exchange_->sendable_memory_types(next_rank()))
+            preference_lt(mem_type, exchange_->sendable_memory_types(next_rank())),
+            reservation_context_
         );
     }
     return spilled;
@@ -144,9 +147,13 @@ AllGather::AllGather(
     std::shared_ptr<Communicator> comm,
     OpID op_id,
     BufferResource* br,
-    std::function<void(void)>&& finished_callback
+    std::function<void(void)>&& finished_callback,
+    ReservationContext reservation_context
 )
-    : comm_{std::move(comm)}, br_{br}, finished_callback_{std::move(finished_callback)} {
+    : comm_{std::move(comm)},
+      br_{br},
+      reservation_context_{reservation_context},
+      finished_callback_{std::move(finished_callback)} {
     RAPIDSMPF_EXPECTS(comm_ != nullptr, "the communicator pointer cannot be null");
     RAPIDSMPF_EXPECTS(br_ != nullptr, "the buffer resource pointer cannot be null");
     finish_counter_.store(comm_->nranks(), std::memory_order_relaxed);
@@ -161,10 +168,15 @@ AllGather::AllGather(
         comm_,
         op_id,
         std::vector<Rank>(peers.begin(), peers.end()),
-        communicator::default_allocate_buffer,
+        [reservation_context](BufferResource* resource, std::size_t size, auto mode) {
+            return communicator::default_allocate_buffer(
+                resource, size, mode, reservation_context
+            );
+        },
         br_->memory_reserve_timeout(),
         br_,
-        communicator::TagMetadataPayloadExchange::ForcedReceive::KEEP_IN_MEMORY
+        communicator::TagMetadataPayloadExchange::ForcedReceive::KEEP_IN_MEMORY,
+        reservation_context
     );
     function_id_ =
         comm_->progress_thread()->add_function([this]() { return event_loop(); });
@@ -259,14 +271,17 @@ ProgressThread::ProgressState AllGather::event_loop() {
         for (auto&& msg : exchange_->release_sent()) {
             for_extraction_.insert(
                 detail::Chunk::deserialize(
-                    msg->release_metadata(), msg->release_data(), br_
+                    msg->release_metadata(),
+                    msg->release_data(),
+                    br_,
+                    reservation_context_
                 )
             );
         }
 
         for (auto&& msg : exchange_->recv()) {
             auto chunk = detail::Chunk::deserialize(
-                msg->release_metadata(), msg->release_data(), br_
+                msg->release_metadata(), msg->release_data(), br_, reservation_context_
             );
             if (chunk->is_finish()) {
                 num_expected_messages_ += chunk->sequence();

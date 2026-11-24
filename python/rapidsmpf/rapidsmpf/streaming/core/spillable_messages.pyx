@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from cython cimport no_gc_clear
@@ -11,6 +11,9 @@ from libcpp.utility cimport move
 
 from rapidsmpf.memory.buffer_resource cimport BufferResource
 from rapidsmpf.memory.content_description cimport content_description_from_cpp
+from rapidsmpf.memory.reservation_events cimport (ReservationContext,
+                                                  cpp_ReservationContext,
+                                                  unwrap_reservation_context)
 
 
 @no_gc_clear
@@ -28,6 +31,8 @@ cdef class SpillableMessages:
     ----------
     br
         A BufferResource to keep alive.
+    reservation_context
+        Optional telemetry attribution token for spill reservations.
 
     Examples
     --------
@@ -36,8 +41,18 @@ cdef class SpillableMessages:
     >>> msgs.spill(mid=mid, br=br)
     >>> recovered = msgs.extract(mid=mid)
     """
-    def __init__(self, BufferResource br not None):
-        self._handle = make_shared[cpp_SpillableMessages]()
+    def __init__(
+        self,
+        BufferResource br not None,
+        *,
+        ReservationContext reservation_context=None,
+    ):
+        cdef cpp_ReservationContext c_reservation_context = (
+            unwrap_reservation_context(reservation_context)
+        )
+        self._handle = make_shared[cpp_SpillableMessages](
+            cpp_SpillOrder.EARLIEST_FIRST, c_reservation_context
+        )
         self._br = br
 
     def __dealloc__(self):

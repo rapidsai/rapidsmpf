@@ -3,10 +3,16 @@
 
 from rapidsmpf.memory.buffer_resource import BufferResource
 from rapidsmpf.memory.content_description import ContentDescription
+from rapidsmpf.memory.reservation_events import ReservationContext
 from rapidsmpf.streaming.core.message import Message, PayloadT
 
 class SpillableMessages:
-    def __init__(self, br: BufferResource) -> None: ...
+    def __init__(
+        self,
+        br: BufferResource,
+        *,
+        reservation_context: ReservationContext | None = None,
+    ) -> None: ...
     def insert(self, message: Message[PayloadT]) -> int: ...
     def extract(self, *, mid: int) -> Message[PayloadT]: ...
     def spill(self, *, mid: int, br: BufferResource) -> int: ...
