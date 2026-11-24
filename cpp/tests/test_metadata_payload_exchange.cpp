@@ -37,6 +37,7 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
   protected:
     void SetUp() override {
         comm = GlobalEnvironment->comm_.get();
+        exchange_comm = GlobalEnvironment->comm_;
         mr = std::make_unique<rmm::mr::cuda_memory_resource>();
         br = BufferResource::create(*mr);
         stream = cuda::stream_ref{cudaStreamLegacy};
@@ -63,9 +64,9 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
     ) {
         finish_and_wait();
         comm_interface = std::make_unique<TagMetadataPayloadExchange>(
-            GlobalEnvironment->comm_,
+            exchange_comm,
             op_id,
-            peers.value_or(all_remote_ranks(*GlobalEnvironment->comm_)),
+            peers.value_or(all_remote_ranks(*exchange_comm)),
             std::move(allocate_fn),
             allocation_timeout,
             exchange_br != nullptr ? exchange_br : br.get(),
@@ -194,6 +195,8 @@ class MetadataPayloadExchangeTest : public ::testing::Test {
     std::unique_ptr<rmm::mr::cuda_memory_resource> mr;
     cuda::stream_ref stream{cudaStreamLegacy};
     std::shared_ptr<BufferResource> br;
+    /// @brief The communicator of the exchange under test.
+    std::shared_ptr<Communicator> exchange_comm;
     std::unique_ptr<TagMetadataPayloadExchange> comm_interface;
 };
 
@@ -641,8 +644,16 @@ TEST_F(MetadataPayloadExchangeTest, ThrowsOnTimeoutWithoutOverbooking) {
     if (comm->nranks() < 2) {
         GTEST_SKIP() << "Test requires at least 2 ranks";
     }
-    Rank next_rank = (comm->rank() + 1) % comm->nranks();
-    Rank prev_rank = (comm->rank() - 1 + comm->nranks()) % comm->nranks();
+    // The failed exchange may be destroyed without having observed the completion of
+    // its send, which aborts its communicator, so give it one of its own.
+    finish_and_wait();
+    comm_interface.reset();
+    exchange_comm = GlobalEnvironment->new_comm();
+    ASSERT_NE(exchange_comm, nullptr);
+    // The ranks of the new communicator may differ from those of `comm`.
+    Rank next_rank = (exchange_comm->rank() + 1) % exchange_comm->nranks();
+    Rank prev_rank =
+        (exchange_comm->rank() - 1 + exchange_comm->nranks()) % exchange_comm->nranks();
     constexpr std::size_t data_size = 128;
     // Use a separate operation ID, since the payload is drained by hand below.
     OpID const op_id{43};
@@ -680,15 +691,32 @@ TEST_F(MetadataPayloadExchangeTest, ThrowsOnTimeoutWithoutOverbooking) {
     EXPECT_TRUE(threw) << "progress() did not throw within the deadline";
     EXPECT_EQ(num_forced, 1);
 
-    // Receive the payload that the exchange gave up on, so it isn't left unmatched.
-    auto future = GlobalEnvironment->comm_->recv(
-        prev_rank, Tag{op_id, 1}, allocate_receive_buffer(data_size)
+    // Receive the payload that the exchange gave up on, so it isn't left unmatched, and
+    // acknowledge it. Keep progressing `exchange_comm` until our own payload is
+    // acknowledged, so that our send is delivered also when the UCX worker is only
+    // progressed by its communicator (polling mode).
+    auto const progress_until_complete = [&](auto& future) {
+        while (!exchange_comm->test(future)) {
+            std::this_thread::yield();
+        }
+    };
+    Tag const ack_tag{op_id, 2};
+    auto acked = exchange_comm->recv_sync_host_data(
+        next_rank, ack_tag, std::make_unique<std::vector<std::uint8_t>>(1)
     );
-    std::ignore = GlobalEnvironment->comm_->wait(std::move(future));
-    // Once every rank has received its payload, every send has delivered its data, so
-    // destroying the exchange and its send buffers is safe.
-    GlobalEnvironment->barrier();
+    auto payload =
+        exchange_comm->recv(prev_rank, Tag{op_id, 1}, allocate_receive_buffer(data_size));
+    progress_until_complete(payload);
+    std::ignore = exchange_comm->wait(std::move(payload));
+    auto ack = exchange_comm->send(
+        std::make_unique<std::vector<std::uint8_t>>(1), prev_rank, ack_tag
+    );
+    progress_until_complete(acked);
+    progress_until_complete(ack);
+    // Our send has delivered its data, so destroying the exchange and its send buffers is
+    // safe.
     comm_interface.reset();
+    GlobalEnvironment->barrier();
 }
 
 TEST_F(MetadataPayloadExchangeTest, MovesForcedReceiveToDisk) {

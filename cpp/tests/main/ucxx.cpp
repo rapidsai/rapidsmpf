@@ -66,6 +66,15 @@ std::shared_ptr<rapidsmpf::Communicator> Environment::split_comm() {
     return split_comm_;
 }
 
+std::shared_ptr<rapidsmpf::Communicator> Environment::new_comm() {
+    return rapidsmpf::ucxx::init_using_mpi(
+        MPI_COMM_WORLD,
+        options_,
+        std::make_shared<rapidsmpf::ProgressThread>(),
+        rapidsmpf::Logger::from_options(options_)
+    );
+}
+
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     GlobalEnvironment = new Environment(argc, argv);

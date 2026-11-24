@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 from cython.operator cimport dereference as deref
@@ -189,6 +189,21 @@ cdef class Communicator:
         """
         cdef string s = deref(self._handle).str()
         return s.decode('utf-8')
+
+    @property
+    def aborted(self):
+        """
+        Whether the communicator has been aborted on this rank.
+
+        A communicator is aborted when an operation is destroyed while its
+        communication is in flight, e.g., because the operation failed. Its
+        communication then raises :class:`~rapidsmpf.error.CommunicatorAborted`.
+
+        Returns
+        -------
+            True if the communicator has been aborted.
+        """
+        return deref(self._handle).is_aborted()
 
 
 def _available_communicators():

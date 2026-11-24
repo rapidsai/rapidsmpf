@@ -39,6 +39,11 @@ std::shared_ptr<rapidsmpf::Communicator> Environment::split_comm() {
     return split_comm_;
 }
 
+std::shared_ptr<rapidsmpf::Communicator> Environment::new_comm() {
+    // Single creates no futures, so it is never aborted.
+    return nullptr;
+}
+
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     GlobalEnvironment = new Environment(argc, argv);

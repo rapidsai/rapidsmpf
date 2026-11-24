@@ -126,9 +126,16 @@ class UCXX final : public Communicator {
          *
          * @param req The UCXX request handle for the operation.
          * @param data_buffer A unique pointer to the data buffer.
+         * @param graveyard The graveyard of the communicator, see `~Future()`.
          */
-        Future(std::shared_ptr<::ucxx::Request> req, std::unique_ptr<Buffer> data_buffer)
-            : req_{std::move(req)}, data_buffer_{std::move(data_buffer)} {}
+        Future(
+            std::shared_ptr<::ucxx::Request> req,
+            std::unique_ptr<Buffer> data_buffer,
+            std::shared_ptr<FutureGraveyard> graveyard
+        )
+            : req_{std::move(req)},
+              data_buffer_{std::move(data_buffer)},
+              graveyard_{std::move(graveyard)} {}
 
         /**
          * @brief Construct a Future from synchronized host data.
@@ -138,21 +145,36 @@ class UCXX final : public Communicator {
          *
          * @param req The UCXX request handle for the operation.
          * @param synced_host_data A unique pointer to a vector containing host memory.
+         * @param graveyard The graveyard of the communicator, see `~Future()`.
          */
         Future(
             std::shared_ptr<::ucxx::Request> req,
-            std::unique_ptr<std::vector<std::uint8_t>> synced_host_data
+            std::unique_ptr<std::vector<std::uint8_t>> synced_host_data,
+            std::shared_ptr<FutureGraveyard> graveyard
         )
-            : req_{std::move(req)}, synced_host_data_{std::move(synced_host_data)} {}
+            : req_{std::move(req)},
+              synced_host_data_{std::move(synced_host_data)},
+              graveyard_{std::move(graveyard)} {}
 
-        /// @brief Destructor.
-        ~Future() noexcept override = default;
+        /**
+         * @brief Destructor.
+         *
+         * If the completion of the communication was not observed, e.g., by `test()`,
+         * the request and buffers are handed over to the graveyard of the
+         * communicator, which aborts it, see `FutureGraveyard`.
+         */
+        ~Future() noexcept override;
+
+        Future(Future&&) = delete;  ///< Not movable, it may own a request.
+        Future& operator=(Future&&) = delete;  ///< Not move-assignable.
 
       private:
         std::shared_ptr<::ucxx::Request> req_;
         std::unique_ptr<Buffer> data_buffer_;
         // Dedicated storage for host data that is valid at the time of construction.
         std::unique_ptr<std::vector<std::uint8_t>> synced_host_data_;
+        std::shared_ptr<FutureGraveyard> graveyard_;
+        bool completed_{false};  ///< Whether the completion was observed.
     };
 
     /**
