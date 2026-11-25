@@ -301,15 +301,32 @@ TEST_P(BufferHostWriteEventTest, NotReadyUntilStreamReachesAllocation) {
     cuda::stream_ref stream = stream_pool->get_stream();
 
     std::atomic<bool> released{false};
-    RAPIDSMPF_CUDA_TRY(cudaLaunchHostFunc(stream.get(), block_until_released, &released));
 
-    auto [reserve, overbooking] = br->reserve(mem_type, 1_MiB, AllowOverbooking::YES);
-    auto buffer = br->make_buffer(1_MiB, stream, reserve);
-    EXPECT_EQ(buffer->mem_type(), mem_type);
-    EXPECT_FALSE(buffer->is_latest_write_done());
-    EXPECT_THROW(std::ignore = buffer->exclusive_data_access(), std::logic_error);
+    // Unblock the stream and wait for the callback on every exit path, so that a
+    // failure (e.g. a throwing `reserve()` or `make_buffer()`) cannot hang the test
+    // or leave the callback reading `released` after it went out of scope.
+    struct Release {
+        std::atomic<bool>& flag;
+        cuda::stream_ref stream;
 
-    released.store(true, std::memory_order_release);
-    stream.sync();
+        ~Release() {
+            flag.store(true, std::memory_order_release);
+            std::ignore = cudaStreamSynchronize(stream.get());
+        }
+    };
+
+    std::unique_ptr<Buffer> buffer;
+    {
+        Release const release{released, stream};
+        RAPIDSMPF_CUDA_TRY(
+            cudaLaunchHostFunc(stream.get(), block_until_released, &released)
+        );
+
+        auto [reserve, overbooking] = br->reserve(mem_type, 1_MiB, AllowOverbooking::YES);
+        buffer = br->make_buffer(1_MiB, stream, reserve);
+        EXPECT_EQ(buffer->mem_type(), mem_type);
+        EXPECT_FALSE(buffer->is_latest_write_done());
+        EXPECT_THROW(std::ignore = buffer->exclusive_data_access(), std::logic_error);
+    }  // `release` unblocks and synchronizes `stream`.
     EXPECT_TRUE(buffer->is_latest_write_done());
 }
