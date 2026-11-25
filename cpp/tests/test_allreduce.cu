@@ -162,6 +162,8 @@ std::unique_ptr<rapidsmpf::Buffer> make_buffer(
     );
     RAPIDSMPF_EXPECTS(buffer->size == nbytes, "unexpected buffer size in make_buffer");
 
+    // A new buffer is stream-ordered: wait for its stream before host access.
+    stream.sync();
     auto* raw_ptr = buffer->exclusive_data_access();
     RAPIDSMPF_CUDA_TRY(rapidsmpf::cuda_memcpy_async(raw_ptr, data, nbytes, stream));
     stream.sync();

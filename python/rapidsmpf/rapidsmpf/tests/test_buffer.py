@@ -70,7 +70,7 @@ def test_host_view_pinned_host(pinned_br: BufferResource) -> None:
         MemoryType.PINNED_HOST, size, allow_overbooking=False
     )
     buf = pinned_br.make_buffer(size, stream, reservation)
-    # A pinned allocation is stream-ordered: wait for it before host access.
+    # A new buffer is stream-ordered: wait for its stream before host access.
     stream.synchronize()
 
     data = np.arange(size, dtype=np.uint8)
@@ -89,6 +89,8 @@ def test_host_view_host() -> None:
     stream = Stream()
     reservation, _ = br.reserve(MemoryType.HOST, size, allow_overbooking=False)
     buf = br.make_buffer(size, stream, reservation)
+    # A new buffer is stream-ordered: wait for its stream before host access.
+    stream.synchronize()
 
     data = np.arange(size, dtype=np.uint8)
     with buf.host_view() as mv:
@@ -118,6 +120,8 @@ def test_host_view_lock_released_on_error() -> None:
     stream = Stream()
     reservation, _ = br.reserve(MemoryType.HOST, size, allow_overbooking=False)
     buf = br.make_buffer(size, stream, reservation)
+    # A new buffer is stream-ordered: wait for its stream before host access.
+    stream.synchronize()
 
     with pytest.raises(RuntimeError), buf.host_view():
         raise RuntimeError("intentional")
