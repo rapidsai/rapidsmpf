@@ -554,6 +554,11 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     /**
      * @brief Allocate a buffer of the specified memory type by the reservation.
      *
+     * The returned Buffer is stream-ordered on @p stream, for host memory types too:
+     * its latest write is recorded on @p stream, so a new host buffer may need its
+     * stream synchronized before host access (`exclusive_data_access()` throws until
+     * `is_latest_write_done()` is `true`).
+     *
      * @param size The size of the buffer in bytes.
      * @param stream CUDA stream to use for device allocations.
      * @param reservation The reservation to use for memory allocations.
@@ -572,6 +577,11 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      *
      * This overload allocates a buffer that matches the full size and memory type
      * of the provided reservation. The reservation is consumed by the call.
+     *
+     * The returned Buffer is stream-ordered on @p stream, for host memory types too:
+     * its latest write is recorded on @p stream, so a new host buffer may need its
+     * stream synchronized before host access (`exclusive_data_access()` throws until
+     * `is_latest_write_done()` is `true`).
      *
      * @param stream CUDA stream to use for device allocations.
      * @param reservation The memory reservation to consume for the allocation.

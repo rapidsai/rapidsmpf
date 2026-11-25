@@ -727,6 +727,12 @@ cdef class BufferResource:
         ------
         ValueError
             If ``size`` exceeds the reservation size.
+
+        Notes
+        -----
+        The buffer is stream-ordered on ``stream``, for host memory types too, so
+        a new host buffer may need its stream synchronized before host access
+        (e.g. :meth:`~rapidsmpf.memory.buffer.Buffer.host_view`).
         """
         cdef unique_ptr[cpp_Buffer] handle
         with nogil:
