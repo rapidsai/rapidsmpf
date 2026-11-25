@@ -227,7 +227,8 @@ jobs:
       date: ${{ inputs.date }}
       package-name: rapidsmpf
       package-type: python
-      publish-wheel-search-key: rapidsmpf_wheel_python_rapidsmpf
+      # trailing underscore to exclude the -singlecomm wheel.
+      publish-wheel-search-key: rapidsmpf_wheel_python_rapidsmpf_
   wheel-build-rapidsmpf-singlecomm:
     needs: [build-details, wheel-build-rapidsmpf]
     permissions:
