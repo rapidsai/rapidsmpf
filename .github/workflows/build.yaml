@@ -227,8 +227,7 @@ jobs:
       date: ${{ inputs.date }}
       package-name: rapidsmpf
       package-type: python
-      # trailing underscore to exclude the -singlecomm wheel.
-      publish-wheel-search-key: rapidsmpf_wheel_python_rapidsmpf_
+      publish-wheel-search-key: rapidsmpf_wheel_python_rapidsmpf
   wheel-build-rapidsmpf-singlecomm:
     needs: [build-details, wheel-build-rapidsmpf]
     permissions:
@@ -249,6 +248,9 @@ jobs:
       script: ci/build_wheel_singlecomm.sh
       package-name: rapidsmpf-singlecomm
       package-type: python
+      # This job only checks that the no-MPI/no-UCXX build succeeds. Don't upload
+      # its wheels as artifacts, so they can't be picked up by the publish job.
+      upload-artifacts: false
       # build for every combination of arch and CUDA version, but only for the latest Python version
       matrix_filter: group_by([.ARCH, (.CUDA_VER|split(".")|map(tonumber)|.[0])]) | map(max_by(.PY_VER|split(".")|map(tonumber)))
       matrix_type: nightly
