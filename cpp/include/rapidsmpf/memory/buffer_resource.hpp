@@ -560,7 +560,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * `is_latest_write_done()` is `true`).
      *
      * @param size The size of the buffer in bytes.
-     * @param stream CUDA stream to use for device allocations.
+     * @param stream CUDA stream the new Buffer is allocated and stream-ordered on.
      * @param reservation The reservation to use for memory allocations.
      * @return A unique pointer to the allocated Buffer.
      *
@@ -583,7 +583,7 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * stream synchronized before host access (`exclusive_data_access()` throws until
      * `is_latest_write_done()` is `true`).
      *
-     * @param stream CUDA stream to use for device allocations.
+     * @param stream CUDA stream the new Buffer is allocated and stream-ordered on.
      * @param reservation The memory reservation to consume for the allocation.
      * @return A unique pointer to the allocated Buffer.
      *
