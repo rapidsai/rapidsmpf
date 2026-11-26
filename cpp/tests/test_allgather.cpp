@@ -4,12 +4,14 @@
  */
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <iterator>
 #include <thread>
 #include <vector>
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include <cuda/stream>
@@ -28,6 +30,7 @@
 #include <rapidsmpf/statistics.hpp>
 
 #include "environment.hpp"
+#include "fake_communicator.hpp"
 #include "utils.hpp"
 
 using namespace rapidsmpf::coll;
@@ -343,6 +346,42 @@ TEST_P(AllGatherOrderedTest, non_uniform_inserts) {
             }
         }
     }
+}
+
+TEST_F(BaseAllGatherTest, progress_error_is_rethrown) {
+    auto comm = std::make_shared<FakeCommunicator>(
+        GlobalEnvironment->comm_, FakeCommunicator::Mode::FailWithInFlight
+    );
+    auto const state = comm->state();
+    std::atomic<int> callback_count{0};
+    {
+        AllGather allgather{comm, 0, br.get(), [&]() { ++callback_count; }};
+        // Without `insert_finished()`: destroying a failed allgather is not fatal.
+        allgather.insert(0, generate_packed_data(10, 0, stream, *br));
+        // The error is rethrown by every call, not only the first one.
+        for (int i = 0; i < 2; ++i) {
+            EXPECT_THAT(
+                [&] {
+                    std::ignore = allgather.wait_and_extract(
+                        AllGather::Ordered::NO, std::chrono::seconds{30}
+                    );
+                },
+                ThrowsInjectedFailure()
+            );
+        }
+        // The finished callback is invoked on failure, to wake up asynchronous waiters.
+        EXPECT_TRUE(eventually([&] { return callback_count.load() > 0; }));
+        EXPECT_EQ(callback_count.load(), 1);
+    }
+    // The failed allgather is destroyed, but not its in-flight communication, which
+    // is kept alive by the communicator. The communicator is aborted, since that
+    // communication may still match later messages.
+    EXPECT_GT(state->live.load(), 0);
+    EXPECT_EQ(state->freed_in_flight.load(), 0);
+    EXPECT_TRUE(comm->is_aborted());
+    comm->complete_futures();
+    comm.reset();
+    EXPECT_EQ(state->live.load(), 0);
 }
 
 // Test that reusing an OpID after a completed allgather doesn't cause cross-matching of

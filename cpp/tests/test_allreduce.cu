@@ -32,6 +32,7 @@
 #include <rapidsmpf/statistics.hpp>
 
 #include "environment.hpp"
+#include "fake_communicator.hpp"
 
 using rapidsmpf::MemoryType;
 using rapidsmpf::OpID;
@@ -613,6 +614,51 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Values(MemoryType::HOST, MemoryType::DEVICE),
     [](const ::testing::TestParamInfo<MemoryType>& info) { return ToString(info.param); }
 );
+
+TEST_F(BaseAllReduceTest, progress_error_is_rethrown) {
+    auto comm = std::make_shared<FakeCommunicator>(
+        GlobalEnvironment->comm_, FakeCommunicator::Mode::FailWithInFlight
+    );
+    auto const state = comm->state();
+    std::vector<int> data(10, 1);
+    auto in_buffer = make_buffer(br.get(), data.data(), data.size(), MemoryType::HOST);
+    auto reservation = br->reserve_or_fail(in_buffer->size, in_buffer->mem_type());
+    auto out_buffer = br->make_buffer(in_buffer->size, in_buffer->stream(), reservation);
+    std::atomic<int> callback_count{0};
+    {
+        AllReduce allreduce(
+            comm,
+            std::move(in_buffer),
+            std::move(out_buffer),
+            OpID{0},
+            rapidsmpf::coll::detail::make_host_reduce_operator<int>(SumOp<int>{}),
+            [&]() { ++callback_count; }
+        );
+        // The error is rethrown by every call, not only the first one.
+        for (int i = 0; i < 2; ++i) {
+            EXPECT_THAT(
+                [&] {
+                    std::ignore = allreduce.wait_and_extract(std::chrono::seconds{30});
+                },
+                ThrowsInjectedFailure()
+            );
+        }
+        EXPECT_FALSE(allreduce.is_ready());
+        // The finished callback is invoked on failure, to wake up asynchronous waiters.
+        EXPECT_TRUE(eventually([&] { return callback_count.load() > 0; }));
+        EXPECT_EQ(callback_count.load(), 1);
+        // Destroying the failed allreduce before the reduction completed is not fatal.
+    }
+    // The failed allreduce is destroyed, but not its in-flight communication, which
+    // is kept alive by the communicator. The communicator is aborted, since that
+    // communication may still match later messages.
+    EXPECT_GT(state->live.load(), 0);
+    EXPECT_EQ(state->freed_in_flight.load(), 0);
+    EXPECT_TRUE(comm->is_aborted());
+    comm->complete_futures();
+    comm.reset();
+    EXPECT_EQ(state->live.load(), 0);
+}
 
 class AllReduceFinishedCallbackTest : public BaseAllReduceTest {};
 

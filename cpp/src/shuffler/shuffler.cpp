@@ -17,6 +17,7 @@
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/communicator/metadata_payload_exchange/core.hpp>
 #include <rapidsmpf/communicator/metadata_payload_exchange/tag.hpp>
+#include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
@@ -24,6 +25,8 @@
 #include <rapidsmpf/shuffler/chunk.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/utils/misc.hpp>
+
+#include "../progress_thread_internal.hpp"
 
 namespace rapidsmpf::shuffler {
 
@@ -255,7 +258,19 @@ Shuffler::Shuffler(
     // NB: this only works because `Shuffler` is not movable, otherwise if moved,
     // `this` will become invalid.
     progress_thread_function_id_ = comm_->progress_thread()->add_function(
-        [progress = std::make_shared<Progress>(*this)]() { return (*progress)(); }
+        [progress = std::make_shared<Progress>(*this)]() { return (*progress)(); },
+        [this](std::exception_ptr error) {
+            rapidsmpf::detail::report_progress_error(
+                std::move(error),
+                mutex_,
+                cv_,
+                [this] { return can_extract_; },
+                error_,
+                finished_callback_,
+                *comm_->logger(),
+                "shuffle"
+            );
+        }
     );
 
     // Register a spill function that spill buffers in this shuffler.
@@ -277,10 +292,15 @@ Shuffler::~Shuffler() {
 }
 
 void Shuffler::shutdown() {
-    RAPIDSMPF_EXPECTS_FATAL(
-        locally_finished_.load(std::memory_order_acquire),
-        "Destroying shuffler without `insert_finished()`"
-    );
+    {
+        // After a failure the caller may legitimately give up before
+        // `insert_finished()`.
+        std::lock_guard lock(mutex_);
+        RAPIDSMPF_EXPECTS_FATAL(
+            locally_finished_.load(std::memory_order_acquire) || error_ != nullptr,
+            "Destroying shuffler without `insert_finished()`"
+        );
+    }
     bool expected = true;
     if (active_.compare_exchange_strong(expected, false)) {
         auto& log = comm_->logger();
@@ -411,6 +431,12 @@ void Shuffler::insert_finished() {
 
 std::vector<PackedData> Shuffler::extract(PartID pid) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
+    {
+        std::lock_guard lock(mutex_);
+        if (error_) {
+            std::rethrow_exception(error_);
+        }
+    }
 
     // Quick return if the partition is empty.
     if (received_.is_empty(pid)) {
@@ -438,14 +464,18 @@ bool Shuffler::finished() const {
 void Shuffler::wait(std::optional<std::chrono::milliseconds> timeout) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
     std::unique_lock lock(mutex_);
+    auto const ready = [&] { return can_extract_ || error_ != nullptr; };
     if (timeout.has_value()) {
         RAPIDSMPF_EXPECTS(
-            cv_.wait_for(lock, *timeout, [&] { return can_extract_; }),
+            cv_.wait_for(lock, *timeout, ready),
             "wait timeout reached",
             std::runtime_error
         );
     } else {
-        cv_.wait(lock, [&] { return can_extract_; });
+        cv_.wait(lock, ready);
+    }
+    if (error_) {
+        std::rethrow_exception(error_);
     }
 }
 

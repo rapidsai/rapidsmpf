@@ -88,6 +88,9 @@ class AllGather {
      * Several coroutines may await `wait()` concurrently, also next to `extract_all()`.
      *
      * @return Coroutine that completes when the allgather has completed.
+     *
+     * @throws Rethrows the exception raised on the progress thread on behalf of the
+     * allgather, if it failed.
      */
     [[nodiscard]] coro::task<void> wait();
 

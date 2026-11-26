@@ -17,11 +17,14 @@
 #include <rapidsmpf/coll/allgather.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/communicator/metadata_payload_exchange/tag.hpp>
+#include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/memory_type.hpp>
 #include <rapidsmpf/nvtx.hpp>
 #include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/utils/misc.hpp>
+
+#include "../progress_thread_internal.hpp"
 
 namespace rapidsmpf::coll {
 
@@ -102,14 +105,16 @@ std::vector<PackedData> AllGather::wait_and_extract(
 
 void AllGather::wait(std::chrono::milliseconds timeout) {
     std::unique_lock lock(mutex_);
+    auto const ready = [&]() { return can_extract_ || error_ != nullptr; };
     if (timeout < std::chrono::milliseconds{0}) {
-        cv_.wait(lock, [&]() { return can_extract_; });
+        cv_.wait(lock, ready);
     } else {
         RAPIDSMPF_EXPECTS(
-            cv_.wait_for(lock, timeout, [&]() { return can_extract_; }),
-            "wait timeout reached",
-            std::runtime_error
+            cv_.wait_for(lock, timeout, ready), "wait timeout reached", std::runtime_error
         );
+    }
+    if (error_) {
+        std::rethrow_exception(error_);
     }
 }
 
@@ -132,10 +137,15 @@ std::size_t AllGather::spill(std::size_t amount, MemoryType mem_type) {
 }
 
 AllGather::~AllGather() noexcept {
-    RAPIDSMPF_EXPECTS_FATAL(
-        locally_finished_.load(std::memory_order_acquire),
-        "Destroying allgather without `insert_finished()`"
-    );
+    {
+        // After a failure the caller may legitimately give up before
+        // `insert_finished()`.
+        std::lock_guard lock(mutex_);
+        RAPIDSMPF_EXPECTS_FATAL(
+            locally_finished_.load(std::memory_order_acquire) || error_ != nullptr,
+            "Destroying allgather without `insert_finished()`"
+        );
+    }
     br_->spill_manager().remove_spill_function(spill_function_id_);
     comm_->progress_thread()->remove_function(function_id_);
 }
@@ -166,8 +176,21 @@ AllGather::AllGather(
         br_,
         communicator::TagMetadataPayloadExchange::ForcedReceive::KEEP_IN_MEMORY
     );
-    function_id_ =
-        comm_->progress_thread()->add_function([this]() { return event_loop(); });
+    function_id_ = comm_->progress_thread()->add_function(
+        [this]() { return event_loop(); },
+        [this](std::exception_ptr error) {
+            rapidsmpf::detail::report_progress_error(
+                std::move(error),
+                mutex_,
+                cv_,
+                [this] { return can_extract_; },
+                error_,
+                finished_callback_,
+                *comm_->logger(),
+                "allgather"
+            );
+        }
+    );
     spill_function_id_ = br_->spill_manager().add_spill_function(
         [this](std::size_t amount, MemoryType mem_type) -> std::size_t {
             return spill(amount, mem_type);

@@ -15,20 +15,39 @@
 #include <utility>
 #include <vector>
 
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
+
 #include <rapidsmpf/communicator/communicator.hpp>
 
 /**
- * @brief Communicator posing as rank 0 of 2 ranks, whose communication never completes.
+ * @brief Communicator posing as rank 0 of 2 ranks, whose communication never completes
+ * or fails.
  *
  * Sends and receives only complete once `complete_futures()` is called, or, for
  * receives, once cancelled when the communicator is destroyed. No message ever arrives.
- * Like the real backends, a future destroyed before its communication completed hands
- * it over to the graveyard of the communicator. Used to test the handling of in-flight
- * communication deterministically, without communicating with any other rank. The
- * logger and progress thread are borrowed from a real communicator.
+ * Depending on its `Mode`, the communication fails instead. Like the real backends, a
+ * future destroyed before its communication completed hands it over to the graveyard of
+ * the communicator. Used to test the handling of in-flight communication and of
+ * communication failures deterministically, without communicating with any other rank.
+ * The logger and progress thread are borrowed from a real communicator.
  */
 class FakeCommunicator final : public rapidsmpf::Communicator {
   public:
+    /// @brief The message of the exceptions thrown by the communication operations.
+    static constexpr char const* error_message = "injected communicator failure";
+
+    /// @brief How the communication behaves.
+    enum class Mode : std::uint8_t {
+        /// @brief Sends and receives succeed, returning futures that never complete.
+        InFlight,
+        /// @brief All communication throws.
+        FailAll,
+        /// @brief Like `InFlight`, but polling throws once communication is in flight,
+        /// so that operations fail with communication in flight.
+        FailWithInFlight,
+    };
+
     /// @brief The direction of a communication operation.
     enum class Direction : std::uint8_t {
         Send,  ///< A send, never cancelled.
@@ -120,8 +139,10 @@ class FakeCommunicator final : public rapidsmpf::Communicator {
         std::shared_ptr<FutureGraveyard> graveyard_;
     };
 
-    explicit FakeCommunicator(std::shared_ptr<rapidsmpf::Communicator> comm)
-        : comm_{std::move(comm)} {}
+    explicit FakeCommunicator(
+        std::shared_ptr<rapidsmpf::Communicator> comm, Mode mode = Mode::InFlight
+    )
+        : comm_{std::move(comm)}, mode_{mode} {}
 
     ~FakeCommunicator() noexcept override {
         graveyard()->release();
@@ -172,6 +193,7 @@ class FakeCommunicator final : public rapidsmpf::Communicator {
     [[nodiscard]] std::pair<std::unique_ptr<std::vector<std::uint8_t>>, rapidsmpf::Rank>
     recv_any(rapidsmpf::Tag) override {
         throw_if_aborted();
+        poll();
         return {nullptr, 0};
     }
 
@@ -179,22 +201,26 @@ class FakeCommunicator final : public rapidsmpf::Communicator {
         rapidsmpf::Rank, rapidsmpf::Tag
     ) override {
         throw_if_aborted();
+        poll();
         return nullptr;
     }
 
     [[nodiscard]] std::
         pair<std::vector<std::unique_ptr<Future>>, std::vector<std::size_t>>
         test_some(std::vector<std::unique_ptr<Future>>&) override {
+        poll();
         return {};
     }
 
     [[nodiscard]] std::unordered_map<std::size_t, std::unique_ptr<Future>> test_some(
         std::unordered_map<std::size_t, std::unique_ptr<Future>>&
     ) override {
+        poll();
         return {};
     }
 
     [[nodiscard]] bool test(std::unique_ptr<Future>&) override {
+        poll();
         return false;
     }
 
@@ -239,14 +265,38 @@ class FakeCommunicator final : public rapidsmpf::Communicator {
     /// @brief Post a send or receive.
     std::unique_ptr<Future> post(Direction direction) {
         throw_if_aborted();
+        if (mode_ == Mode::FailAll) {
+            throw std::runtime_error(error_message);
+        }
         return std::make_unique<PendingFuture>(
             std::make_unique<Communication>(state_, direction), graveyard()
         );
     }
 
+    /// @brief Poll for completed communication or incoming messages.
+    void poll() {
+        if (mode_ == Mode::FailAll
+            || (mode_ == Mode::FailWithInFlight && state_->live.load() > 0))
+        {
+            throw std::runtime_error(error_message);
+        }
+    }
+
     std::shared_ptr<rapidsmpf::Communicator> comm_;
+    Mode mode_;
     std::shared_ptr<State> state_{std::make_shared<State>()};
 };
+
+/**
+ * @brief Matcher for a callable throwing the error injected by `FakeCommunicator`.
+ *
+ * @return The matcher.
+ */
+inline auto ThrowsInjectedFailure() {
+    return ::testing::ThrowsMessage<std::runtime_error>(
+        ::testing::StrEq(FakeCommunicator::error_message)
+    );
+}
 
 /**
  * @brief Wait until `predicate` is true, giving up after `timeout`.

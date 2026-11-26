@@ -11,6 +11,7 @@
 #include <vector>
 
 #include <cuda_runtime_api.h>
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include <cuda/stream>
@@ -23,6 +24,7 @@
 #include <rapidsmpf/streaming/coll/sparse_alltoall.hpp>
 #include <rapidsmpf/streaming/core/actor.hpp>
 
+#include "../fake_communicator.hpp"
 #include "base_streaming_fixture.hpp"
 
 using namespace rapidsmpf;
@@ -250,4 +252,18 @@ TEST_P(StreamingSparseAlltoall, simultaneous_different_tags) {
     auto const src = srcs.front();
     EXPECT_THAT(results[0], ::testing::ElementsAre(10 + src, 100 + src));
     EXPECT_THAT(results[1], ::testing::ElementsAre(20 + src, 200 + src));
+}
+
+TEST_P(StreamingSparseAlltoall, progress_error_is_rethrown) {
+    auto comm = std::make_shared<FakeCommunicator>(
+        GlobalEnvironment->comm_, FakeCommunicator::Mode::FailAll
+    );
+    auto [srcs, dsts] = ring_peers(comm);
+    streaming::SparseAlltoall op(ctx, comm, OpID{0}, srcs, dsts);
+    op.insert_finished();
+    // Awaiting completion does not hang: the failure wakes up the awaiters, which
+    // rethrow it, every time.
+    for (int i = 0; i < 2; ++i) {
+        EXPECT_THAT([&] { coro::sync_wait(op.wait()); }, ThrowsInjectedFailure());
+    }
 }

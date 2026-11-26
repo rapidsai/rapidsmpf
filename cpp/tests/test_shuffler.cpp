@@ -10,15 +10,18 @@
 #include <filesystem>
 #include <future>
 #include <memory>
+#include <stdexcept>
 #include <thread>
 #include <tuple>
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include <cuda/stream>
 
 #include <rmm/mr/per_device_resource.hpp>
 
+#include <rapidsmpf/communicator/single.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/packed_data.hpp>
@@ -30,6 +33,7 @@
 #include <rapidsmpf/utils/misc.hpp>
 
 #include "environment.hpp"
+#include "fake_communicator.hpp"
 #include "utils.hpp"
 
 extern Environment* GlobalEnvironment;
@@ -1390,6 +1394,92 @@ TEST(ShufflerTest, multiple_shutdowns) {
         }));
     }
     std::ranges::for_each(futures, [](auto& future) { future.get(); });
+}
+
+TEST(Shuffler, progress_error_is_rethrown) {
+    auto comm = std::make_shared<FakeCommunicator>(
+        GlobalEnvironment->comm_, FakeCommunicator::Mode::FailWithInFlight
+    );
+    auto const state = comm->state();
+    auto br =
+        rapidsmpf::BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    std::atomic<int> callback_count{0};
+    {
+        rapidsmpf::shuffler::Shuffler shuffler(comm, 0, 2, br.get(), [&]() {
+            ++callback_count;
+        });
+        shuffler.insert_finished();
+        // The error is rethrown by every call, not only the first one.
+        for (int i = 0; i < 2; ++i) {
+            EXPECT_THAT(
+                [&] { shuffler.wait(std::chrono::seconds{30}); }, ThrowsInjectedFailure()
+            );
+        }
+        for (auto pid : shuffler.local_partitions()) {
+            EXPECT_THAT(
+                [&] { std::ignore = shuffler.extract(pid); }, ThrowsInjectedFailure()
+            );
+        }
+        // The finished callback is invoked on failure, to wake up asynchronous waiters.
+        EXPECT_TRUE(eventually([&] { return callback_count.load() > 0; }));
+        EXPECT_EQ(callback_count.load(), 1);
+        EXPECT_NO_THROW(shuffler.shutdown());
+    }
+    // The failed shuffler is destroyed, but not its in-flight communication, which
+    // is kept alive by the communicator. The communicator is aborted, since that
+    // communication may still match later messages.
+    EXPECT_GT(state->live.load(), 0);
+    EXPECT_EQ(state->freed_in_flight.load(), 0);
+    EXPECT_TRUE(comm->is_aborted());
+    comm->complete_futures();
+    comm.reset();
+    EXPECT_EQ(state->live.load(), 0);
+}
+
+TEST(Shuffler, destroy_without_insert_finished_after_progress_error) {
+    auto comm = std::make_shared<FakeCommunicator>(
+        GlobalEnvironment->comm_, FakeCommunicator::Mode::FailAll
+    );
+    auto br =
+        rapidsmpf::BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    {
+        rapidsmpf::shuffler::Shuffler shuffler(comm, 0, 2, br.get());
+        EXPECT_THAT(
+            [&] { shuffler.wait(std::chrono::seconds{30}); }, ThrowsInjectedFailure()
+        );
+    }
+    // Destroying the failed shuffler without `insert_finished()` is not fatal. No
+    // communication was posted, so the communicator is not aborted, but the `op_id`
+    // must not be reused.
+    EXPECT_FALSE(comm->is_aborted());
+}
+
+TEST(Shuffler, error_after_completion_is_ignored) {
+    auto comm = std::make_shared<rapidsmpf::Single>(
+        std::make_shared<rapidsmpf::ProgressThread>(),
+        rapidsmpf::Logger::from_options(GlobalEnvironment->options())
+    );
+    auto br =
+        rapidsmpf::BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    std::atomic<int> callback_count{0};
+    rapidsmpf::shuffler::Shuffler shuffler(comm, 0, 1, br.get(), [&]() {
+        ++callback_count;
+        throw std::runtime_error("finished callback failed");
+    });
+    shuffler.insert_finished();
+    // The finished callback throws after the shuffle completed, it doesn't fail.
+    EXPECT_NO_THROW(shuffler.wait(std::chrono::seconds{30}));
+    EXPECT_NO_THROW(std::ignore = shuffler.extract(0));
+    // Let the progress thread finish the iteration in which the callback threw: adding
+    // a function waits for the current iteration, removing it for the next one.
+    EXPECT_TRUE(eventually([&] { return callback_count.load() > 0; }));
+    auto const& progress_thread = comm->progress_thread();
+    progress_thread->remove_function(progress_thread->add_function([] {
+        return rapidsmpf::ProgressThread::ProgressState::Done;
+    }));
+    // Waiting again still doesn't throw, the error was not recorded.
+    EXPECT_NO_THROW(shuffler.wait(std::chrono::seconds{30}));
+    EXPECT_NO_THROW(std::ignore = shuffler.extract(0));
 }
 
 // Test that multiple threads can call wait() concurrently.

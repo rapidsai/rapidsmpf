@@ -27,6 +27,7 @@
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/leaf_actor.hpp>
 
+#include "../fake_communicator.hpp"
 #include "../utils.hpp"
 #include "base_streaming_fixture.hpp"
 
@@ -233,4 +234,17 @@ TEST_P(StreamingAllGather, streaming_actor) {
     }
     auto expected = iota_vector<int>(size * size * n_inserts);
     EXPECT_EQ(expected, actual);
+}
+
+TEST_P(StreamingAllGather, progress_error_is_rethrown) {
+    auto comm = std::make_shared<FakeCommunicator>(
+        GlobalEnvironment->comm_, FakeCommunicator::Mode::FailAll
+    );
+    streaming::AllGather op(ctx, comm, OpID{0});
+    op.insert_finished();
+    // Awaiting completion does not hang: the failure wakes up the awaiters, which
+    // rethrow it, every time.
+    for (int i = 0; i < 2; ++i) {
+        EXPECT_THAT([&] { coro::sync_wait(op.wait()); }, ThrowsInjectedFailure());
+    }
 }

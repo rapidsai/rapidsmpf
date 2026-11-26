@@ -117,11 +117,17 @@ class Shuffler {
      * @param op_id The operation ID of the shuffle.
      * @param total_num_partitions Total number of partitions in the shuffle.
      * @param br Buffer resource used to allocate temporary and the shuffle result.
-     * @param finished_callback Callback to notify when all partitions are finished.
+     * @param finished_callback Callback to notify when all partitions are finished, or
+     * when the shuffle fails, in which case `wait()` and `extract()` rethrow the error.
      * @param partition_owner Function to determine partition ownership.
      *
-     * @note It is safe to reuse the `op_id` as soon as `wait` has completed
-     * locally.
+     * @note It is safe to reuse the `op_id` as soon as `wait` has completed locally,
+     * unless it rethrew an error because the shuffle failed. After a failure, the `op_id`
+     * must not be reused on the communicator, since messages of the failed shuffle may
+     * still arrive. If communication was still in flight, destroying the shuffler also
+     * aborts the communicator (see `Communicator::is_aborted()`), which must then be
+     * replaced to communicate again. A failure before any communication was posted does
+     * not abort it.
      *
      * @note The caller promises that inserted buffers are stream-ordered with respect
      * to their own stream, and extracted buffers are likewise guaranteed to be stream-
@@ -224,6 +230,9 @@ class Shuffler {
      *
      * @param pid The ID of the partition to extract.
      * @return A vector of PackedData chunks associated with the partition.
+     *
+     * @throws Rethrows the exception raised on the progress thread on behalf of this
+     * shuffler, if any.
      */
     [[nodiscard]] std::vector<PackedData> extract(PartID pid);
 
@@ -240,6 +249,8 @@ class Shuffler {
      * @param timeout Optional timeout (ms) to wait.
      *
      * @throws std::runtime_error if the timeout is reached.
+     * @throws Rethrows the exception raised on the progress thread on behalf of this
+     * shuffler, if any. Once that happened, every subsequent call rethrows it.
      */
     void wait(std::optional<std::chrono::milliseconds> timeout = {});
 
@@ -339,6 +350,7 @@ class Shuffler {
     mutable std::mutex mutex_;
     std::condition_variable cv_;
     FinishedCallback finished_callback_;  ///< Called once when data can be extracted.
+    std::exception_ptr error_{};  ///< Progress error, guarded by `mutex_`.
 
     class Progress;
 };

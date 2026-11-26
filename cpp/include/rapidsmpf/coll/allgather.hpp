@@ -93,6 +93,8 @@ class AllGather {
      *
      * @return A vector containing packed data from all participating ranks.
      * @throws std::runtime_error If the timeout is reached.
+     * @throws Rethrows the exception raised on the progress thread on behalf of this
+     * allgather, if any. Once that happened, every subsequent call rethrows it.
      *
      * @note Extracted buffers retain their current storage tier and may be
      * disk-resident. Use `unspill_partitions()` when device-resident output is needed.
@@ -103,6 +105,17 @@ class AllGather {
     );
 
     /**
+     * @brief Wait for the allgather operation to complete, without extracting.
+     *
+     * @param timeout Optional maximum duration to wait. Negative values mean no timeout.
+     *
+     * @throws std::runtime_error If the timeout is reached.
+     * @throws Rethrows the exception raised on the progress thread on behalf of this
+     * allgather, if any. Once that happened, every subsequent call rethrows it.
+     */
+    void wait(std::chrono::milliseconds timeout = std::chrono::milliseconds{-1});
+
+    /**
      * @brief Construct a new allgather operation.
      *
      * @param comm The communicator for communication.
@@ -110,10 +123,16 @@ class AllGather {
      * @param br Buffer resource for memory allocation.
      * @param finished_callback Optional callback run when partitions are locally
      * finished. The callback is guaranteed to be called by the progress thread exactly
-     * once when the allgather is locally ready.
+     * once when the allgather is locally ready, or when it fails, in which case
+     * `wait_and_extract()` rethrows the error.
      *
      * @note It is safe to reuse the `op_id` as soon as `wait_and_extract` has completed
-     * locally.
+     * locally, unless it rethrew an error because the allgather failed. After a failure,
+     * the `op_id` must not be reused on the communicator, since messages of the failed
+     * allgather may still arrive. If communication was still in flight, destroying the
+     * allgather also aborts the communicator (see `Communicator::is_aborted()`), which
+     * must then be replaced to communicate again. A failure before any communication was
+     * posted does not abort it.
      *
      * @note The caller promises that inserted buffers are stream-ordered with respect
      * to their own stream, and extracted buffers are likewise guaranteed to be stream-
@@ -195,15 +214,6 @@ class AllGather {
     [[nodiscard]] bool received_all_data() const noexcept;
 
     /**
-     * @brief Wait for the allgather operation to complete.
-     *
-     * @param timeout Optional maximum duration to wait. Negative values mean no timeout.
-     *
-     * @throws std::runtime_error If the timeout is reached.
-     */
-    void wait(std::chrono::milliseconds timeout = std::chrono::milliseconds{-1});
-
-    /**
      * @brief Attempt to spill memory of the given type
      *
      * @param mem_type The memory type to spill from.
@@ -227,6 +237,7 @@ class AllGather {
     bool can_extract_{false};  ///< Whether data can be extracted
     mutable std::mutex mutex_;  ///< Mutex protecting can_extract_
     std::condition_variable cv_;  ///< Notification for waiting on can_extract_
+    std::exception_ptr error_{};  ///< Progress error, guarded by `mutex_`.
     detail::PostBox inserted_{};  ///< Postbox for chunks inserted by user/event loop
     detail::PostBox for_extraction_{};  ///< Postbox for chunks ready for user extraction
     ProgressThread::FunctionID function_id_{};  ///< Function ID in progress thread

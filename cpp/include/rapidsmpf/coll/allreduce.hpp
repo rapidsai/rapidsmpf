@@ -61,10 +61,16 @@ using ReduceOperator = std::function<void(Buffer const* left, Buffer* right)>;
  * receive the same answer even if the operator is not associative or commutative.
  *
  * @note It is safe to reuse the `op_id` passed to the `AllReduce` construction locally as
- * soon as `wait_and_extract` is complete.
+ * soon as `wait_and_extract` is complete, unless it rethrew an error because the
+ * allreduce failed. After a failure, the `op_id` must not be reused on the communicator,
+ * since messages of the failed allreduce may still arrive. If communication was still in
+ * flight, destroying the allreduce also aborts the communicator (see
+ * `Communicator::is_aborted()`), which must then be replaced to communicate again. A
+ * failure before any communication was posted does not abort it.
  *
  * @warning Behaviour of this object is undefined if it is destructed without first
- * ensuring that `wait_and_extract` completes successfully.
+ * ensuring that `wait_and_extract` completes successfully, unless the allreduce failed,
+ * see above.
  */
 class AllReduce {
   public:
@@ -79,10 +85,16 @@ class AllReduce {
      * @param op_id Unique operation identifier for this allreduce.
      * @param reduce_operator Type-erased reduction operator to use. See `ReduceOperator`.
      * @param finished_callback Optional callback run once locally when the allreduce
-     * is finished and results are ready for extraction.
+     * is finished and results are ready for extraction, or when it fails, in which case
+     * `wait_and_extract()` rethrows the error.
      *
      * @note It is safe to reuse the `op_id` as soon as `wait_and_extract` has completed
-     * locally.
+     * locally, unless it rethrew an error because the allreduce failed. After a failure,
+     * the `op_id` must not be reused on the communicator, since messages of the failed
+     * allreduce may still arrive. If communication was still in flight, destroying the
+     * allreduce also aborts the communicator (see `Communicator::is_aborted()`), which
+     * must then be replaced to communicate again. A failure before any communication was
+     * posted does not abort it.
      *
      * @throws std::invalid_argument If the input and output buffers do not match
      * appropriately (same size, same memory type).
@@ -155,6 +167,8 @@ class AllReduce {
      *
      * @throws std::runtime_error If the timeout is reached or if this method is
      * called more than once.
+     * @throws Rethrows the exception raised on the progress thread on behalf of this
+     * allreduce, if any. Once that happened, every subsequent call rethrows it.
      */
     [[nodiscard]] std::pair<std::unique_ptr<Buffer>, std::unique_ptr<Buffer>>
     wait_and_extract(std::chrono::milliseconds timeout = std::chrono::milliseconds{-1});
@@ -198,6 +212,7 @@ class AllReduce {
 
     mutable std::mutex mutex_;  ///< Mutex for synchronization
     mutable std::condition_variable cv_;  ///< Condition variable for waiting
+    std::exception_ptr error_{};  ///< Progress error, guarded by `mutex_`.
 
     Rank logical_rank_{-1};
     Rank nearest_pow2_{0};

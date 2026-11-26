@@ -57,6 +57,9 @@ void ShufflerAsync::insert_finished() {
 
 coro::task<void> ShufflerAsync::wait() {
     co_await event_;
+    // The event is also set when the shuffle fails; the underlying `wait()` then returns
+    // immediately, rethrowing the error.
+    shuffler_.wait();
 }
 
 std::vector<PackedData> ShufflerAsync::extract(shuffler::PartID pid) {

@@ -20,6 +20,7 @@
 #include <rapidsmpf/streaming/core/context.hpp>
 #include <rapidsmpf/streaming/core/leaf_actor.hpp>
 
+#include "../fake_communicator.hpp"
 #include "../utils.hpp"
 #include "base_streaming_fixture.hpp"
 
@@ -83,6 +84,33 @@ TEST_F(BaseStreamingShuffle, concurrent_wait) {
     for (auto pid : shuffler.local_partitions()) {
         EXPECT_TRUE(shuffler.extract(pid).empty());
     }
+}
+
+TEST_F(BaseStreamingShuffle, progress_error_is_rethrown) {
+    auto comm = std::make_shared<FakeCommunicator>(
+        GlobalEnvironment->comm_, FakeCommunicator::Mode::FailAll
+    );
+    constexpr OpID op_id = 0;
+    constexpr shuffler::PartID total = 2;
+    auto shuffler = std::make_unique<ShufflerAsync>(ctx, comm, op_id, total);
+
+    // Awaiting completion does not hang: the failure wakes up the awaiters, which
+    // rethrow it, every time.
+    shuffler->insert_finished();
+    for (int i = 0; i < 2; ++i) {
+        EXPECT_THAT([&] { coro::sync_wait(shuffler->wait()); }, ThrowsInjectedFailure());
+    }
+    auto local_pids = shuffler->local_partitions();
+    ASSERT_FALSE(local_pids.empty());
+    for (auto pid : local_pids) {
+        EXPECT_THAT(
+            [&] { std::ignore = shuffler->extract(pid); }, ThrowsInjectedFailure()
+        );
+    }
+    // Destroying the failed shuffler is not fatal. No communication was posted, so the
+    // communicator is not aborted, but the `op_id` must not be reused.
+    shuffler.reset();
+    EXPECT_FALSE(comm->is_aborted());
 }
 
 class StreamingShuffler : public BaseStreamingShuffle,

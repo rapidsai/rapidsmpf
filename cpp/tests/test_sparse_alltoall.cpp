@@ -4,6 +4,7 @@
  */
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstring>
@@ -14,6 +15,7 @@
 #include <utility>
 #include <vector>
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include <cuda/stream>
@@ -28,6 +30,7 @@
 #include <rapidsmpf/memory/spill_manager.hpp>
 
 #include "environment.hpp"
+#include "fake_communicator.hpp"
 #include "utils.hpp"
 
 extern Environment* GlobalEnvironment;
@@ -116,6 +119,44 @@ class SparseAlltoallTest : public ::testing::Test {
 
     std::shared_ptr<rapidsmpf::BufferResource> br;
 };
+
+TEST_F(SparseAlltoallTest, progress_error_is_rethrown) {
+    auto comm = std::make_shared<FakeCommunicator>(
+        GlobalEnvironment->comm_, FakeCommunicator::Mode::FailWithInFlight
+    );
+    auto const state = comm->state();
+    std::atomic<int> callback_count{0};
+    {
+        rapidsmpf::coll::SparseAlltoall exchange(comm, 0, br.get(), {1}, {1}, [&]() {
+            ++callback_count;
+        });
+        exchange.insert_finished();
+        // The error is rethrown by every call, not only the first one.
+        for (int i = 0; i < 2; ++i) {
+            EXPECT_THAT(
+                [&] { exchange.wait(std::chrono::seconds{30}); }, ThrowsInjectedFailure()
+            );
+        }
+        EXPECT_THAT([&] { std::ignore = exchange.extract(1); }, ThrowsInjectedFailure());
+        // The finished callback is invoked on failure, to wake up asynchronous waiters.
+        EXPECT_TRUE(eventually([&] { return callback_count.load() > 0; }));
+        EXPECT_EQ(callback_count.load(), 1);
+        // A caller driven by the callback learns of the failure from `wait`, which
+        // returns immediately.
+        EXPECT_THAT(
+            [&] { exchange.wait(std::chrono::milliseconds{0}); }, ThrowsInjectedFailure()
+        );
+    }
+    // The failed collective is destroyed, but not its in-flight communication, which
+    // is kept alive by the communicator. The communicator is aborted, since that
+    // communication may still match later messages.
+    EXPECT_GT(state->live.load(), 0);
+    EXPECT_EQ(state->freed_in_flight.load(), 0);
+    EXPECT_TRUE(comm->is_aborted());
+    comm->complete_futures();
+    comm.reset();
+    EXPECT_EQ(state->live.load(), 0);
+}
 
 TEST_F(SparseAlltoallTest, validate_constructor) {
     auto const& comm = GlobalEnvironment->comm_;

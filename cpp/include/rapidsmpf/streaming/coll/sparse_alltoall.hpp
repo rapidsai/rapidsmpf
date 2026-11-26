@@ -85,6 +85,9 @@ class SparseAlltoall {
      * Several coroutines may await `wait()` concurrently.
      *
      * @return Coroutine that completes when the collective has completed.
+     *
+     * @throws Rethrows the exception raised on the progress thread on behalf of the
+     * collective, if it failed.
      */
     [[nodiscard]] coro::task<void> wait();
 

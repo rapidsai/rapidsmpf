@@ -59,7 +59,14 @@ cdef class Collective:
         if not self._finishing:
             self._mark_finished()
             self._skipped_insert_finished = True
-        await self._wait()
+        try:
+            await self._wait()
+        except Exception:
+            # The collective failed: release it and raise its error. A cancellation is
+            # not an `Exception`, it returns while the collective keeps running.
+            self._cpp_release()
+            self._closed = True
+            raise
         self._cpp_release()
         self._closed = True
         if raise_if_skipped and self._skipped_insert_finished:
@@ -85,10 +92,17 @@ cdef class Collective:
         ``aclose()`` whose collective never completes, the communicator must not be
         used for new collectives.
 
+        If the collective failed, ``aclose()`` releases it and raises its error. The
+        ``op_id`` must then not be reused on the communicator, since messages of the
+        failed collective may still arrive. If communication was still in flight,
+        releasing the collective also aborts the communicator (see
+        :attr:`~rapidsmpf.communicator.communicator.Communicator.aborted`).
+
         Raises
         ------
         RuntimeError
-            If ``insert_finished()`` was not called before ``aclose()``.
+            If ``insert_finished()`` was not called before ``aclose()``, or if the
+            collective failed.
         ValueError
             If called on an :class:`~rapidsmpf.streaming.coll.AllGather` inside its
             ``with`` block.
