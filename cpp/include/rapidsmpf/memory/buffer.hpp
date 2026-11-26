@@ -314,15 +314,18 @@ class Buffer {
 
   private:
     /**
-     * @brief Construct a stream-ordered Buffer from synchronized host buffer.
+     * @brief Construct a stream-ordered Buffer from a host buffer.
      *
      * Adopts @p host_buffer as the Buffer's storage and associates the Buffer with
      * @p stream for subsequent stream-ordered operations.
      *
-     * @note The constructor does **not** perform any synchronization. The caller must
-     * ensure that @p host_buffer is already synchronized (no pending GPU or stream work)
-     * at the time of construction. A newly constructed Buffer is therefore considered
-     * ready (i.e., `is_latest_write_done() == true`).
+     * At construction, the Buffer records an initial "latest write" on @p stream, so
+     * `is_latest_write_done()` will become `true` once all work enqueued on @p stream
+     * up to this point has completed.
+     *
+     * @note No synchronization is performed by the constructor. Any producer that
+     * initialized or modified @p host_buffer must have enqueued that work on @p stream
+     * (or established ordering with it) for correctness.
      *
      * @param host_buffer Unique pointer to a vector containing host memory.
      * @param stream CUDA stream to associate with the Buffer for future operations.
