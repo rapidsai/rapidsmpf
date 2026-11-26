@@ -695,15 +695,19 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
      * If the Buffer already resides in the target memory type, a cheap move is performed.
      * Otherwise, the Buffer is copied to the target memory using its own CUDA stream.
      *
-     * @param buffer Buffer to move.
-     * @param reservation Memory reservation used if a copy is required.
+     * @param buffer Buffer to move. Only consumed on success: if the move throws, e.g.
+     * because the allocation in the target memory type or the copy fails, @p buffer and
+     * @p reservation are left unchanged, so the caller still owns the data and can retry
+     * with the same reservation.
+     * @param reservation Memory reservation used if a copy is required. Consumed only
+     * once the copy has been issued successfully.
      * @return Unique pointer to the resulting Buffer.
      *
      * @throws rapidsmpf::reservation_error If the allocation size exceeds the
      * reservation.
      */
     std::unique_ptr<Buffer> move(
-        std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
+        std::unique_ptr<Buffer>&& buffer, MemoryReservation& reservation
     );
 
     /**
@@ -839,6 +843,21 @@ class BufferResource : public std::enable_shared_from_this<BufferResource> {
     }
 
   private:
+    /**
+     * @brief Allocate a buffer of @p mem_type without consuming any reservation.
+     *
+     * Records the allocation statistics. The caller is responsible for the
+     * reservation, see `make_buffer()` and `move()`.
+     *
+     * @param size The size of the buffer in bytes.
+     * @param stream CUDA stream the new Buffer is allocated and stream-ordered on.
+     * @param mem_type The memory type to allocate.
+     * @return The new buffer.
+     */
+    std::unique_ptr<Buffer> allocate(
+        std::size_t size, cuda::stream_ref stream, MemoryType mem_type
+    );
+
     std::uint64_t record_reservation_event(
         ReservationContext reservation_context,
         MemoryType memory_type,

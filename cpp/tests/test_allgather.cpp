@@ -655,6 +655,46 @@ TEST(PostBox, spill_to_disk_preserves_payload) {
     );
 }
 
+// A spill whose target allocation fails leaves the chunk, and its payload, in place.
+TEST(PostBox, failed_spill_keeps_the_chunk) {
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        GTEST_SKIP() << "Pinned memory not supported on this system";
+    }
+    constexpr std::size_t n_elements = exceeds_capped_pinned_pool / sizeof(int);
+    constexpr std::size_t data_size = n_elements * sizeof(int);
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+    // PINNED_HOST is the first spill target, and its allocation fails.
+    auto br = create_br_with_capped_pinned_pool();
+    rapidsmpf::coll::detail::PostBox postbox;
+    postbox.insert(
+        rapidsmpf::coll::detail::Chunk::from_packed_data(
+            0,
+            0,
+            rapidsmpf::coll::detail::Chunk::INVALID_RANK,
+            generate_packed_data(n_elements, 5, stream, *br)
+        )
+    );
+
+    EXPECT_THROW(
+        std::ignore = postbox.spill(
+            br.get(),
+            data_size,
+            rapidsmpf::MemoryType::DEVICE,
+            rapidsmpf::preference_lt(
+                rapidsmpf::MemoryType::DEVICE, rapidsmpf::MEMORY_TYPES
+            )
+        ),
+        std::runtime_error
+    );
+
+    auto chunks = postbox.extract();
+    ASSERT_EQ(chunks.size(), 1);
+    EXPECT_EQ(chunks[0]->memory_type(), rapidsmpf::MemoryType::DEVICE);
+    EXPECT_NO_FATAL_FAILURE(
+        validate_packed_data(chunks[0]->release(), n_elements, 5, stream, *br)
+    );
+}
+
 TEST_F(BaseAllGatherTest, forces_receive_allocations_without_memory) {
     constexpr int n_elements = 10;
     constexpr int n_inserts = 3;

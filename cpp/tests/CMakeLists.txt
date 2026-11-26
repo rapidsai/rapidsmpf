@@ -79,7 +79,8 @@ disable_sign_conversion_warning(test_sources)
 
 target_sources(
   test_sources
-  PRIVATE test_allgather.cpp
+  PRIVATE allocation_failure_injection.cpp
+          test_allgather.cpp
           test_allreduce.cu
           test_buffer.cpp
           test_buffer_resource.cpp

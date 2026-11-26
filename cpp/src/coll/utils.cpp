@@ -244,7 +244,16 @@ std::size_t PostBox::spill(
         if (!reservation) {
             return 0;  // No target has room, leave the chunk where it is.
         }
-        chunk->attach_data_buffer(br->move(chunk->release_data_buffer(), *reservation));
+        // `move()` leaves `data` unchanged if it throws, so put it back to keep the
+        // chunk intact, and let the caller decide what to do.
+        auto data = chunk->release_data_buffer();
+        try {
+            data = br->move(std::move(data), *reservation);
+        } catch (...) {
+            chunk->attach_data_buffer(std::move(data));
+            throw;
+        }
+        chunk->attach_data_buffer(std::move(data));
         return chunk->data_size();
     };
     if (max_spillable < amount) {

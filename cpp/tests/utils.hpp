@@ -119,6 +119,42 @@ class TempDir {
     );
 }
 
+/// @brief Pinned pool cap used by `create_br_with_capped_pinned_pool()`. CUDA rounds
+/// small caps up (to 32 MiB on the systems tested), so don't go lower.
+constexpr std::size_t capped_pinned_pool_size = 32ull << 20;
+
+/// @brief An allocation size that a pool capped at `capped_pinned_pool_size` cannot
+/// serve.
+constexpr std::size_t exceeds_capped_pinned_pool = 4 * capped_pinned_pool_size;
+
+/**
+ * @brief Create a buffer resource whose pinned pool runs out before its reservations.
+ *
+ * The pinned pool is capped at @p pool_cap, but no `PINNED_HOST` limit is set, so a
+ * `PINNED_HOST` reservation larger than the cap succeeds and the allocation then fails
+ * with an out-of-memory `cuda::cuda_error`. This is how an exhausted (or fragmented)
+ * host NUMA node shows up for an uncapped pool. Requires pinned memory support.
+ *
+ * @param pool_cap The pinned pool's `max_pool_size`.
+ * @param memory_limits Limits of the other memory types.
+ * @param periodic_spill_check Pause of the periodic spill thread, `std::nullopt` for
+ * none.
+ * @return The buffer resource.
+ */
+[[nodiscard]] inline std::shared_ptr<rapidsmpf::BufferResource>
+create_br_with_capped_pinned_pool(
+    std::size_t pool_cap = capped_pinned_pool_size,
+    std::unordered_map<rapidsmpf::MemoryType, std::int64_t> memory_limits = {},
+    std::optional<rapidsmpf::Duration> periodic_spill_check = std::nullopt
+) {
+    return rapidsmpf::BufferResource::create(
+        rmm::mr::get_current_device_resource_ref(),
+        rapidsmpf::PinnedPoolProperties{.max_pool_size = pool_cap},
+        std::move(memory_limits),
+        periodic_spill_check
+    );
+}
+
 /**
  * @brief Move the data of a packed data object to disk.
  *

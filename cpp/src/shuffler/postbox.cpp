@@ -119,7 +119,16 @@ std::size_t ReceivedChunks::spill(
             if (!reservation) {
                 continue;  // No target has room, leave the chunk where it is.
             }
-            chunk.set_data_buffer(br->move(chunk.release_data_buffer(), *reservation));
+            // `move()` leaves `data` unchanged if it throws, so put it back to keep the
+            // chunk and `data_sizes_` consistent, and let the caller decide what to do.
+            auto data = chunk.release_data_buffer();
+            try {
+                data = br->move(std::move(data), *reservation);
+            } catch (...) {
+                chunk.set_data_buffer(std::move(data));
+                throw;
+            }
+            chunk.set_data_buffer(std::move(data));
             data_sizes_[mem_type] -= size;
             data_sizes_[chunk.data_memory_type()] += size;
             if ((total_spilled += size) >= amount) {
