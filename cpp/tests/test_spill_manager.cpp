@@ -515,3 +515,76 @@ TEST(SpillManager, PeriodicSpillMakesHeadroomInHost) {
 
     manager.remove_spill_function(fid);
 }
+
+TEST(SpillManager, PeriodicSpillSurvivesAThrowingSpillFunction) {
+    constexpr int num_failures = 3;
+    testing::internal::CaptureStderr();
+    {
+        auto br = BufferResource::create(
+            rmm::mr::get_current_device_resource_ref(),
+            PinnedMemoryDisabled,
+            {{MemoryType::HOST, 10_KiB}},
+            std::chrono::milliseconds{1}
+        );
+        auto& manager = br->spill_manager();
+
+        // Fails a few times, like a spill whose target allocation fails, then frees
+        // HOST memory by raising its limit.
+        std::mutex mutex;
+        std::condition_variable cv;
+        int calls{0};
+        bool spilled{false};
+        auto const fid = manager.add_spill_function(
+            [&](std::size_t amount, MemoryType mem_type) -> std::size_t {
+                if (mem_type != MemoryType::HOST) {
+                    return 0;
+                }
+                std::lock_guard lock(mutex);
+                if (++calls <= num_failures) {
+                    throw std::runtime_error("injected spill failure");
+                }
+                br->set_memory_limit(
+                    mem_type,
+                    br->memory_available(mem_type) + safe_cast<std::int64_t>(amount)
+                );
+                spilled = true;
+                cv.notify_all();
+                return amount;
+            },
+            /* priority = */ 0
+        );
+
+        // Overbook HOST. Nothing spills it except the periodic thread.
+        auto [reservation, overbooking] =
+            br->reserve(MemoryType::HOST, 16_KiB, AllowOverbooking::YES);
+        EXPECT_EQ(overbooking, 6_KiB);
+        {
+            // The thread keeps running after the failures and retries until it
+            // succeeds.
+            std::unique_lock lock(mutex);
+            EXPECT_TRUE(cv.wait_for(lock, std::chrono::seconds{30}, [&] {
+                return spilled;
+            }));
+            EXPECT_EQ(calls, num_failures + 1);
+        }
+        manager.remove_spill_function(fid);
+    }  // Destroying `br` joins the spill thread, so its output is complete.
+    auto const log = testing::internal::GetCapturedStderr();
+
+    // The streak of failures is reported once, followed by the recovery.
+    auto count = [&](std::string const& needle) {
+        std::size_t n = 0;
+        for (auto pos = log.find(needle); pos != std::string::npos;
+             pos = log.find(needle, pos + needle.size()))
+        {
+            ++n;
+        }
+        return n;
+    };
+    EXPECT_EQ(
+        count("periodic spill from HOST failed, will retry: injected spill failure"), 1u
+    ) << log;
+    EXPECT_EQ(
+        count("periodic spill from HOST no longer fails, after 3 failed attempt(s)"), 1u
+    ) << log;
+}

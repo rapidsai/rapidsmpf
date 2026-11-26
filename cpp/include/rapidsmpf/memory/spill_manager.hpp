@@ -78,6 +78,11 @@ class SpillManager {
      * reported by the buffer resource, making headroom in every addressable memory type
      * (see `ADDRESSABLE_MEMORY_TYPES`). The value of `periodic_spill_check` is used as
      * the pause between checks. If `std::nullopt`, no periodic spill check is performed.
+     * If a spill function throws during a periodic check, the error is reported on
+     * `std::cerr` and the thread keeps running, so the next check retries. The in-tree
+     * spill functions leave a buffer they fail to move where it is, except for streaming
+     * messages, whose payload is lost and whose extraction rethrows the error (see
+     * `streaming::SpillableMessages::spill()`).
      */
     SpillManager(
         BufferResource* br, std::optional<Duration> periodic_spill_check = std::nullopt
@@ -198,6 +203,18 @@ class SpillManager {
     std::size_t spill_function_id_counter_{0};
     std::map<SpillFunctionID, SpillFunction> spill_functions_;
     std::multimap<int, SpillFunctionID, std::greater<>> spill_function_priorities_;
+    /**
+     * @brief One periodic spill check of @p mem_type, run on the periodic spill thread.
+     *
+     * An exception from a spill function is reported on `std::cerr` and swallowed, so
+     * the thread keeps running and a later check retries.
+     *
+     * @param mem_type The memory type to make headroom in.
+     * @param failures Consecutive failed checks of @p mem_type. Only the first failure
+     * of a streak, and its end, are reported.
+     */
+    void periodic_spill(MemoryType mem_type, std::size_t& failures) noexcept;
+
     std::optional<detail::PausableThreadLoop> periodic_spill_thread_;
     PerMemoryType<std::atomic<int>> spills_in_flight_{};
     PerMemoryType<std::atomic<std::uint64_t>> spill_generation_{};
