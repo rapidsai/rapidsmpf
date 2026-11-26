@@ -4,6 +4,8 @@
  */
 #pragma once
 
+#include <atomic>
+#include <cstdint>
 #include <cstdlib>
 #include <memory>
 #include <utility>
@@ -360,9 +362,28 @@ class UCXX final : public Communicator {
      */
     std::shared_ptr<UCXX> split();
 
+  protected:
+    /**
+     * @copydoc Communicator::poll_abort
+     *
+     * Abort notifications are control messages, received when the worker is
+     * progressed, so this progresses the worker every few calls, unless a progress
+     * thread does.
+     */
+    void poll_abort() override;
+
+    /**
+     * @copydoc Communicator::notify_abort
+     *
+     * Sends an abort control message to every other rank, waiting a bounded amount of
+     * time for the messages to be delivered.
+     */
+    void notify_abort(std::string const& reason, bool terminate) noexcept override;
+
   private:
     std::shared_ptr<SharedResources> shared_resources_;
     std::shared_ptr<ProgressThread> progress_thread_;
+    std::atomic<std::uint64_t> abort_poll_count_{0};  ///< Calls to `poll_abort()`.
 
     std::shared_ptr<::ucxx::Endpoint> get_endpoint(Rank rank);
     void progress_worker();

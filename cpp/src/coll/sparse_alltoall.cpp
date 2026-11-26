@@ -253,6 +253,8 @@ void SparseAlltoall::receive_messages() {
 }
 
 ProgressThread::ProgressState SparseAlltoall::event_loop() {
+    // Fail even without pending communication once the communicator is aborted.
+    comm_->throw_if_aborted();
     send_ready_messages();
     // `insert_finished()` is called after all `insert()` calls, so once it has been
     // called and every inserted chunk has been sent, no more messages will be sent.

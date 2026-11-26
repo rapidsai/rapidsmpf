@@ -92,6 +92,8 @@ class Shuffler::Progress {
      */
     ProgressThread::ProgressState operator()() {
         RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE("Shuffler.Progress", p_iters++);
+        // Fail even without pending communication once the communicator is aborted.
+        shuffler_.comm_->throw_if_aborted();
         auto const& stats = shuffler_.comm_->progress_thread()->statistics();
 
         // Submit outgoing chunks to the metadata payload exchange

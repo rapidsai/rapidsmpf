@@ -6,10 +6,14 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
+#include <functional>
+#include <iostream>
 #include <iterator>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -55,14 +59,20 @@ namespace {
  * inform the root of its listener address after receiving its assigned rank.
  * 4. DistributeListenerAddresses: Sent by the root during the first barrier to
  * broadcast all listener addresses to every non-root rank in a single message.
+ * 5. Abort: Sent by a rank aborting the communicator to every other rank, which
+ * records the abort, or terminates if requested.
  *
  */
 enum class ControlMessage {
     AssignRank = 0,  ///< Root assigns a rank to incoming client connection
     QueryRank,  ///< Ask root for a rank
     RegisterListenerAddress,  ///< Non-root informs root of its listener address
-    DistributeListenerAddresses  ///< Root broadcasts all listener addresses
+    DistributeListenerAddresses,  ///< Root broadcasts all listener addresses
+    Abort  ///< A rank aborted the communicator
 };
+
+/// @brief How long `UCXX::notify_abort()` waits for the abort messages to be delivered.
+constexpr auto abort_delivery_timeout = std::chrono::seconds{5};
 
 enum class ListenerAddressType {
     WorkerAddress = 0,
@@ -163,7 +173,39 @@ class SharedResources {
         false
     };  ///< Whether the root has already broadcast all listener addresses
 
+    /// @brief Called with the aborts received from other ranks, see
+    /// `set_abort_handler()`.
+    std::function<void(Rank, std::string)> abort_handler_;
+    std::mutex abort_handler_mutex_;  ///< Protects `abort_handler_`.
+
   public:
+    /**
+     * @brief Set the handler of the aborts received from other ranks.
+     *
+     * The owning `UCXX` sets it to record the aborts, and clears it when destroyed, so
+     * that an abort control message received concurrently never reaches a destroyed
+     * communicator.
+     *
+     * @param handler Called with the aborting rank and its reason, or empty.
+     */
+    void set_abort_handler(std::function<void(Rank, std::string)> handler) {
+        std::lock_guard lock(abort_handler_mutex_);
+        abort_handler_ = std::move(handler);
+    }
+
+    /**
+     * @brief Handle an abort received from another rank.
+     *
+     * @param origin The rank that aborted the communicator.
+     * @param reason The reason given by `origin`.
+     */
+    void handle_abort(Rank origin, std::string reason) {
+        std::lock_guard lock(abort_handler_mutex_);
+        if (abort_handler_) {
+            abort_handler_(origin, std::move(reason));
+        }
+    }
+
     std::shared_ptr<Logger> logger;  ///< UCXX logger. Initialized from the
                                      ///< configuration options so logging is
                                      ///< available before the owning `UCXX`
@@ -821,6 +863,35 @@ std::unique_ptr<std::vector<std::uint8_t>> control_pack(
 };
 
 /**
+ * @brief Pack an abort control message.
+ *
+ * Format: [ControlMessage::Abort][rank][terminate][reason_size][reason]
+ *
+ * @param rank The rank that is aborting.
+ * @param reason The reason for aborting.
+ * @param terminate Whether the receiving ranks must terminate.
+ * @return The packed message.
+ */
+std::unique_ptr<std::vector<std::uint8_t>> abort_pack(
+    Rank rank, std::string const& reason, bool terminate
+) {
+    auto const control = ControlMessage::Abort;
+    std::uint8_t const terminate_flag = terminate ? 1 : 0;
+    std::size_t const reason_size = reason.size();
+    auto packed = std::make_unique<std::vector<std::uint8_t>>(
+        sizeof(control) + sizeof(rank) + sizeof(terminate_flag) + sizeof(reason_size)
+        + reason_size
+    );
+    std::size_t offset{0};
+    encode(packed->data(), &control, sizeof(control), offset);
+    encode(packed->data(), &rank, sizeof(rank), offset);
+    encode(packed->data(), &terminate_flag, sizeof(terminate_flag), offset);
+    encode(packed->data(), &reason_size, sizeof(reason_size), offset);
+    encode(packed->data(), reason.data(), reason_size, offset);
+    return packed;
+}
+
+/**
  * @brief Unpack control message.
  *
  * Unpack (i.e., deserialize) `ControlMessage` and `ControlData` received over
@@ -834,6 +905,8 @@ std::unique_ptr<std::vector<std::uint8_t>> control_pack(
  * 4. DistributeListenerAddresses: Unpacks all listener addresses from a bulk
  * message and registers them so that future `get_endpoint()` calls can create
  * endpoints without querying root.
+ * 5. Abort: Records the abort in the abort state of the communicator, or prints
+ * the reason and terminates the process if the aborting rank requested it.
  *
  * @param buffer bytes received via UCXX containing the packed message.
  * @param ep the UCX handle from which the message was received.
@@ -935,6 +1008,22 @@ void control_unpack(
             auto addr = listener_address_unpack(std::move(packed_addr));
             shared_resources->register_listener_address(addr.rank, std::move(addr));
         }
+    } else if (control == ControlMessage::Abort) {
+        Rank src{-1};
+        decode_(&src, sizeof(src));
+        std::uint8_t terminate_flag{0};
+        decode_(&terminate_flag, sizeof(terminate_flag));
+        std::size_t reason_size;
+        decode_(&reason_size, sizeof(reason_size));
+        std::string reason(reason_size, '\0');
+        decode_(reason.data(), reason_size);
+        if (terminate_flag != 0) {
+            std::cerr << "RapidsMPF rank " << shared_resources->rank()
+                      << " terminating: rank " << src << " aborted: " << reason
+                      << std::endl;
+            std::abort();
+        }
+        shared_resources->handle_abort(src, std::move(reason));
     }
 };
 
@@ -1237,6 +1326,9 @@ UCXX::UCXX(
     RAPIDSMPF_EXPECTS(logger != nullptr, "logger cannot be null", std::invalid_argument);
     shared_resources_->logger = std::move(logger);
     shared_resources_->logger->set_name(std::to_string(shared_resources_->rank()));
+    shared_resources_->set_abort_handler([this](Rank origin, std::string reason) {
+        mark_aborted(origin, std::move(reason));
+    });
 }
 
 std::shared_ptr<Logger> const& UCXX::logger() {
@@ -1445,6 +1537,7 @@ std::unique_ptr<std::vector<std::uint8_t>> UCXX::recv_from(Rank src, Tag tag) {
 
 std::pair<std::vector<std::unique_ptr<Communicator::Future>>, std::vector<std::size_t>>
 UCXX::test_some(std::vector<std::unique_ptr<Communicator::Future>>& future_vector) {
+    throw_if_aborted();
     if (future_vector.empty()) {
         return {};
     }
@@ -1488,6 +1581,7 @@ UCXX::test_some(std::vector<std::unique_ptr<Communicator::Future>>& future_vecto
 std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> UCXX::test_some(
     std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>>& future_map
 ) {
+    throw_if_aborted();
     progress_worker();
     std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> completed;
     for (auto it = future_map.begin(); it != future_map.end();) {
@@ -1505,6 +1599,7 @@ std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> UCXX::tes
 }
 
 bool UCXX::test(std::unique_ptr<Communicator::Future>& future) {
+    throw_if_aborted();
     auto ucxx_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
     progress_worker();
@@ -1517,6 +1612,7 @@ bool UCXX::test(std::unique_ptr<Communicator::Future>& future) {
 std::vector<std::unique_ptr<Buffer>> UCXX::wait_all(
     std::vector<std::unique_ptr<Communicator::Future>>&& futures
 ) {
+    throw_if_aborted();
     std::vector<Future*> ucxx_futures;
     ucxx_futures.reserve(futures.size());
     for (auto const& future : futures) {
@@ -1531,6 +1627,7 @@ std::vector<std::unique_ptr<Buffer>> UCXX::wait_all(
         return flag;
     }))
     {
+        throw_if_aborted();
         progress_worker();
     }
     std::vector<std::unique_ptr<Buffer>> result;
@@ -1552,6 +1649,7 @@ std::unique_ptr<Buffer> UCXX::wait(std::unique_ptr<Communicator::Future> future)
     auto ucxx_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(ucxx_future != nullptr, "future isn't a UCXX::Future");
     while (!ucxx_future->req_->isCompleted()) {
+        throw_if_aborted();
         progress_worker();
     }
     ucxx_future->completed_ = true;
@@ -1598,6 +1696,63 @@ std::string UCXX::str() const {
        << ", nranks=" << shared_resources_->nranks() << ", ucx-version=" << major << "."
        << minor << "." << release << ")";
     return ss.str();
+}
+
+void UCXX::poll_abort() {
+    // A progress thread receives the abort messages, there's nothing to do.
+    if (shared_resources_->get_worker()->isProgressThreadRunning()) {
+        return;
+    }
+    // Notifications are rare, only progress every few calls to keep the overhead low.
+    constexpr std::uint64_t progress_interval = 16;
+    if (abort_poll_count_.fetch_add(1, std::memory_order_relaxed) % progress_interval
+        != 0)
+    {
+        return;
+    }
+    progress_worker();
+}
+
+void UCXX::notify_abort(std::string const& reason, bool terminate) noexcept {
+    // Best effort: failures (e.g., a peer we cannot reach) are ignored.
+    try {
+        auto const self = shared_resources_->rank();
+        std::vector<std::shared_ptr<::ucxx::Request>> reqs;
+        for (Rank peer = 0; peer < shared_resources_->nranks(); ++peer) {
+            if (peer == self) {
+                continue;
+            }
+            try {
+                auto packed = abort_pack(self, reason, terminate);
+                auto req = get_endpoint(peer)
+                               ->amSendBuilder(
+                                   packed->data(), packed->size(), UCS_MEMORY_TYPE_HOST
+                               )
+                               .receiverCallbackInfo(
+                                   shared_resources_->get_control_callback_info()
+                               )
+                               .build();
+                reqs.push_back(req);
+                // Keeps the message alive until the request completes.
+                shared_resources_->add_future(
+                    std::make_unique<HostFuture>(std::move(req), std::move(packed))
+                );
+            } catch (...) {
+                std::cerr << "RapidsMPF rank " << self
+                          << " failed to send abort message to rank " << peer
+                          << std::endl;
+            }
+        }
+        auto const deadline = std::chrono::steady_clock::now() + abort_delivery_timeout;
+        while (std::ranges::any_of(reqs, [](auto const& r) { return !r->isCompleted(); })
+               && std::chrono::steady_clock::now() < deadline)
+        {
+            shared_resources_->progress_worker();
+            std::this_thread::yield();
+        }
+    } catch (...) {
+        // Best effort.
+    }
 }
 
 namespace {
@@ -1658,6 +1813,12 @@ UCXX::Future::~Future() noexcept {
 UCXX::~UCXX() noexcept {
     auto& log = logger();
     log->trace("UCXX destructor");
+    // First, aborts received from now on must not reach this destroyed communicator.
+    try {
+        shared_resources_->set_abort_handler(nullptr);
+    } catch (...) {
+        // Clearing does not throw in practice, see `set_abort_handler()`.
+    }
     // Before stopping the progress thread, which cancels and progresses the requests.
     graveyard()->release(
         [this] { shared_resources_->cancel_inflight_requests(cancel_inflight_period); },

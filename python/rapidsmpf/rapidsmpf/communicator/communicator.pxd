@@ -42,6 +42,7 @@ cdef extern from "<rapidsmpf/communicator/communicator.hpp>" nogil:
         shared_ptr[cpp_ProgressThread] progress_thread() except +ex_handler
         shared_ptr[cpp_Logger] logger()
         bool is_aborted() noexcept
+        void abort(string reason, bool terminate) noexcept
 
 cdef class Communicator:
     cdef shared_ptr[cpp_Communicator] _handle

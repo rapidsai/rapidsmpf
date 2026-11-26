@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
+#include <memory>
 #include <stdexcept>
 #include <thread>
 
@@ -19,10 +20,14 @@
 #include <rmm/mr/cuda_memory_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
+#include <rapidsmpf/coll/allgather.hpp>
+#include <rapidsmpf/coll/sparse_alltoall.hpp>
 #include <rapidsmpf/communicator/communicator.hpp>
+#include <rapidsmpf/communicator/single.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/cuda_memcpy_async.hpp>
+#include <rapidsmpf/shuffler/shuffler.hpp>
 
 #include "environment.hpp"
 #include "fake_communicator.hpp"
@@ -308,6 +313,8 @@ TEST(DroppedFutures, InFlightReceiveAbortsTheCommunicator) {
         src, tag, std::make_unique<std::vector<std::uint8_t>>(1)
     );
     EXPECT_FALSE(comm->is_aborted());
+    // Before any rank aborts the communicator, which is propagated to the others.
+    GlobalEnvironment->barrier();
     future.reset();
     EXPECT_TRUE(comm->is_aborted());
     EXPECT_THROW(
@@ -316,9 +323,174 @@ TEST(DroppedFutures, InFlightReceiveAbortsTheCommunicator) {
         ),
         rapidsmpf::communicator_aborted
     );
+    // Let the abort notifications of all ranks be delivered before any rank destroys
+    // its communicator.
+    GlobalEnvironment->barrier();
     // Destroying the communicator cancels the receive, so it doesn't wait for the
     // deadline of about one second.
     auto const start = std::chrono::steady_clock::now();
     comm.reset();
     EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::milliseconds{900});
+}
+
+TEST(CommunicatorAbort, OperationsThrowOnceAborted) {
+    auto comm = std::make_shared<rapidsmpf::Single>(
+        std::make_shared<rapidsmpf::ProgressThread>(),
+        rapidsmpf::Logger::from_options(GlobalEnvironment->options())
+    );
+    EXPECT_FALSE(comm->is_aborted());
+    EXPECT_EQ(comm->recv_from(0, rapidsmpf::Tag{0, 0}), nullptr);
+
+    comm->abort("injected failure");
+    EXPECT_TRUE(comm->is_aborted());
+    try {
+        std::ignore = comm->recv_from(0, rapidsmpf::Tag{0, 0});
+        FAIL() << "expected communicator_aborted";
+    } catch (rapidsmpf::communicator_aborted const& e) {
+        EXPECT_EQ(e.origin(), 0);
+        EXPECT_EQ(e.reason(), "injected failure");
+        EXPECT_STREQ(e.what(), "communicator aborted by rank 0: injected failure");
+    }
+
+    // Only the first abort is recorded.
+    comm->abort("aborting again");
+    EXPECT_THAT(
+        [&] { std::ignore = comm->recv_any(rapidsmpf::Tag{0, 0}); },
+        ::testing::ThrowsMessage<rapidsmpf::communicator_aborted>(
+            ::testing::HasSubstr("injected failure")
+        )
+    );
+}
+
+TEST(CommunicatorAbort, IdleOperationsFail) {
+    // On a single rank, unfinished operations have no communication pending, they must
+    // fail nonetheless once the communicator is aborted.
+    auto make_comm = [] {
+        return std::make_shared<rapidsmpf::Single>(
+            std::make_shared<rapidsmpf::ProgressThread>(),
+            rapidsmpf::Logger::from_options(GlobalEnvironment->options())
+        );
+    };
+    auto const throws_aborted = ::testing::Throws<rapidsmpf::communicator_aborted>();
+    constexpr auto timeout = std::chrono::seconds{60};
+    auto br =
+        rapidsmpf::BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    {
+        auto comm = make_comm();
+        rapidsmpf::coll::AllGather allgather(comm, 0, br.get());
+        comm->abort("injected failure");
+        EXPECT_THAT(
+            [&] {
+                std::ignore = allgather.wait_and_extract(
+                    rapidsmpf::coll::AllGather::Ordered::NO, timeout
+                );
+            },
+            throws_aborted
+        );
+    }
+    {
+        auto comm = make_comm();
+        rapidsmpf::shuffler::Shuffler shuffler(comm, 0, 1, br.get());
+        comm->abort("injected failure");
+        EXPECT_THAT([&] { shuffler.wait(timeout); }, throws_aborted);
+    }
+    {
+        auto comm = make_comm();
+        rapidsmpf::coll::SparseAlltoall exchange(comm, 0, br.get(), {}, {});
+        comm->abort("injected failure");
+        EXPECT_THAT([&] { exchange.wait(timeout); }, throws_aborted);
+    }
+}
+
+TEST(CommunicatorAbort, AbortPropagatesToAllRanks) {
+    // Abort a dedicated communicator, not the one shared by the other tests.
+    auto comm = GlobalEnvironment->new_comm();
+    if (comm == nullptr || comm->nranks() < 2) {
+        GTEST_SKIP() << "Requires a dedicated communicator with at least 2 ranks";
+    }
+    auto br =
+        rapidsmpf::BufferResource::create(rmm::mr::get_current_device_resource_ref());
+    rapidsmpf::shuffler::Shuffler shuffler(
+        comm, 0, static_cast<rapidsmpf::shuffler::PartID>(comm->nranks()), br.get()
+    );
+    // Rank 0 never finishes the shuffle, so it only completes by aborting.
+    if (comm->rank() == 0) {
+        comm->abort("injected failure");
+    } else {
+        shuffler.insert_finished();
+    }
+    try {
+        shuffler.wait(std::chrono::seconds{60});
+        FAIL() << "expected communicator_aborted";
+    } catch (rapidsmpf::communicator_aborted const& e) {
+        EXPECT_EQ(e.origin(), 0);
+        EXPECT_EQ(e.reason(), "injected failure");
+    } catch (std::runtime_error const& e) {
+        // Not notified: abort locally, so that the shuffler fails and can be destroyed
+        // instead of hanging.
+        ADD_FAILURE() << "the abort was not propagated: " << e.what();
+        comm->abort("abort not propagated");
+        EXPECT_THROW(
+            shuffler.wait(std::chrono::seconds{60}), rapidsmpf::communicator_aborted
+        );
+    }
+    EXPECT_TRUE(comm->is_aborted());
+}
+
+TEST(CommunicatorAbort, DroppedInFlightCommunicationAbortsAllRanks) {
+    // Abort a dedicated communicator, not the one shared by the other tests.
+    auto comm = GlobalEnvironment->new_comm();
+    if (comm == nullptr || comm->nranks() < 2) {
+        GTEST_SKIP() << "Requires a dedicated communicator with at least 2 ranks";
+    }
+    // Rank 0 drops a receive that is never matched, aborting the communicator locally.
+    // Its next check notifies the other ranks.
+    if (comm->rank() == 0) {
+        std::ignore = comm->recv_sync_host_data(
+            1, rapidsmpf::Tag{0, 0}, std::make_unique<std::vector<std::uint8_t>>(1)
+        );
+    }
+    auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{60};
+    try {
+        while (std::chrono::steady_clock::now() < deadline) {
+            comm->throw_if_aborted();
+            std::this_thread::yield();
+        }
+        FAIL() << "the abort was not propagated";
+    } catch (rapidsmpf::communicator_aborted const& e) {
+        EXPECT_EQ(e.origin(), 0);
+        EXPECT_THAT(e.reason(), ::testing::HasSubstr("in flight"));
+    }
+    GlobalEnvironment->barrier();
+}
+
+TEST(CommunicatorAbort, AbortAfterDroppedInFlightCommunicationNotifiesAllRanks) {
+    // Abort a dedicated communicator, not the one shared by the other tests.
+    auto comm = GlobalEnvironment->new_comm();
+    if (comm == nullptr || comm->nranks() < 2) {
+        GTEST_SKIP() << "Requires a dedicated communicator with at least 2 ranks";
+    }
+    // Rank 0 drops a receive that is never matched, aborting the communicator locally,
+    // and then aborts it, as after a failed operation. It never checks the abort, which
+    // would notify the other ranks too: `abort()` must notify them.
+    if (comm->rank() == 0) {
+        std::ignore = comm->recv_sync_host_data(
+            1, rapidsmpf::Tag{0, 0}, std::make_unique<std::vector<std::uint8_t>>(1)
+        );
+        EXPECT_TRUE(comm->is_aborted());
+        comm->abort("injected failure");
+    } else {
+        auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{60};
+        try {
+            while (std::chrono::steady_clock::now() < deadline) {
+                comm->throw_if_aborted();
+                std::this_thread::yield();
+            }
+            FAIL() << "the abort was not propagated";
+        } catch (rapidsmpf::communicator_aborted const& e) {
+            EXPECT_EQ(e.origin(), 0);
+            EXPECT_EQ(e.reason(), "injected failure");
+        }
+    }
+    GlobalEnvironment->barrier();
 }

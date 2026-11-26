@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <cstdlib>
 #include <functional>
@@ -175,7 +176,7 @@ class Tag {
 /**
  * @brief Exception thrown by the communication operations of an aborted communicator.
  *
- * See `Communicator::is_aborted()`.
+ * See `Communicator::abort()` and `Communicator::is_aborted()`.
  */
 class communicator_aborted : public std::runtime_error {
   public:
@@ -542,6 +543,9 @@ class Communicator {
      *
      * @param futures Futures to wait for completion of, consumed.
      * @return A vector of the contained data buffers.
+     *
+     * @throws communicator_aborted If the communicator is aborted, also while waiting.
+     * The futures are then left in @p futures.
      */
     [[nodiscard]] virtual std::vector<std::unique_ptr<Buffer>> wait_all(
         std::vector<std::unique_ptr<Communicator::Future>>&& futures
@@ -553,6 +557,9 @@ class Communicator {
      * @param future The future to wait for completion of.
      * @return A unique pointer to the GPU data buffer (or `nullptr` if the future had no
      * data).
+     *
+     * @throws communicator_aborted If the communicator is aborted, also while waiting.
+     * The future is then destroyed, see `FutureGraveyard`.
      */
     [[nodiscard]] virtual std::unique_ptr<Buffer> wait(
         std::unique_ptr<Future> future
@@ -605,15 +612,76 @@ class Communicator {
     [[nodiscard]] virtual std::string str() const = 0;
 
     /**
-     * @brief Check whether the communicator has been aborted on this rank.
+     * @brief Abort the communicator on all ranks.
      *
-     * A communicator is aborted when a future is destroyed while its communication is
-     * in flight, see `FutureGraveyard`. Communication through an aborted communicator
-     * throws `communicator_aborted`.
+     * Fail-safe for unrecoverable errors. When an operation fails on one rank, for
+     * example a collective that raised an exception, the other ranks may wait forever
+     * for messages that will never arrive. Aborting marks the communicator as aborted
+     * on this rank and notifies the other ranks, best effort, which mark it as aborted
+     * too. They are also notified if this rank already aborted the communicator, e.g.,
+     * by destroying in-flight communication (see `FutureGraveyard`), which is the usual
+     * case after a failed operation, unless another rank aborted it first, which
+     * notified them. From then on, the communication operations of the communicator throw
+     * `communicator_aborted`. Operations driven by the progress thread, such as the
+     * shuffler and the collectives, then fail and rethrow it to their waiters, so
+     * every rank gets an exception it can handle, e.g., by unwinding and exiting.
+     *
+     * The other ranks are notified by:
+     *  - MPI: a message on a reserved tag, received when polling for messages.
+     *  - UCXX: a control message, received by the UCX worker.
+     *  - Single: there are no other ranks.
+     *
+     * In-flight communication is not cancelled; an aborted communicator must not be
+     * used for communication anymore, only destroyed, see `FutureGraveyard`.
+     *
+     * If `terminate` is true, the processes of all ranks are terminated instead,
+     * without unwinding: `MPI_Abort()` with MPI, and every rank terminating upon
+     * receiving the abort message with UCXX. The other ranks are not notified
+     * cooperatively first, so that they don't start unwinding. This is a last resort,
+     * e.g., when other ranks may not be making progress.
+     *
+     * RapidsMPF never calls this itself: errors are reported to the caller as
+     * exceptions, and it is up to the application to decide whether an error is
+     * recoverable or whether the communicator must be aborted.
+     *
+     * @param reason Human-readable reason, forwarded to the other ranks and included in
+     * the `communicator_aborted` message, best effort: each rank only records the first
+     * reason it receives. If the communicator was already aborted, e.g., by destroying
+     * in-flight communication or by another rank, the exceptions on this rank carry that
+     * earlier reason, and so may those on the other ranks, e.g., if an operation driven
+     * by the progress thread notified them first. The reason is always printed to
+     * `stderr`.
+     * @param terminate Whether to terminate the processes of all ranks.
+     */
+    void abort(std::string const& reason, bool terminate = false) noexcept;
+
+    /**
+     * @brief Check whether the communicator has been aborted, by any rank.
+     *
+     * A communicator is aborted by `abort()`, on this or another rank, or when a future
+     * is destroyed while its communication is in flight, see `FutureGraveyard`.
+     * Communication through an aborted communicator throws `communicator_aborted`.
+     *
+     * @note With backends that poll for abort notifications, such as MPI, an abort by
+     * another rank is only observed once polled, e.g., by `throw_if_aborted()` or by
+     * communication.
      *
      * @return True if the communicator has been aborted.
      */
     [[nodiscard]] bool is_aborted() const noexcept;
+
+    /**
+     * @brief Throw `communicator_aborted` if the communicator has been aborted.
+     *
+     * Polls for abort notifications first, if the backend requires it. If this rank
+     * aborted the communicator by destroying in-flight communication, the other ranks
+     * are notified the first time. Communication operations call this, and so do the
+     * operations driven by the progress thread on every iteration, so that they fail
+     * even when they have no communication pending.
+     *
+     * @throws communicator_aborted If the communicator has been aborted.
+     */
+    void throw_if_aborted();
 
   protected:
     /**
@@ -627,18 +695,39 @@ class Communicator {
     [[nodiscard]] std::shared_ptr<FutureGraveyard> const& graveyard() const noexcept;
 
     /**
-     * @brief Throw `communicator_aborted` if the communicator has been aborted.
+     * @brief Record an abort received from another rank.
      *
-     * Called by the communication operations of the backends before posting new
-     * communication.
+     * Only the first abort is recorded, see `abort()`.
      *
-     * @throws communicator_aborted If the communicator has been aborted.
+     * @param origin The rank that aborted the communicator.
+     * @param reason The reason given by `origin`.
      */
-    void throw_if_aborted() const;
+    void mark_aborted(Rank origin, std::string reason) noexcept;
+
+    /**
+     * @brief Receive pending abort notifications from other ranks.
+     *
+     * Backends that must poll for abort notifications override this and record them
+     * with `mark_aborted()`. The default does nothing.
+     */
+    virtual void poll_abort() {}
+
+    /**
+     * @brief Notify the other ranks that the communicator has been aborted.
+     *
+     * Best effort: failures to notify a rank are ignored. The default notifies nobody,
+     * for backends that cannot: the abort is then only observed on this rank.
+     *
+     * @param reason The reason for aborting.
+     * @param terminate Whether the processes of all ranks must be terminated.
+     */
+    virtual void notify_abort(std::string const& reason, bool terminate) noexcept;
 
   private:
     std::shared_ptr<AbortState> abort_state_;
     std::shared_ptr<FutureGraveyard> graveyard_;
+    /// @brief Whether the other ranks were notified of the abort by this rank.
+    std::atomic<bool> abort_notified_{false};
 };
 
 /// @brief Whether RapidsMPF was built with the UCXX Communicator.

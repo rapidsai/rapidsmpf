@@ -5,9 +5,13 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
+#include <cstdlib>
+#include <iostream>
 #include <limits>
 #include <memory>
 #include <string>
+#include <thread>
 #include <tuple>
 #include <utility>
 
@@ -182,9 +186,28 @@ MPI::MPI(
     RAPIDSMPF_EXPECTS(logger_ != nullptr, "logger cannot be null", std::invalid_argument);
     logger_->set_name(std::to_string(rank_));
     check_mpi_thread_support();
+    // Reserve the largest MPI tag for abort notifications. It lies above the range of
+    // `Tag` if `MPI_TAG_UB` allows, otherwise it is the largest `Tag`.
+    int flag{0};
+    int* max_tag{nullptr};
+    RAPIDSMPF_MPI(MPI_Comm_get_attr(comm_, MPI_TAG_UB, &max_tag, &flag));
+    if (flag) {
+        abort_tag_ = *max_tag;
+    }
+}
+
+void MPI::check_tag(Tag tag) const {
+    RAPIDSMPF_EXPECTS(
+        static_cast<int>(tag) != abort_tag_,
+        "the tag is reserved for abort notifications, see `MPI::notify_abort()`",
+        std::invalid_argument
+    );
 }
 
 namespace {
+/// @brief How long `notify_abort()` waits for the abort notifications to be sent.
+constexpr auto abort_send_timeout = std::chrono::seconds{5};
+
 /// @return Whether MPI calls may still be made.
 bool mpi_usable() noexcept {
     int finalized{1};
@@ -258,15 +281,118 @@ MPI::Future::~Future() noexcept {
 MPI::~MPI() noexcept {
     // Once MPI is finalized, e.g., at interpreter exit, nothing can complete anymore:
     // the graves are leaked.
-    if (mpi_usable()) {
+    bool const usable = mpi_usable();
+    if (usable) {
         graveyard()->release();
     }
+    std::lock_guard lock(abort_sends_mutex_);
+    for (auto& [req, msg] : abort_sends_) {
+        int done{0};
+        if (usable) {
+            MPI_Test(&req, &done, MPI_STATUS_IGNORE);
+        }
+        if (!done) {
+            // The notification may still be in flight, leak its buffer rather than
+            // freeing it under MPI.
+            if (usable) {
+                MPI_Request_free(&req);
+            }
+            std::ignore = msg.release();
+        }
+    }
+}
+
+void MPI::notify_abort(std::string const& reason, bool terminate) noexcept {
+    if (terminate) {
+        // Terminates all processes of `comm_`, it is not expected to return.
+        MPI_Abort(comm_, EXIT_FAILURE);
+        return;
+    }
+    try {
+        if (abort_tag_ < 0) {
+            std::cerr << "RapidsMPF rank " << rank_
+                      << ": no MPI tag available for abort notifications, the other "
+                         "ranks are not notified"
+                      << std::endl;
+            return;
+        }
+        std::lock_guard lock(abort_sends_mutex_);
+        for (Rank peer = 0; peer < nranks_; ++peer) {
+            if (peer == rank_) {
+                continue;
+            }
+            auto msg =
+                std::make_unique<std::vector<std::uint8_t>>(reason.begin(), reason.end());
+            MPI_Request req;
+            if (MPI_Isend(
+                    msg->data(),
+                    safe_cast<int>(msg->size()),
+                    MPI_UINT8_T,
+                    peer,
+                    abort_tag_,
+                    comm_,
+                    &req
+                )
+                == MPI_SUCCESS)
+            {
+                abort_sends_.emplace_back(req, std::move(msg));
+            }
+        }
+        // Give the notifications a chance to be sent before returning.
+        auto const deadline = std::chrono::steady_clock::now() + abort_send_timeout;
+        while (std::chrono::steady_clock::now() < deadline) {
+            bool all_done = true;
+            for (auto& [req, msg] : abort_sends_) {
+                int done{0};
+                MPI_Test(&req, &done, MPI_STATUS_IGNORE);
+                all_done = all_done && done != 0;
+            }
+            if (all_done) {
+                break;
+            }
+            std::this_thread::yield();
+        }
+    } catch (...) {
+        // Best effort.
+    }
+}
+
+void MPI::poll_abort() {
+    if (abort_tag_ < 0) {
+        return;
+    }
+    // Notifications are rare, only probe every few calls to keep the overhead low.
+    constexpr std::uint64_t probe_interval = 16;
+    if (abort_poll_count_.fetch_add(1, std::memory_order_relaxed) % probe_interval != 0) {
+        return;
+    }
+    int available{0};
+    MPI_Message matched_msg;
+    MPI_Status status;
+    RAPIDSMPF_MPI(
+        MPI_Improbe(MPI_ANY_SOURCE, abort_tag_, comm_, &available, &matched_msg, &status)
+    );
+    if (!available) {
+        return;
+    }
+    MPI_Count size;
+    RAPIDSMPF_MPI(MPI_Get_elements_x(&status, MPI_UINT8_T, &size));
+    std::string reason(safe_cast<std::size_t>(size), '\0');
+    RAPIDSMPF_MPI(MPI_Mrecv(
+        reason.data(),
+        safe_cast<int>(reason.size()),
+        MPI_UINT8_T,
+        &matched_msg,
+        MPI_STATUS_IGNORE
+    ));
+    mark_aborted(status.MPI_SOURCE, std::move(reason));
 }
 
 std::unique_ptr<Communicator::Future> MPI::send(
     std::unique_ptr<std::vector<std::uint8_t>> msg, Rank rank, Tag tag
 ) {
     throw_if_aborted();
+    check_tag(tag);
     RAPIDSMPF_EXPECTS(msg != nullptr, "msg cannot be null", std::invalid_argument);
     MPI_Request req;
     ByteMessageType const msg_type{msg->size()};
@@ -280,6 +406,7 @@ std::unique_ptr<Communicator::Future> MPI::send(
     std::unique_ptr<Buffer> msg, Rank rank, Tag tag
 ) {
     throw_if_aborted();
+    check_tag(tag);
     RAPIDSMPF_EXPECTS(msg != nullptr, "msg buffer cannot be null", std::invalid_argument);
     RAPIDSMPF_EXPECTS(msg->is_latest_write_done(), "msg must be ready", std::logic_error);
     MPI_Request req;
@@ -307,6 +434,7 @@ std::unique_ptr<Communicator::Future> MPI::recv(
     Rank rank, Tag tag, std::unique_ptr<Buffer> recv_buffer
 ) {
     throw_if_aborted();
+    check_tag(tag);
     RAPIDSMPF_EXPECTS(
         recv_buffer != nullptr, "recv buffer cannot be null", std::invalid_argument
     );
@@ -326,6 +454,7 @@ std::unique_ptr<Communicator::Future> MPI::recv_sync_host_data(
     Rank rank, Tag tag, std::unique_ptr<std::vector<std::uint8_t>> synced_buffer
 ) {
     throw_if_aborted();
+    check_tag(tag);
     RAPIDSMPF_EXPECTS(
         synced_buffer != nullptr,
         "synced host buffer cannot be null",
@@ -340,6 +469,7 @@ std::unique_ptr<Communicator::Future> MPI::recv_sync_host_data(
 
 std::pair<std::unique_ptr<std::vector<std::uint8_t>>, Rank> MPI::recv_any(Tag tag) {
     throw_if_aborted();
+    check_tag(tag);
     int msg_available;
     MPI_Status probe_status;
     MPI_Message matched_msg;
@@ -373,6 +503,7 @@ std::pair<std::unique_ptr<std::vector<std::uint8_t>>, Rank> MPI::recv_any(Tag ta
 
 std::unique_ptr<std::vector<std::uint8_t>> MPI::recv_from(Rank src, Tag tag) {
     throw_if_aborted();
+    check_tag(tag);
     int msg_available;
     MPI_Status probe_status;
     MPI_Message matched_msg;
@@ -404,6 +535,7 @@ std::unique_ptr<std::vector<std::uint8_t>> MPI::recv_from(Rank src, Tag tag) {
 
 std::pair<std::vector<std::unique_ptr<Communicator::Future>>, std::vector<std::size_t>>
 MPI::test_some(std::vector<std::unique_ptr<Communicator::Future>>& future_vector) {
+    throw_if_aborted();
     if (future_vector.empty()) {
         return {};
     }
@@ -449,6 +581,7 @@ MPI::test_some(std::vector<std::unique_ptr<Communicator::Future>>& future_vector
 std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> MPI::test_some(
     std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>>& future_map
 ) {
+    throw_if_aborted();
     if (future_map.empty()) {
         return {};
     }
@@ -490,6 +623,7 @@ std::unordered_map<std::size_t, std::unique_ptr<Communicator::Future>> MPI::test
 }
 
 bool MPI::test(std::unique_ptr<Communicator::Future>& future) {
+    throw_if_aborted();
     auto mpi_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
     int flag{0};
@@ -507,10 +641,20 @@ std::vector<std::unique_ptr<Buffer>> MPI::wait_all(
         RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
         reqs.push_back(mpi_future->req_);
     }
-    RAPIDSMPF_MPI(
-        MPI_Waitall(static_cast<int>(reqs.size()), reqs.data(), MPI_STATUSES_IGNORE)
-    );
-    // MPI_Waitall() works on copies, update the requests of the futures.
+    // Test rather than wait, to fail instead of blocking forever once aborted. Throwing
+    // leaves the requests of the futures valid: `MPI_Testall()` only modifies the
+    // requests, completing and freeing them, once all of them completed, which ends
+    // the loop.
+    for (int done{0}; !done;) {
+        throw_if_aborted();
+        RAPIDSMPF_MPI(MPI_Testall(
+            static_cast<int>(reqs.size()), reqs.data(), &done, MPI_STATUSES_IGNORE
+        ));
+        if (!done) {
+            std::this_thread::yield();
+        }
+    }
+    // MPI_Testall() works on copies, update the requests of the futures.
     for (std::size_t i = 0; i < reqs.size(); ++i) {
         static_cast<Future*>(futures[i].get())->req_ = reqs[i];
     }
@@ -525,7 +669,14 @@ std::vector<std::unique_ptr<Buffer>> MPI::wait_all(
 std::unique_ptr<Buffer> MPI::wait(std::unique_ptr<Communicator::Future> future) {
     auto mpi_future = dynamic_cast<Future*>(future.get());
     RAPIDSMPF_EXPECTS(mpi_future != nullptr, "future isn't a MPI::Future");
-    RAPIDSMPF_MPI(MPI_Wait(&mpi_future->req_, MPI_STATUS_IGNORE));
+    // Test rather than wait, to fail instead of blocking forever once aborted.
+    for (int done{0}; !done;) {
+        throw_if_aborted();
+        RAPIDSMPF_MPI(MPI_Test(&mpi_future->req_, &done, MPI_STATUS_IGNORE));
+        if (!done) {
+            std::this_thread::yield();
+        }
+    }
     mpi_future->data_buffer_->unlock();
     return std::move(mpi_future->data_buffer_);
 }

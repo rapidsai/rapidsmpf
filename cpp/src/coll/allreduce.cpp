@@ -163,6 +163,8 @@ bool AllReduce::is_ready() const noexcept {
 }
 
 ProgressThread::ProgressState AllReduce::event_loop() {
+    // Fail even without pending communication once the communicator is aborted.
+    comm_->throw_if_aborted();
     Rank const rank = comm_->rank();
     bool const is_even = rank % 2 == 0;
     auto const& statistics = comm_->progress_thread()->statistics();

@@ -7,7 +7,9 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <functional>
+#include <iostream>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -233,13 +235,64 @@ Communicator::graveyard() const noexcept {
     return graveyard_;
 }
 
-void Communicator::throw_if_aborted() const {
-    if (abort_state_->is_set()) {
-        throw communicator_aborted(
-            abort_state_->origin().value_or(rank()), abort_state_->reason()
-        );
+void Communicator::abort(std::string const& reason, bool terminate) noexcept {
+    try {
+        std::cerr << "RapidsMPF rank " << rank()
+                  << (terminate ? " terminating all ranks: " : " aborting communicator: ")
+                  << reason << std::endl;
+    } catch (...) {
+        // Best effort, aborting must not fail.
+    }
+    std::string reason_copy;
+    try {
+        reason_copy = reason;
+    } catch (...) {
+        // Best effort, record the abort without its reason.
+    }
+    // Record the abort, unless one was recorded already, by this rank, e.g., by
+    // destroying in-flight communication, or by another rank.
+    abort_state_->set(std::nullopt, std::move(reason_copy));
+    if (terminate) {
+        // Terminate right away: notifying the other ranks cooperatively first would let
+        // them unwind before the request to terminate arrives.
+        abort_notified_.store(true);
+        notify_abort(reason, true);
+        std::abort();
+    }
+    // `set()` fails as soon as a concurrent `set()` claimed the state, which may still be
+    // recording its origin.
+    while (!abort_state_->is_set()) {
+        std::this_thread::yield();
+    }
+    // Notify the other ranks, also if this rank aborted the communicator before, unless
+    // they were notified already or another rank aborted it, which notified them.
+    if (!abort_state_->origin().has_value() && !abort_notified_.exchange(true)) {
+        notify_abort(reason, false);
     }
 }
+
+void Communicator::throw_if_aborted() {
+    if (!abort_state_->is_set()) {
+        poll_abort();
+    }
+    if (!abort_state_->is_set()) {
+        return;
+    }
+    // An abort by this rank that was not notified yet, e.g., by destroying in-flight
+    // communication, see `FutureGraveyard`.
+    if (!abort_state_->origin().has_value() && !abort_notified_.exchange(true)) {
+        notify_abort(abort_state_->reason(), false);
+    }
+    throw communicator_aborted(
+        abort_state_->origin().value_or(rank()), abort_state_->reason()
+    );
+}
+
+void Communicator::mark_aborted(Rank origin, std::string reason) noexcept {
+    abort_state_->set(origin, std::move(reason));
+}
+
+void Communicator::notify_abort(std::string const&, bool) noexcept {}
 
 std::vector<Rank> all_remote_ranks(Communicator const& comm) {
     auto ranks = std::views::iota(Rank{0}, comm.nranks())

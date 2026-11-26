@@ -40,9 +40,11 @@ class CommunicatorAborted(RuntimeError):
     """
     Exception raised by the communication of an aborted communicator.
 
-    A communicator is aborted on a rank when an operation is destroyed while its
-    communication is in flight, e.g., because the operation failed: that
-    communication may still match later messages, so the communicator must not be
-    used anymore. Create a new communicator to communicate again.
+    A communicator is aborted by
+    :meth:`rapidsmpf.communicator.communicator.Communicator.abort`, on this or
+    another rank, or when an operation is destroyed while its communication is in
+    flight, e.g., because the operation failed: that communication may still match
+    later messages, so the communicator must not be used anymore. Create a new
+    communicator to communicate again.
     """
     pass

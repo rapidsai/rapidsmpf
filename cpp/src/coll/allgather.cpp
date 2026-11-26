@@ -201,6 +201,8 @@ AllGather::AllGather(
 
 ProgressThread::ProgressState AllGather::event_loop() {
     RAPIDSMPF_NVTX_SCOPED_RANGE_VERBOSE("AllGather::event_loop");
+    // Fail even without pending communication once the communicator is aborted.
+    comm_->throw_if_aborted();
     /*
      * Data flow:
      * User inserts into inserted_

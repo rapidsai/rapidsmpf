@@ -4,9 +4,12 @@
  */
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <cstdlib>
 #include <memory>
+#include <mutex>
+#include <utility>
 #include <vector>
 
 #include <mpi.h>
@@ -306,12 +309,53 @@ class MPI final : public Communicator {
      */
     [[nodiscard]] std::string str() const override;
 
+  protected:
+    /**
+     * @copydoc Communicator::poll_abort
+     *
+     * Only probes for a notification every few calls, to keep the overhead low.
+     */
+    void poll_abort() override;
+
+    /**
+     * @copydoc Communicator::notify_abort
+     *
+     * Sends the reason to every other rank on the largest MPI tag, `MPI_TAG_UB`, or
+     * calls `MPI_Abort()` if `terminate` is true.
+     *
+     * @note If `MPI_TAG_UB` lies within the range of `Tag`, e.g., with the UCX PML of
+     * Open MPI, it is the largest `Tag`, that is the last stage of the largest `OpID`,
+     * which is then reserved: sends and receives on it throw `std::invalid_argument`.
+     *
+     * @note After aborting, the MPI communicator may hold unmatched messages. Do not
+     * free it and keep creating MPI communicators, implementations such as Open MPI
+     * may fail when the context of a freed communicator with unmatched messages is
+     * reused.
+     */
+    void notify_abort(std::string const& reason, bool terminate) noexcept override;
+
   private:
+    /**
+     * @brief Throw if `tag` is reserved for abort notifications, see `notify_abort()`.
+     *
+     * @param tag The tag of a send or receive.
+     *
+     * @throws std::invalid_argument If `tag` is reserved.
+     */
+    void check_tag(Tag tag) const;
+
     MPI_Comm comm_;
     Rank rank_;
     Rank nranks_;
     std::shared_ptr<Logger> logger_;
     std::shared_ptr<ProgressThread> progress_thread_;
+    /// @brief Tag of the abort notifications, `MPI_TAG_UB`, or -1 if unavailable.
+    int abort_tag_{-1};
+    std::atomic<std::uint64_t> abort_poll_count_{0};  ///< Calls to `poll_abort()`.
+    std::mutex abort_sends_mutex_;  ///< Protects `abort_sends_`.
+    /// @brief Abort notifications sent, kept alive until completed.
+    std::vector<std::pair<MPI_Request, std::unique_ptr<std::vector<std::uint8_t>>>>
+        abort_sends_;
 };
 
 
