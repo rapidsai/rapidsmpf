@@ -486,6 +486,42 @@ TEST_F(StreamingSpillableMessages, SpillingPackedDataIsTracked) {
     EXPECT_EQ(stats->get_stat("buffer-spilled-time").count(), 1);
 }
 
+TEST_F(StreamingSpillableMessages, FailedSpillIsReportedByExtract) {
+    if (!is_pinned_memory_resources_supported()) {
+        GTEST_SKIP() << "Pinned memory not supported on this system";
+    }
+    // PINNED_HOST is the first spill target, and its allocation fails.
+    auto capped_br = create_br_with_capped_pinned_pool();
+    constexpr std::size_t size = exceeds_capped_pinned_pool;
+    auto [res, _] = capped_br->reserve(MemoryType::DEVICE, size, AllowOverbooking::YES);
+    auto packed = std::make_unique<PackedData>(
+        std::make_unique<std::vector<std::uint8_t>>(1),
+        capped_br->make_buffer(size, stream, res)
+    );
+
+    SpillableMessages msgs;
+    auto mid = msgs.insert(to_message(0, std::move(packed)));
+    EXPECT_THROW(std::ignore = msgs.spill(mid, capped_br.get()), std::runtime_error);
+
+    // `Message::move()` lost the payload. The message is not spilled again, and
+    // extracting it reports the failure instead of returning an empty message.
+    EXPECT_EQ(msgs.get_content_description(mid).content_size(MemoryType::DEVICE), 0);
+    EXPECT_EQ(msgs.spill(mid, capped_br.get()), 0);
+    EXPECT_THROW(std::ignore = msgs.extract(mid), std::runtime_error);
+    EXPECT_THROW(std::ignore = msgs.extract(mid), std::out_of_range);  // Removed.
+}
+
+TEST_F(StreamingSpillableMessages, SpillThatFailsBeforeMovingKeepsTheMessage) {
+    // Without a move callback, `Message::move()` throws before touching the message.
+    auto cd = ContentDescription{
+        {{MemoryType::DEVICE, sizeof(int)}}, ContentDescription::Spillable::YES
+    };
+    SpillableMessages msgs;
+    auto mid = msgs.insert(Message{0, std::make_unique<int>(42), cd, {}});
+    EXPECT_THROW(std::ignore = msgs.spill(mid, br.get()), std::invalid_argument);
+    EXPECT_EQ(msgs.extract(mid).get<int>(), 42);
+}
+
 class StreamingSpillableMessagesWithSpillOrder
     : public StreamingSpillableMessages,
       public ::testing::WithParamInterface<SpillableMessages::SpillOrder> {};

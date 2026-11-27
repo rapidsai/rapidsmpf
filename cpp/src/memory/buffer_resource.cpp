@@ -352,7 +352,14 @@ std::unique_ptr<Buffer> BufferResource::make_buffer(
     RAPIDSMPF_EXPECTS(
         stream != cuda::invalid_stream, "stream must be valid", std::invalid_argument
     );
-    auto const mem_type = reservation.mem_type_;
+    auto ret = allocate(size, stream, reservation.mem_type_);
+    release(reservation, size);
+    return ret;
+}
+
+std::unique_ptr<Buffer> BufferResource::allocate(
+    std::size_t size, cuda::stream_ref stream, MemoryType mem_type
+) {
     // A disk buffer is created with mkstemp, which never touches the stream, so a
     // stream-ordered timing would measure stream backlog rather than the creation.
     StreamOrderedTiming timing{
@@ -388,7 +395,6 @@ std::unique_ptr<Buffer> BufferResource::make_buffer(
     default:
         RAPIDSMPF_FAIL("MemoryType: unknown");
     }
-    release(reservation, size);
     statistics_->record_alloc(mem_type, size, std::move(timing));
     return ret;
 }
@@ -433,41 +439,65 @@ std::unique_ptr<Buffer> BufferResource::move(
 }
 
 std::unique_ptr<Buffer> BufferResource::move(
-    std::unique_ptr<Buffer> buffer, MemoryReservation& reservation
+    std::unique_ptr<Buffer>&& buffer, MemoryReservation& reservation
 ) {
     if (reservation.mem_type_ == buffer->mem_type()) {
-        return buffer;
+        return std::move(buffer);
     }
     auto const nbytes = buffer->size;
     // An empty buffer holds no capacity, so relocating it is not a spill.
     bool const tracked = nbytes > 0;
     auto const from = buffer->mem_type();
-    auto token = std::move(buffer->spill_track_token_);
 
-    // Closes the spill: `make_buffer` takes the capacity back here. A token can arrive
-    // while statistics are disabled, through the device-buffer overload of `move()`, so
-    // this does not check `enabled()`. `add_duration_stat` is a no-op when disabled.
-    auto ret = make_buffer(nbytes, buffer->stream(), reservation);
-    if (tracked && reservation.mem_type_ == MemoryType::DEVICE && token != nullptr) {
-        statistics_->add_duration_stat(
-            "buffer-spilled-time", Duration{Clock::now() - token->since}
-        );
-        token.reset();
-    }
-
+    // Allocate and copy before touching `buffer` or consuming `reservation`, so that if
+    // either throws (e.g. the target memory type is exhausted), the caller still owns
+    // the unchanged source and reservation. Until the reservation is released, the new
+    // buffer is counted twice (allocated and reserved), which errs on the safe side.
+    RAPIDSMPF_EXPECTS(
+        nbytes <= reservation.size_,
+        "MemoryReservation(" + format_nbytes(reservation.size_) + ") isn't big enough ("
+            + format_nbytes(nbytes) + ")",
+        rapidsmpf::reservation_error
+    );
+    auto ret = allocate(nbytes, buffer->stream(), reservation.mem_type_);
     buffer_copy(statistics_, *ret, *buffer, nbytes);
 
-    // Opens the spill: releasing the source gives the capacity back. `buffer_copy` has
-    // made the source's stream wait for the copy, so destroying it here is safe.
+    // Prepare everything else that can throw before the commit below. Opens the spill:
+    // the token of the new buffer, if the source is device memory that is about to be
+    // freed. Not opened while disabled, since enabling later would close an interval
+    // whose start was never observed.
+    std::shared_ptr<SpillTrackToken> opened_token;
+    if (from == MemoryType::DEVICE && tracked && statistics_->enabled()) {
+        opened_token = std::make_shared<SpillTrackToken>();
+    }
+
+    // Commit. `release()` only throws on a broken reservation contract, checked above,
+    // and before it changes anything. Nothing after it throws. Releasing the source gives
+    // its capacity back. `buffer_copy` has made the source's stream wait for the copy, so
+    // destroying it here is safe.
+    release(reservation, nbytes);
+    auto source_token = std::move(buffer->spill_track_token_);
     buffer.reset();
+    bool const closes_spill =
+        tracked && reservation.mem_type_ == MemoryType::DEVICE && source_token != nullptr;
     if (from == MemoryType::DEVICE) {
-        // Not opened while disabled, since enabling later would close an interval
-        // whose start was never observed.
-        if (tracked && statistics_->enabled()) {
-            ret->spill_track_token_ = std::make_shared<SpillTrackToken>();
+        ret->spill_track_token_ = std::move(opened_token);
+    } else if (!closes_spill) {
+        ret->spill_track_token_ = std::move(source_token);
+    }
+
+    // Closes the spill: the data is back on the device. A token can arrive while
+    // statistics are disabled, through the device-buffer overload of `move()`, so this
+    // does not check `enabled()`. `add_duration_stat` is a no-op when disabled. Recorded
+    // after the commit and best effort: under memory pressure the statistic may fail to
+    // allocate, and losing one sample is better than failing a move that has completed.
+    if (closes_spill) {
+        try {
+            statistics_->add_duration_stat(
+                "buffer-spilled-time", Duration{Clock::now() - source_token->since}
+            );
+        } catch (...) {
         }
-    } else {
-        ret->spill_track_token_ = std::move(token);
     }
     return ret;
 }

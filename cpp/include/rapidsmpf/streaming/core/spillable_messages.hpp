@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cstdint>
+#include <exception>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -96,6 +97,8 @@ class SpillableMessages {
      * @return Extracted `Message` instance.
      *
      * @throws std::out_of_range If the message ID is invalid or was already extracted.
+     * @throws Rethrows the exception of a failed spill of this message, which lost its
+     * payload (see `spill()`). The message is removed nonetheless.
      */
     [[nodiscard]] Message extract(MessageId mid);
 
@@ -118,6 +121,8 @@ class SpillableMessages {
      * the message identifier is invalid.
      * @throws std::runtime_error If required memory cannot be allocated using
      * the provided reservation.
+     * @throws Rethrows the exception of a failed spill of this message, which lost its
+     * payload (see `spill()`).
      */
     [[nodiscard]] Message copy(MessageId mid, MemoryReservation& reservation);
 
@@ -134,6 +139,12 @@ class SpillableMessages {
      * If the message is currently being accessed by another thread, is already
      * spilled, not spillable, or does not exist, the operation returns immediately
      * without spilling.
+     *
+     * If the move throws, e.g. because the allocation in the target memory type fails,
+     * the exception is rethrown. `Message::move()` leaves the message empty in that case,
+     * so its payload is lost: the error is recorded and rethrown by `extract()` and
+     * `copy()` of this message, rather than handing out an empty message, and the
+     * message is not spilled again.
      *
      * @param mid Message identifier. If the message does not exist, zero is returned.
      * @param br Buffer resource used for allocations during the spill operation.
@@ -217,6 +228,8 @@ class SpillableMessages {
         mutable std::mutex mutex;
         std::optional<Message> message;
         ReservationContext reservation_context;
+        /// @brief Set if a spill of `message` failed and lost its payload.
+        std::exception_ptr spill_error{};
 
         Item(Message&& message, ReservationContext reservation_context)
             : message(std::move(message)), reservation_context(reservation_context) {}

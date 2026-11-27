@@ -37,6 +37,7 @@
 #include <rapidsmpf/statistics.hpp>
 #include <rapidsmpf/utils/misc.hpp>
 
+#include "allocation_failure_injection.hpp"
 #include "utils.hpp"
 
 using namespace rapidsmpf;
@@ -627,6 +628,169 @@ TEST(BufferResource, EnsureMemoryTypeUsesPinnedWhenHostIsFull) {
         move_to_disk(create_packed_data(metadata, payload, stream, br.get()), *br).data;
     auto ret = br->ensure_memory_type(std::move(data), ADDRESSABLE_MEMORY_TYPES);
     EXPECT_EQ(ret->mem_type(), MemoryType::PINNED_HOST);
+}
+
+TEST(BufferResource, MoveKeepsTheSourceIfTheAllocationFails) {
+    if (!is_pinned_memory_resources_supported()) {
+        GTEST_SKIP() << "Pinned memory not supported on this system";
+    }
+    constexpr std::size_t n_elements = exceeds_capped_pinned_pool / sizeof(int);
+    constexpr std::size_t size = n_elements * sizeof(int);
+    auto br = create_br_with_capped_pinned_pool();
+    auto stream = br->stream_pool()->get_stream();
+    auto packed = generate_packed_data(n_elements, 7, stream, *br);
+    auto& data = packed.data;
+    auto const* const source = data.get();
+
+    // The reservation succeeds, the allocation in the capped pool does not.
+    auto pinned_res = br->reserve_or_fail(size, MemoryType::PINNED_HOST);
+    EXPECT_THROW(std::ignore = br->move(std::move(data), pinned_res), std::runtime_error);
+
+    // The caller still owns the unchanged source, and the reservation is untouched.
+    ASSERT_EQ(data.get(), source);
+    EXPECT_EQ(data->mem_type(), MemoryType::DEVICE);
+    EXPECT_EQ(data->size, size);
+    EXPECT_EQ(pinned_res.size(), size);
+
+    // So the move can be retried elsewhere, with the data intact.
+    auto host_res = br->reserve_or_fail(size, MemoryType::HOST);
+    data = br->move(std::move(data), host_res);
+    EXPECT_EQ(data->mem_type(), MemoryType::HOST);
+    data->latest_write_event().host_wait();
+    auto const* bytes = reinterpret_cast<std::uint8_t const*>(data->data());
+    EXPECT_TRUE(std::ranges::equal(*packed.metadata, std::span{bytes, size}));
+}
+
+TEST(BufferResource, MoveKeepsTheSourceAndReservationIfTheCopyFails) {
+    auto br = create_br();
+    auto stream = br->stream_pool()->get_stream();
+    constexpr std::size_t n_elements = 1024;
+    constexpr std::size_t size = n_elements * sizeof(int);
+    auto packed = generate_packed_data(n_elements, 7, stream, *br);
+    auto& data = packed.data;
+    auto const* const source = data.get();
+
+    // The allocation in HOST succeeds, the copy then fails because the source is
+    // locked (`Buffer::data()` throws).
+    auto host_res = br->reserve_or_fail(size, MemoryType::HOST);
+    auto const host_reserved = reserved_bytes(*br, MemoryType::HOST);
+    std::ignore = data->exclusive_data_access();
+    EXPECT_THROW(std::ignore = br->move(std::move(data), host_res), std::logic_error);
+
+    // The caller still owns the source, and the reservation is unchanged.
+    ASSERT_EQ(data.get(), source);
+    EXPECT_EQ(data->mem_type(), MemoryType::DEVICE);
+    EXPECT_EQ(host_res.size(), size);
+    EXPECT_EQ(reserved_bytes(*br, MemoryType::HOST), host_reserved);
+
+    // So the same reservation can be used to retry.
+    data->unlock();
+    data = br->move(std::move(data), host_res);
+    EXPECT_EQ(data->mem_type(), MemoryType::HOST);
+    EXPECT_EQ(host_res.size(), 0);
+    validate_packed_data(std::move(packed), n_elements, 7, stream, *br);
+}
+
+namespace {
+
+/**
+ * @brief Check that `BufferResource::move()` is exception safe at every allocation.
+ *
+ * Makes the n-th allocation of `move()` fail, for n = 0, 1, ... until a move completes
+ * without a failure. Every attempt either succeeds, or throws with the source and the
+ * reservation unchanged, so that a retry with them succeeds. This covers the allocation
+ * of the target, the copy, the spill token and the spill statistic.
+ *
+ * @param from The memory type of the source.
+ * @param to The memory type to move to.
+ * @return The number of attempts that failed.
+ */
+std::size_t check_move_is_exception_safe(MemoryType from, MemoryType to) {
+    constexpr std::size_t n_elements = 1024;
+    constexpr std::size_t size = n_elements * sizeof(int);
+    std::size_t num_failed{0};
+    for (std::size_t n = 0;; ++n) {
+        if (n > 10'000) {
+            ADD_FAILURE() << "move() never completed without an injected failure";
+            return num_failed;
+        }
+        auto stats = Statistics::create();
+        auto br = BufferResource::create(
+            rmm::mr::get_current_device_resource_ref(),
+            PinnedMemoryDisabled,
+            {},
+            std::nullopt,
+            std::make_shared<StreamPool>(1),
+            stats
+        );
+        auto stream = br->stream_pool()->get_stream();
+        auto packed = generate_packed_data(n_elements, 5, stream, *br);
+        if (from != MemoryType::DEVICE) {
+            // Spill it first, which gives it a spill token that a move back closes.
+            auto res = br->reserve_or_fail(size, from);
+            packed.data = br->move(std::move(packed.data), res);
+        }
+        auto& data = packed.data;
+        auto const* const source = data.get();
+        auto res = br->reserve_or_fail(size, to);
+        auto const reserved = reserved_bytes(*br, to);
+
+        bool moved{false};
+        bool fired{false};
+        {
+            test::ScopedAllocationFailure failure{n};
+            try {
+                data = br->move(std::move(data), res);
+                moved = true;
+            } catch (std::bad_alloc const&) {
+            }
+            fired = failure.fired();
+        }
+        auto const spilled_time_count = [&]() -> std::size_t {
+            return stats->has_stat("buffer-spilled-time")
+                       ? stats->get_stat("buffer-spilled-time").count()
+                       : 0;
+        };
+        if (!moved) {
+            EXPECT_TRUE(fired) << "n=" << n;
+            ++num_failed;
+            // Nothing changed, so the move can be retried.
+            if (data.get() != source) {
+                ADD_FAILURE() << "the source was lost, n=" << n;
+                return num_failed;
+            }
+            EXPECT_EQ(data->mem_type(), from) << "n=" << n;
+            EXPECT_EQ(res.size(), size) << "n=" << n;
+            EXPECT_EQ(reserved_bytes(*br, to), reserved) << "n=" << n;
+            EXPECT_EQ(spilled_time_count(), 0) << "n=" << n;
+            data = br->move(std::move(data), res);
+            if (to == MemoryType::DEVICE) {
+                // The source kept its spill token, so the retry closes the spill.
+                EXPECT_EQ(spilled_time_count(), 1) << "n=" << n;
+            }
+        } else if (to == MemoryType::DEVICE) {
+            // A failure while recording the statistic doesn't fail the move.
+            EXPECT_LE(spilled_time_count(), 1) << "n=" << n;
+        }
+        EXPECT_EQ(data->mem_type(), to) << "n=" << n;
+        EXPECT_EQ(res.size(), 0) << "n=" << n;
+        EXPECT_NO_FATAL_FAILURE(
+            validate_packed_data(std::move(packed), n_elements, 5, stream, *br)
+        ) << "n="
+          << n;
+        if (moved && !fired) {
+            return num_failed;
+        }
+    }
+}
+
+}  // namespace
+
+TEST(BufferResource, MoveIsExceptionSafeAtEveryAllocation) {
+    // Device to host opens a spill (allocates a spill token), host to device closes one
+    // (records a statistic).
+    EXPECT_GT(check_move_is_exception_safe(MemoryType::DEVICE, MemoryType::HOST), 0);
+    EXPECT_GT(check_move_is_exception_safe(MemoryType::HOST, MemoryType::DEVICE), 0);
 }
 
 class BufferResourceReserveOrFailTest : public ::testing::Test {

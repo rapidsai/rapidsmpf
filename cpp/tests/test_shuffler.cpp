@@ -279,6 +279,39 @@ TEST(ReceivedChunks, spill_from_pinned_host_to_host) {
     EXPECT_EQ(received.data_size(MemoryType::HOST), data_size);
 }
 
+TEST(ReceivedChunks, failed_spill_keeps_the_chunk) {
+    using rapidsmpf::MemoryType;
+    if (!rapidsmpf::is_pinned_memory_resources_supported()) {
+        GTEST_SKIP() << "PinnedMemoryResource is not supported";
+    }
+    constexpr std::size_t n_elements = exceeds_capped_pinned_pool / sizeof(int);
+    constexpr std::size_t data_size = n_elements * sizeof(int);
+    auto stream = cuda::stream_ref{cudaStreamLegacy};
+    // PINNED_HOST is the first spill target, and its allocation fails.
+    auto br = create_br_with_capped_pinned_pool();
+
+    rapidsmpf::shuffler::detail::ReceivedChunks received;
+    received.insert(
+        rapidsmpf::shuffler::detail::Chunk::from_packed_data(
+            0, 0, generate_packed_data(n_elements, 3, stream, *br)
+        )
+    );
+    EXPECT_THROW(std::ignore = received.spill(br.get(), data_size), std::runtime_error);
+
+    // The chunk, its payload and the accounting are unchanged.
+    EXPECT_EQ(received.data_size(MemoryType::DEVICE), data_size);
+    EXPECT_EQ(received.data_size(MemoryType::PINNED_HOST), 0UL);
+    auto chunks = received.extract(0);
+    ASSERT_EQ(chunks.size(), 1);
+    EXPECT_EQ(chunks[0].data_memory_type(), MemoryType::DEVICE);
+    rapidsmpf::PackedData packed{
+        chunks[0].release_metadata_buffer(), chunks[0].release_data_buffer()
+    };
+    EXPECT_NO_FATAL_FAILURE(
+        validate_packed_data(std::move(packed), n_elements, 3, stream, *br)
+    );
+}
+
 TEST(MetadataMessage, round_trip) {
     auto stream = cuda::stream_ref{cudaStreamLegacy};
     auto mr = rmm::mr::get_current_device_resource_ref();

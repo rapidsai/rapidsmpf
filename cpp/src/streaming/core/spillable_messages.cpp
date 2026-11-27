@@ -32,6 +32,9 @@ Message SpillableMessages::extract(MessageId mid) {
 
     // If the item is being spilled, we block here until the spilling is done.
     std::unique_lock item_lock(item->mutex);
+    if (item->spill_error) {
+        std::rethrow_exception(item->spill_error);
+    }
     return std::exchange(item->message, std::nullopt).value();
 }
 
@@ -55,6 +58,9 @@ Message SpillableMessages::copy(MessageId mid, MemoryReservation& reservation) {
         "message not found " + std::to_string(mid),
         std::out_of_range
     );
+    if (item->spill_error) {
+        std::rethrow_exception(item->spill_error);
+    }
     return item->message->copy(reservation);
 }
 
@@ -76,7 +82,7 @@ std::size_t SpillableMessages::spill(
     if (!item_lock.owns_lock()) {
         return 0;
     }
-    if (!item->message.has_value()) {
+    if (!item->message.has_value() || item->spill_error) {
         return 0;
     }
 
@@ -94,8 +100,26 @@ std::size_t SpillableMessages::spill(
     if (!res) {
         return 0;  // No target has room, leave the message where it is.
     }
-    item->message = msg.move(*res);
-    auto const new_cd = item->message.value().content_description();
+    ContentDescription new_cd;
+    try {
+        item->message = msg.move(*res);
+        new_cd = item->message.value().content_description();
+    } catch (...) {
+        if (!msg.empty()) {
+            throw;  // Failed before the move started, the message is intact.
+        }
+        // `Message::move()` has reset the message, so its payload is lost. Record the
+        // error for `extract()` and `copy()`, and describe the message as empty so that
+        // it is not picked for spilling again.
+        item->spill_error = std::current_exception();
+        item_lock.unlock();
+        std::scoped_lock lock(global_lock);
+        if (auto it = content_descriptions_.find(mid); it != content_descriptions_.end())
+        {
+            it->second = ContentDescription{};
+        }
+        throw;
+    }
     item_lock.unlock();
 
     // Update the content descriptions only if `mid` still exists.

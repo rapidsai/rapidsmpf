@@ -4,12 +4,16 @@
  */
 
 #include <cstdint>
+#include <exception>
+#include <iostream>
 #include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <utility>
 
+#include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
 #include <rapidsmpf/memory/spill_manager.hpp>
 #include <rapidsmpf/nvtx.hpp>
@@ -37,13 +41,45 @@ SpillManager::SpillManager(
     : br_{br} {
     if (periodic_spill_check.has_value()) {
         periodic_spill_thread_.emplace(
-            [this]() {
+            // Only the spill thread touches `failures`.
+            [this, failures = PerMemoryType<std::size_t>{}]() mutable {
                 for (auto const mem_type : ADDRESSABLE_MEMORY_TYPES) {
-                    spill_to_make_headroom(0, mem_type);
+                    periodic_spill(mem_type, failures[mem_type]);
                 }
             },
-            *periodic_spill_check
+            *periodic_spill_check,
+            // Only reached if the loop itself fails, e.g. initializing its CUDA context,
+            // since `periodic_spill()` doesn't throw. Spilling on demand is unaffected.
+            [](std::exception_ptr error) {
+                std::cerr << "RapidsMPF warning: the periodic spill thread failed and "
+                             "stopped, spilling continues on demand only: "
+                          << detail::exception_message(error) << std::endl;
+            }
         );
+    }
+}
+
+void SpillManager::periodic_spill(MemoryType mem_type, std::size_t& failures) noexcept {
+    try {
+        std::ignore = spill_to_make_headroom(0, mem_type);
+    } catch (...) {
+        // A spill function threw, e.g. because a buffer could not be allocated in the
+        // memory type it spills to. The spill functions leave data they could not move
+        // where it is (or, for streaming messages, report the loss on extraction), so
+        // keep going: the next periodic or on-demand spill retries. Report the first
+        // failure of a streak, not every iteration.
+        if (failures++ == 0) {
+            std::cerr << "RapidsMPF warning: periodic spill from " << to_string(mem_type)
+                      << " failed, will retry: "
+                      << detail::exception_message(std::current_exception()) << std::endl;
+        }
+        return;
+    }
+    if (failures > 0) {
+        std::cerr << "RapidsMPF warning: periodic spill from " << to_string(mem_type)
+                  << " no longer fails, after " << failures << " failed attempt(s)"
+                  << std::endl;
+        failures = 0;
     }
 }
 
