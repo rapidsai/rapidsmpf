@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Validate topology_discovery JSON output for correctness."""
 
@@ -118,7 +118,8 @@ def validate_topology(data: Any) -> list[str]:
             cpu_affinity = gpu.get("cpu_affinity")
             if not isinstance(cpu_affinity, dict):
                 errors.append(f"{ctx}.cpu_affinity must be an object")
-            else:
+            # WSL2 GPUs have no /sys/bus/pci/devices entry, so CPU affinity is empty.
+            elif cpu_affinity.get("cpulist") or cpu_affinity.get("cores"):
                 ensure_non_empty_string(
                     errors, cpu_affinity, "cpulist", f"{ctx}.cpu_affinity"
                 )

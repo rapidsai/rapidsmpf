@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 set -xeuo pipefail
@@ -43,6 +43,13 @@ for nranks in "${nranks_to_run[@]}"; do
     python "${TIMEOUT_TOOL_PATH}" "${timeout_secs}" \
         ctest --verbose --no-tests=error --output-on-failure -R "^mpi_tests_${nranks}$" "${EXTRA_ARGS[@]}"
 done
+
+# The WSL2 CUDA driver aborts with "double free" in cuIpcGetMemHandle on an allocation
+# smaller than 1 MiB after a neighboring allocation is freed, which UCX cuda_ipc hits.
+# See https://github.com/rapidsai/rapidsmpf/pull/1304
+if grep -qi microsoft /proc/version; then
+    export UCX_TLS=^cuda_ipc
+fi
 
 # ucxx_tests cases, includes both default (thread-blocking) and polling progress modes
 for nranks in "${nranks_to_run[@]}"; do
