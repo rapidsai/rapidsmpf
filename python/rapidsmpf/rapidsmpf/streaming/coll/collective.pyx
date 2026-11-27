@@ -97,6 +97,9 @@ cdef class Collective:
         failed collective may still arrive. If communication was still in flight,
         releasing the collective also aborts the communicator (see
         :attr:`~rapidsmpf.communicator.communicator.Communicator.aborted`).
+        A failure is only reported on the rank where it happened: the other
+        ranks are not notified, and their ``aclose()`` may then wait forever for
+        data from this rank.
 
         Raises
         ------

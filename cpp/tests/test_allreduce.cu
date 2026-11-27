@@ -643,7 +643,9 @@ TEST_F(BaseAllReduceTest, progress_error_is_rethrown) {
                 ThrowsInjectedFailure()
             );
         }
-        EXPECT_FALSE(allreduce.is_ready());
+        // Polling for completion fails too, instead of spinning forever.
+        EXPECT_THAT([&] { std::ignore = allreduce.is_ready(); }, ThrowsInjectedFailure());
+        EXPECT_THAT([&] { std::ignore = allreduce.finished(); }, ThrowsInjectedFailure());
         // The finished callback is invoked on failure, to wake up asynchronous waiters.
         EXPECT_TRUE(eventually([&] { return callback_count.load() > 0; }));
         EXPECT_EQ(callback_count.load(), 1);

@@ -66,7 +66,10 @@ class SparseAlltoall {
      * collective may still arrive. If communication was still in flight, destroying the
      * collective also aborts the communicator (see `Communicator::is_aborted()`), which
      * must then be replaced to communicate again. A failure before any communication was
-     * posted does not abort it.
+     * posted does not abort it. A failure is only reported on the rank where it happened:
+     * the other ranks are not notified. Those that need data from this rank block in
+     * `wait` until its timeout, and destroying their unfinished collective blocks
+     * forever, since it waits for its progress function to finish.
      *
      * @note The caller promises that inserted buffers are stream-ordered with respect
      * to their own stream, and extracted buffers are likewise guaranteed to be stream-
@@ -166,7 +169,7 @@ class SparseAlltoall {
      *
      * @throws std::logic_error If extracting before the collective is complete.
      * @throws Rethrows the exception raised on the progress thread on behalf of this
-     * collective, if any.
+     * collective, if any. Once that happened, every subsequent call rethrows it.
      */
     [[nodiscard]] std::vector<PackedData> extract(Rank src);
 

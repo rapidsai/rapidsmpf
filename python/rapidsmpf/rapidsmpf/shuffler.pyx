@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 """The Shuffler interface for RapidsMPF."""
 
@@ -183,6 +183,13 @@ cdef class Shuffler:
         Returns
         -------
         True if all partitions are finished, otherwise False.
+
+        Raises
+        ------
+        Exception
+            If the shuffler failed: the error raised on the progress thread on
+            its behalf, so that polling for completion fails instead of spinning
+            forever. Every later call raises it again.
         """
         cdef bool ret
         with nogil:

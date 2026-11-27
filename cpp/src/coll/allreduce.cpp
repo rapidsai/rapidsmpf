@@ -10,12 +10,11 @@
 #include <utility>
 
 #include <rapidsmpf/coll/allreduce.hpp>
+#include <rapidsmpf/detail/progress_error.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/progress_thread.hpp>
 #include <rapidsmpf/statistics.hpp>
-
-#include "../progress_thread_internal.hpp"
 
 namespace rapidsmpf::coll {
 
@@ -121,8 +120,8 @@ AllReduce::~AllReduce() noexcept {
     }
 }
 
-bool AllReduce::finished() const noexcept {
-    return phase_.load(std::memory_order_acquire) == Phase::ResultAvailable;
+bool AllReduce::finished() const {
+    return is_ready();
 }
 
 std::pair<std::unique_ptr<Buffer>, std::unique_ptr<Buffer>> AllReduce::wait_and_extract(
@@ -158,7 +157,13 @@ std::pair<std::unique_ptr<Buffer>, std::unique_ptr<Buffer>> AllReduce::wait_and_
     return {std::move(in_buffer_), std::move(out_buffer_)};
 }
 
-bool AllReduce::is_ready() const noexcept {
+bool AllReduce::is_ready() const {
+    {
+        std::lock_guard lock(mutex_);
+        if (error_) {
+            std::rethrow_exception(error_);
+        }
+    }
     return phase_.load(std::memory_order_acquire) == Phase::ResultAvailable;
 }
 

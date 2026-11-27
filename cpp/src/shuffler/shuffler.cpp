@@ -17,6 +17,7 @@
 #include <rapidsmpf/communicator/communicator.hpp>
 #include <rapidsmpf/communicator/metadata_payload_exchange/core.hpp>
 #include <rapidsmpf/communicator/metadata_payload_exchange/tag.hpp>
+#include <rapidsmpf/detail/progress_error.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/memory/buffer_resource.hpp>
@@ -25,8 +26,6 @@
 #include <rapidsmpf/shuffler/chunk.hpp>
 #include <rapidsmpf/shuffler/shuffler.hpp>
 #include <rapidsmpf/utils/misc.hpp>
-
-#include "../progress_thread_internal.hpp"
 
 namespace rapidsmpf::shuffler {
 
@@ -458,6 +457,12 @@ std::vector<PackedData> Shuffler::extract(PartID pid) {
 }
 
 bool Shuffler::finished() const {
+    {
+        std::lock_guard lock(mutex_);
+        if (error_) {
+            std::rethrow_exception(error_);
+        }
+    }
     return finish_counter_.all_finished() && received_.empty();
 }
 

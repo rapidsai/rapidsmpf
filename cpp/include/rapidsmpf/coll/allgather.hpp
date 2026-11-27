@@ -132,7 +132,10 @@ class AllGather {
      * allgather may still arrive. If communication was still in flight, destroying the
      * allgather also aborts the communicator (see `Communicator::is_aborted()`), which
      * must then be replaced to communicate again. A failure before any communication was
-     * posted does not abort it.
+     * posted does not abort it. A failure is only reported on the rank where it happened:
+     * the other ranks are not notified. Those that need data from this rank block in
+     * `wait_and_extract` until its timeout, and destroying their unfinished allgather
+     * blocks forever, since it waits for its progress function to finish.
      *
      * @note The caller promises that inserted buffers are stream-ordered with respect
      * to their own stream, and extracted buffers are likewise guaranteed to be stream-

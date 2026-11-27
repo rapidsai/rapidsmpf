@@ -25,6 +25,11 @@ namespace rapidsmpf::detail {
  * threads waiting on `cv`, which then rethrow it, and invokes the finished callback so
  * that asynchronous waiters wake up too.
  *
+ * The error is recorded, and the waiters woken up, before the finished callback is
+ * invoked. The documentation of the operations relies on this ordering: a caller driven
+ * by the finished callback calls `wait()`, which then returns immediately and rethrows
+ * the error. Keep it when changing this function.
+ *
  * An error raised after the operation completed, e.g., by a throwing finished callback,
  * is only logged: the result is complete, so it is not failed.
  *

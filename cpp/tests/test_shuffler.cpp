@@ -1447,6 +1447,8 @@ TEST(Shuffler, destroy_without_insert_finished_after_progress_error) {
         EXPECT_THAT(
             [&] { shuffler.wait(std::chrono::seconds{30}); }, ThrowsInjectedFailure()
         );
+        // Polling for completion fails too, instead of spinning forever.
+        EXPECT_THAT([&] { std::ignore = shuffler.finished(); }, ThrowsInjectedFailure());
     }
     // Destroying the failed shuffler without `insert_finished()` is not fatal. No
     // communication was posted, so the communicator is not aborted, but the `op_id`

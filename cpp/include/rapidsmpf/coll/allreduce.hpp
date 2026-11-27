@@ -66,7 +66,11 @@ using ReduceOperator = std::function<void(Buffer const* left, Buffer* right)>;
  * since messages of the failed allreduce may still arrive. If communication was still in
  * flight, destroying the allreduce also aborts the communicator (see
  * `Communicator::is_aborted()`), which must then be replaced to communicate again. A
- * failure before any communication was posted does not abort it.
+ * failure before any communication was posted does not abort it. A failure is only
+ * reported on the rank where it happened: the other ranks are not notified. Those that
+ * need data from this rank block in `wait_and_extract` until its timeout, and destroying
+ * their unfinished allreduce blocks forever, since it waits for its progress function to
+ * finish.
  *
  * @warning Behaviour of this object is undefined if it is destructed without first
  * ensuring that `wait_and_extract` completes successfully, unless the allreduce failed,
@@ -94,7 +98,10 @@ class AllReduce {
      * allreduce may still arrive. If communication was still in flight, destroying the
      * allreduce also aborts the communicator (see `Communicator::is_aborted()`), which
      * must then be replaced to communicate again. A failure before any communication was
-     * posted does not abort it.
+     * posted does not abort it. A failure is only reported on the rank where it happened:
+     * the other ranks are not notified. Those that need data from this rank block in
+     * `wait_and_extract` until its timeout, and destroying their unfinished allreduce
+     * blocks forever, since it waits for its progress function to finish.
      *
      * @throws std::invalid_argument If the input and output buffers do not match
      * appropriately (same size, same memory type).
@@ -136,8 +143,12 @@ class AllReduce {
      *
      * @return True if all data and finish messages from all ranks have been
      * received and locally reduced.
+     *
+     * @throws Rethrows the exception raised on the progress thread on behalf of this
+     * allreduce, if any, so that polling for completion fails instead of spinning
+     * forever. Once that happened, every subsequent call rethrows it.
      */
-    [[nodiscard]] bool finished() const noexcept;
+    [[nodiscard]] bool finished() const;
 
     /**
      * @brief Wait for completion and extract the reduced data.
@@ -182,8 +193,12 @@ class AllReduce {
      *
      * @return True if the allreduce operation has completed and results are ready for
      * extraction, false otherwise.
+     *
+     * @throws Rethrows the exception raised on the progress thread on behalf of this
+     * allreduce, if any, so that polling for completion fails instead of spinning
+     * forever. Once that happened, every subsequent call rethrows it.
      */
-    [[nodiscard]] bool is_ready() const noexcept;
+    [[nodiscard]] bool is_ready() const;
 
   private:
     enum class Phase : uint8_t {

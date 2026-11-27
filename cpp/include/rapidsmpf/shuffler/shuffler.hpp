@@ -127,7 +127,10 @@ class Shuffler {
      * still arrive. If communication was still in flight, destroying the shuffler also
      * aborts the communicator (see `Communicator::is_aborted()`), which must then be
      * replaced to communicate again. A failure before any communication was posted does
-     * not abort it.
+     * not abort it. A failure is only reported on the rank where it happened: the other
+     * ranks are not notified. Those that need data from this rank block in `wait` until
+     * its timeout, and destroying their unfinished shuffler blocks forever, since it
+     * waits for its progress function to finish.
      *
      * @note The caller promises that inserted buffers are stream-ordered with respect
      * to their own stream, and extracted buffers are likewise guaranteed to be stream-
@@ -232,7 +235,7 @@ class Shuffler {
      * @return A vector of PackedData chunks associated with the partition.
      *
      * @throws Rethrows the exception raised on the progress thread on behalf of this
-     * shuffler, if any.
+     * shuffler, if any. Once that happened, every subsequent call rethrows it.
      */
     [[nodiscard]] std::vector<PackedData> extract(PartID pid);
 
@@ -240,6 +243,10 @@ class Shuffler {
      * @brief Check if all partitions are finished.
      *
      * @return True if all partitions are finished, otherwise False.
+     *
+     * @throws Rethrows the exception raised on the progress thread on behalf of this
+     * shuffler, if any, so that polling for completion fails instead of spinning
+     * forever. Once that happened, every subsequent call rethrows it.
      */
     [[nodiscard]] bool finished() const;
 
