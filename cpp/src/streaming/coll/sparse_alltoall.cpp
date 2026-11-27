@@ -60,6 +60,9 @@ void SparseAlltoall::insert_finished() {
 
 coro::task<void> SparseAlltoall::wait() {
     co_await event_;
+    // The event is also set when the collective fails; the underlying `wait()` then
+    // returns immediately, rethrowing the error.
+    exchange_.wait();
 }
 
 std::vector<PackedData> SparseAlltoall::extract(Rank src) {

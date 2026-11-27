@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -10,6 +10,7 @@
 #include <utility>
 
 #include <rapidsmpf/coll/allreduce.hpp>
+#include <rapidsmpf/detail/progress_error.hpp>
 #include <rapidsmpf/error.hpp>
 #include <rapidsmpf/memory/buffer.hpp>
 #include <rapidsmpf/progress_thread.hpp>
@@ -78,27 +79,49 @@ AllReduce::AllReduce(
         logical_rank_ = rank - non_pow2_remainder_;
         phase_ = Phase::StartButterfly;
     }
-    function_id_ =
-        comm_->progress_thread()->add_function([this]() { return event_loop(); });
+    function_id_ = comm_->progress_thread()->add_function(
+        [this]() { return event_loop(); },
+        [this](std::exception_ptr error) {
+            rapidsmpf::detail::report_progress_error(
+                std::move(error),
+                mutex_,
+                cv_,
+                [this] {
+                    return phase_.load(std::memory_order_acquire)
+                           == Phase::ResultAvailable;
+                },
+                error_,
+                finished_callback_,
+                *comm_->logger(),
+                "allreduce"
+            );
+        }
+    );
 }
 
 AllReduce::~AllReduce() noexcept {
     if (function_id_.is_valid()) {
-        auto const phase = phase_.load(std::memory_order_acquire);
-        // If we get here and we hadn't finished the event loop then there are in flight
-        // messages that will be lost forever and potentially be matched incorrectly so
-        // there's really nothing we can do.
-        RAPIDSMPF_EXPECTS_FATAL(
-            phase == Phase::ResultAvailable || phase == Phase::Done,
-            "Destroying AllReduce before waiting for extraction"
-        );
+        {
+            auto const phase = phase_.load(std::memory_order_acquire);
+            // If we get here and we hadn't finished the event loop then there are in
+            // flight messages that will be lost forever and potentially be matched
+            // incorrectly so there's really nothing we can do. Unless the event loop
+            // failed: the error has been reported to the caller already, and destroying
+            // in-flight communication aborts the communicator.
+            std::lock_guard lock(mutex_);
+            RAPIDSMPF_EXPECTS_FATAL(
+                phase == Phase::ResultAvailable || phase == Phase::Done
+                    || error_ != nullptr,
+                "Destroying AllReduce before waiting for extraction"
+            );
+        }
         active_.store(false, std::memory_order_release);
         comm_->progress_thread()->remove_function(function_id_);
     }
 }
 
-bool AllReduce::finished() const noexcept {
-    return phase_.load(std::memory_order_acquire) == Phase::ResultAvailable;
+bool AllReduce::finished() const {
+    return is_ready();
 }
 
 std::pair<std::unique_ptr<Buffer>, std::unique_ptr<Buffer>> AllReduce::wait_and_extract(
@@ -106,14 +129,14 @@ std::pair<std::unique_ptr<Buffer>, std::unique_ptr<Buffer>> AllReduce::wait_and_
 ) {
     std::unique_lock lock(mutex_);
 
+    auto const ready = [this] {
+        return phase_.load(std::memory_order_acquire) == Phase::ResultAvailable
+               || error_ != nullptr;
+    };
     if (timeout.count() < 0) {
-        cv_.wait(lock, [this] {
-            return phase_.load(std::memory_order_acquire) == Phase::ResultAvailable;
-        });
+        cv_.wait(lock, ready);
     } else {
-        bool completed = cv_.wait_for(lock, timeout, [this] {
-            return phase_.load(std::memory_order_acquire) == Phase::ResultAvailable;
-        });
+        bool completed = cv_.wait_for(lock, timeout, ready);
         if (!completed) {
             RAPIDSMPF_FAIL(
                 "AllReduce::wait_and_extract timed out waiting for reduction to "
@@ -123,6 +146,9 @@ std::pair<std::unique_ptr<Buffer>, std::unique_ptr<Buffer>> AllReduce::wait_and_
         }
     }
 
+    if (error_) {
+        std::rethrow_exception(error_);
+    }
     RAPIDSMPF_EXPECTS(
         in_buffer_ != nullptr && out_buffer_ != nullptr,
         "AllReduce::wait_and_extract can only be called once",
@@ -131,7 +157,13 @@ std::pair<std::unique_ptr<Buffer>, std::unique_ptr<Buffer>> AllReduce::wait_and_
     return {std::move(in_buffer_), std::move(out_buffer_)};
 }
 
-bool AllReduce::is_ready() const noexcept {
+bool AllReduce::is_ready() const {
+    {
+        std::lock_guard lock(mutex_);
+        if (error_) {
+            std::rethrow_exception(error_);
+        }
+    }
     return phase_.load(std::memory_order_acquire) == Phase::ResultAvailable;
 }
 

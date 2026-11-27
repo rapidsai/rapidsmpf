@@ -138,6 +138,9 @@ class ShufflerAsync {
      * Several coroutines may await `wait()` concurrently.
      *
      * @return A coroutine that completes when the shuffle has completed.
+     *
+     * @throws Rethrows the exception raised on the progress thread on behalf of the
+     * shuffle, if it failed.
      */
     [[nodiscard]] coro::task<void> wait();
 

@@ -57,6 +57,9 @@ void AllGather::insert_finished() {
 
 coro::task<void> AllGather::wait() {
     co_await event_;
+    // The event is also set when the allgather fails; the underlying `wait()` then
+    // returns immediately, rethrowing the error.
+    gatherer_.wait();
 }
 
 coro::task<std::vector<PackedData>> AllGather::extract_all(AllGather::Ordered ordered) {

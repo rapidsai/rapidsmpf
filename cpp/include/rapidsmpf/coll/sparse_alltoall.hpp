@@ -46,7 +46,8 @@ class SparseAlltoall {
      * @param srcs Ranks this rank will receive from.
      * @param dsts Ranks this rank will send to.
      * @param finished_callback Optional callback invoked exactly once when the collective
-     * is locally complete. The callback should be fast and non-blocking. Ideally it
+     * is locally complete, or when it fails, in which case `wait()` and `extract()`
+     * rethrow the error. The callback should be fast and non-blocking. Ideally it
      * should only be used to signal a thread to do the actual work of extraction. Note in
      * particular that the callback should not extract any data.
      * @param reservation_context Opaque telemetry attribution token for internal
@@ -58,8 +59,19 @@ class SparseAlltoall {
      * @throws std::invalid_argument If the rank lists are not unique.
      * @throws std::logic_error If the communicator or buffer resource pointers are null.
      *
-     * @note It is safe to reuse the `op_id` as soon as `wait` has completed
-     * locally or the `finished_callback` has been invoked.
+     * @note It is safe to reuse the `op_id` as soon as `wait` has completed locally,
+     * unless it rethrew an error because the collective failed. The `finished_callback`
+     * is invoked on failure too, so its invocation alone does not make the `op_id`
+     * reusable: callers driven by the callback must call `wait`, which then returns
+     * immediately, and only reuse the `op_id` if it did not throw. After a failure, the
+     * `op_id` must not be reused on the communicator, since messages of the failed
+     * collective may still arrive. If communication was still in flight, destroying the
+     * collective also aborts the communicator (see `Communicator::is_aborted()`), which
+     * must then be replaced to communicate again. A failure before any communication was
+     * posted does not abort it. A failure is only reported on the rank where it happened:
+     * the other ranks are not notified. Those that need data from this rank block in
+     * `wait` until its timeout, and destroying their unfinished collective blocks
+     * forever, since it waits for its progress function to finish.
      *
      * @note The caller promises that inserted buffers are stream-ordered with respect
      * to their own stream, and extracted buffers are likewise guaranteed to be stream-
@@ -138,6 +150,8 @@ class SparseAlltoall {
      * @param timeout Optional timeout. Negative values mean no timeout.
      *
      * @throws std::runtime_error If the timeout is reached.
+     * @throws Rethrows the exception raised on the progress thread on behalf of this
+     * collective, if any. Once that happened, every subsequent call rethrows it.
      */
     void wait(std::chrono::milliseconds timeout = std::chrono::milliseconds{-1});
 
@@ -157,6 +171,8 @@ class SparseAlltoall {
      * attempt to extract data from the same source.
      *
      * @throws std::logic_error If extracting before the collective is complete.
+     * @throws Rethrows the exception raised on the progress thread on behalf of this
+     * collective, if any. Once that happened, every subsequent call rethrows it.
      */
     [[nodiscard]] std::vector<PackedData> extract(Rank src);
 
@@ -192,6 +208,7 @@ class SparseAlltoall {
     std::condition_variable cv_;
     std::atomic<bool> locally_finished_{false};
     bool can_extract_{false};
+    std::exception_ptr error_{};  ///< Progress error, guarded by `mutex_`.
 
     detail::PostBox outgoing_{};
     /// @brief Received chunks per source rank, spillable.
