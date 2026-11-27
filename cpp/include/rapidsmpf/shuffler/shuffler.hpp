@@ -7,6 +7,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -120,6 +121,8 @@ class Shuffler {
      * @param finished_callback Callback to notify when all partitions are finished, or
      * when the shuffle fails, in which case `wait()` and `extract()` rethrow the error.
      * @param partition_owner Function to determine partition ownership.
+     * @param reservation_context Opaque telemetry attribution token for internal
+     * reservations.
      *
      * @note It is safe to reuse the `op_id` as soon as `wait` has completed locally,
      * unless it rethrew an error because the shuffle failed. After a failure, the `op_id`
@@ -142,7 +145,8 @@ class Shuffler {
         PartID total_num_partitions,
         BufferResource* br,
         FinishedCallback&& finished_callback,
-        PartitionOwner partition_owner = round_robin
+        PartitionOwner partition_owner = round_robin,
+        ReservationContext reservation_context = {}
     );
 
     /**
@@ -154,6 +158,8 @@ class Shuffler {
      * @param total_num_partitions Total number of partitions in the shuffle.
      * @param br Buffer resource used to allocate temporary and the shuffle result.
      * @param partition_owner Function to determine partition ownership.
+     * @param reservation_context Opaque telemetry attribution token for internal
+     * reservations.
      *
      * @note The caller promises that inserted buffers are stream-ordered with respect
      * to their own stream, and extracted buffers are likewise guaranteed to be stream-
@@ -164,9 +170,18 @@ class Shuffler {
         OpID op_id,
         PartID total_num_partitions,
         BufferResource* br,
-        PartitionOwner partition_owner = round_robin
+        PartitionOwner partition_owner = round_robin,
+        ReservationContext reservation_context = {}
     )
-        : Shuffler(comm, op_id, total_num_partitions, br, nullptr, partition_owner) {}
+        : Shuffler(
+              comm,
+              op_id,
+              total_num_partitions,
+              br,
+              nullptr,
+              partition_owner,
+              reservation_context
+          ) {}
 
     ~Shuffler();
 
@@ -331,6 +346,7 @@ class Shuffler {
 
   private:
     BufferResource* br_;
+    ReservationContext reservation_context_;
     std::atomic<bool> active_{true};
     // Have we called `insert_finished()` on this rank.
     std::atomic<bool> locally_finished_{false};

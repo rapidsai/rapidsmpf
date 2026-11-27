@@ -75,6 +75,10 @@ cdef class Buffer:
         The lock is released (and the returned ``memoryview`` must not be used)
         once the block exits.
 
+        A new host buffer may need its stream synchronized before host access:
+        the buffer is stream-ordered, so ``host_view()`` raises until all work
+        enqueued on its stream up to its allocation (or latest write) is done.
+
         Returns
         -------
         A context manager that yields a writable ``memoryview`` of the buffer.
@@ -89,6 +93,7 @@ cdef class Buffer:
 
         Examples
         --------
+        >>> stream.synchronize()  # e.g. right after ``br.make_buffer(...)``
         >>> with buf.host_view() as mv:
         ...     mv[:] = b"\\x00" * buf.size
         """

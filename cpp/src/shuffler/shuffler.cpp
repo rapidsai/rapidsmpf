@@ -135,7 +135,11 @@ class Shuffler::Progress {
 
             for (auto&& message : completed_messages) {
                 auto chunk = detail::Chunk::deserialize(
-                    message->metadata(), shuffler_.br_, false, message->release_data()
+                    message->metadata(),
+                    shuffler_.br_,
+                    false,
+                    message->release_data(),
+                    shuffler_.reservation_context_
                 );
 
                 RAPIDSMPF_EXPECTS(
@@ -221,7 +225,8 @@ Shuffler::Shuffler(
     PartID total_num_partitions,
     BufferResource* br,
     FinishedCallback&& finished_callback,
-    PartitionOwner partition_owner_fn
+    PartitionOwner partition_owner_fn,
+    ReservationContext reservation_context
 )
     : total_num_partitions{total_num_partitions},
       partition_owner{std::move(partition_owner_fn)},
@@ -229,6 +234,7 @@ Shuffler::Shuffler(
           RAPIDSMPF_EXPECTS(br != nullptr, "the buffer resource pointer cannot be NULL");
           return br;
       }()},
+      reservation_context_{reservation_context},
       to_send_{},
       received_{safe_cast<std::size_t>(total_num_partitions)},
       comm_{[&comm] {
@@ -239,9 +245,15 @@ Shuffler::Shuffler(
           comm_,
           op_id,
           all_remote_ranks(*comm_),
-          communicator::default_allocate_buffer,
+          [this](BufferResource* br, std::size_t size, auto mode) {
+              return communicator::default_allocate_buffer(
+                  br, size, mode, reservation_context_
+              );
+          },
           br->memory_reserve_timeout(),
-          br
+          br,
+          communicator::TagMetadataPayloadExchange::ForcedReceive::MOVE_TO_DISK,
+          reservation_context
       )},
       local_partitions_{local_partitions(comm_, total_num_partitions, partition_owner)},
       finish_counter_{comm_->nranks(), safe_cast<PartID>(local_partitions_.size())},
@@ -367,7 +379,9 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
         bool const is_remote = dst_rank != comm_->rank();
         if (is_remote) {
             packed_data.data = br_->ensure_memory_type(
-                std::move(packed_data.data), mpe_->sendable_memory_types(dst_rank)
+                std::move(packed_data.data),
+                mpe_->sendable_memory_types(dst_rank),
+                reservation_context_
             );
         }
 
@@ -383,7 +397,9 @@ void Shuffler::insert(std::unordered_map<PartID, PackedData>&& chunks) {
                 is_remote ? mpe_->sendable_memory_types(dst_rank)
                           : std::span<MemoryType const>{MEMORY_TYPES}
             );
-            auto reservation = br_->try_reserve(packed_data.data->size, spill_targets);
+            auto reservation = br_->try_reserve(
+                packed_data.data->size, spill_targets, reservation_context_
+            );
             auto chunk = create_chunk(pid, std::move(packed_data));
             // Spill the new chunk before inserting. If no target has room, the chunk
             // is left on the device.
@@ -486,7 +502,7 @@ void Shuffler::wait(std::optional<std::chrono::milliseconds> timeout) {
 
 std::size_t Shuffler::spill(std::size_t amount, MemoryType mem_type) {
     RAPIDSMPF_NVTX_FUNC_RANGE();
-    return received_.spill(br_, amount, mem_type);
+    return received_.spill(br_, amount, mem_type, reservation_context_);
 }
 
 detail::ChunkID Shuffler::get_new_cid() {

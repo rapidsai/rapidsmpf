@@ -6,6 +6,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -154,10 +155,15 @@ class ReceivedChunks {
      * @param br The buffer resource for host and device allocations.
      * @param amount Requested amount of data to spill in bytes.
      * @param mem_type The memory type to spill from.
+     * @param reservation_context Opaque telemetry attribution token for the spill
+     * reservation.
      * @return Actual amount of data spilled in bytes.
      */
     [[nodiscard]] std::size_t spill(
-        BufferResource* br, std::size_t amount, MemoryType mem_type = MemoryType::DEVICE
+        BufferResource* br,
+        std::size_t amount,
+        MemoryType mem_type = MemoryType::DEVICE,
+        ReservationContext reservation_context = {}
     );
 
   private:

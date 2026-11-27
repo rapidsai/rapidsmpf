@@ -38,6 +38,8 @@ Buffer::Buffer(
         "memory type is not suitable for a host buffer",
         std::logic_error
     );
+    // Record the allocation as the latest write on `stream`.
+    latest_write_event_.record(stream_);
 }
 
 Buffer::Buffer(std::unique_ptr<rmm::device_buffer> device_buffer, MemoryType mem_type)

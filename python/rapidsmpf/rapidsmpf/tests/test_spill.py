@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from rapidsmpf.memory.buffer_resource import BufferResource
+from rapidsmpf.memory.reservation_events import ReservationContextCreator
 from rapidsmpf.memory.spill import spill_partitions, unspill_partitions
 from rapidsmpf.testing import generate_packed_data, validate_packed_data
 
@@ -35,3 +36,37 @@ def test_spill_unspill_roundtrip(
     assert len(unspilled) == num_partitions
     for partition_id, partition in enumerate(unspilled):
         validate_packed_data(partition, num_elements, partition_id * 100)
+
+
+def test_unspill_reservation_context_is_recorded(
+    device_mr: rmm.mr.CudaMemoryResource,
+    stream: Stream,
+) -> None:
+    br = BufferResource(device_mr)
+    spilled = spill_partitions(
+        [generate_packed_data(10, 0, stream, br)],
+        br=br,
+    )
+    br.start_reservation_event_recording()
+    reservation_context = ReservationContextCreator().create()
+
+    unspilled = unspill_partitions(
+        spilled,
+        br=br,
+        allow_overbooking=False,
+        reservation_context=reservation_context,
+    )
+    assert len(unspilled) == 1
+    batch = br.drain_reservation_events()
+    assert batch.dropped_event_count == 0
+    deltas = [
+        event.byte_delta
+        for event in batch.events
+        if event.reservation_context == reservation_context
+    ]
+    assert any(delta > 0 for delta in deltas)
+    assert any(delta < 0 for delta in deltas)
+    assert sum(deltas) == 0
+    final = br.stop_reservation_event_recording()
+    assert final.events == []
+    assert final.dropped_event_count == 0
